@@ -29,7 +29,7 @@ local pastSessions
 local pastSessionsFilename = "elu_tracker_fishing_sessions.lua"
 
 local sessionTimeoutCounter = 0
-local SESSION_TIMEOUT_MS = 17000 -- 17 Segundos exatos para agrupar e lançar no chat
+local SESSION_TIMEOUT_MS = 17000 
 
 local displayRefreshCounter = 0
 local DISPLAY_REFRESH_MS = 60000
@@ -40,7 +40,6 @@ local maxPage
 local function ConvertColor(color) return color / 255 end 
 
 local FISH_IDS = {
-    -- IDs exatos fornecidos da Wiki do Classic
     [27604] = true, [27603] = true, [27602] = true, -- Blue Marlin
     [27601] = true, [27600] = true, [27599] = true, -- Sailfish
     [27501] = true, [27458] = true, [27457] = true, -- Bluefin
@@ -49,11 +48,7 @@ local FISH_IDS = {
     [27504] = true, [27503] = true, [27502] = true, -- Carp
     [42160] = true, [27612] = true, [27611] = true, -- Electric Eel
     [27610] = true, [27609] = true, [27608] = true, -- Arowana
-    
-    -- Pink Marlins
     [31691] = true, [30428] = true, [30422] = true, [30429] = true,
-    
-    -- IDs Base de Segurança
     [32064] = true, [32065] = true, [32066] = true, 
     [32067] = true, [32068] = true, [32069] = true, 
     [32070] = true, [32071] = true, [32072] = true, 
@@ -427,13 +422,17 @@ local function refreshStatisticsLabels()
         local nowDate = api.Time:TimeToDate(nowStr)
         
         for _, sessionObject in pairs(pastSessions.sessions) do
-            local sDate = api.Time:TimeToDate(tostring(sessionObject.localTimestamp))
-            if type(sessionObject.profitTotal) == "number" and sDate and nowDate then
-                if tonumber(sDate.year) == tonumber(nowDate.year) and tonumber(sDate.month) == tonumber(nowDate.month) then
-                    if tonumber(sDate.day) == tonumber(nowDate.day) then
+            if type(sessionObject.profitTotal) == "number" then
+                local sDate = api.Time:TimeToDate(tostring(sessionObject.localTimestamp))
+                if sDate and nowDate then
+                    if tonumber(sDate.year) == tonumber(nowDate.year) and tonumber(sDate.month) == tonumber(nowDate.month) and tonumber(sDate.day) == tonumber(nowDate.day) then
                         todayProfit = todayProfit + sessionObject.profitTotal
-                    elseif tonumber(sDate.day) == tonumber(nowDate.day) - 1 then
-                        yesterdayProfit = yesterdayProfit + sessionObject.profitTotal
+                    else
+                        local shiftedMs = tonumber(sessionObject.localTimestamp) + 86400000
+                        local shiftedDate = api.Time:TimeToDate(string.format("%.0f", shiftedMs))
+                        if shiftedDate and tonumber(shiftedDate.year) == tonumber(nowDate.year) and tonumber(shiftedDate.month) == tonumber(nowDate.month) and tonumber(shiftedDate.day) == tonumber(nowDate.day) then
+                            yesterdayProfit = yesterdayProfit + sessionObject.profitTotal
+                        end
                     end
                 end
             end
@@ -498,9 +497,15 @@ local function SessionSetFunc(subItem, data, setValue)
         local refundG = (tonumber(data.refundTotal) or 0) / 10000
         leftTextStr = leftTextStr .. "\n " .. string.format('%.2f', refundG) .. " Gold"
         
-        local profG = tonumber(data.profitTotal) or 0
-        local rightTextStr = "Profit: " .. string.format('%.2f', profG) .. "g"
-        
+         local profG = tonumber(data.profitTotal) or 0
+        local rightTextStr = ""
+
+        if date then
+            rightTextStr = string.format("%02d/%02d/%04d\n%02d:%02d\n%.2fg", date.day, date.month, date.year, date.hour, date.minute, profG)
+        else
+            rightTextStr = string.format("Sold recently\n%.2fg", profG)
+        end
+
         if fishInfo and fishInfo.path then 
             F_SLOT.SetIconBackGround(subItem.subItemIcon, fishInfo.path)
         end 
@@ -510,13 +515,8 @@ local function SessionSetFunc(subItem, data, setValue)
         subItem.textboxRight:SetText(rightTextStr)
         subItem.sessionTitle:SetText(titleStr)
         subItem.bg:SetColor(ConvertColor(11),ConvertColor(156),ConvertColor(35),0.3)
-        
-       if date then
-            -- Adicionado \n para quebra de linha e os parâmetros de hora do relógio local
-            subItem.sessionIsPaidLabel:SetText(string.format("Sold on %02d/%02d/%04d\n%02d:%02d:%02d", date.month, date.day, date.year, date.hour, date.minute, date.second))
-        else
-            subItem.sessionIsPaidLabel:SetText("Sold recently")
-        end
+    
+        subItem.sessionIsPaidLabel:SetText("")
     end
 end
 
@@ -618,6 +618,7 @@ local function OnLoad()
     local todayGoldStr = fishingWindow:CreateChildWidget("label", "todayGoldStr", 0, true)
     todayGoldStr.style:SetFontSize(FONT_SIZE.LARGE)
     todayGoldStr.style:SetAlign(ALIGN.LEFT)
+    todayGoldStr:SetAutoResize(true)
     ApplyTextColor(todayGoldStr, FONT_COLOR.DEFAULT)
     todayGoldStr:AddAnchor("BOTTOMLEFT", fishingWindow, 15, 50)
     fishingWindow.todayGoldStr = todayGoldStr
@@ -629,7 +630,6 @@ local function OnLoad()
     ApplyButtonSkin(rolloverBtn, BUTTON_BASIC.DEFAULT)
     rolloverBtn:SetExtent(135, 25)
 
-    -- Criando a janela de confirmação (escondida por padrão)
     local confirmDialog = fishingWindow:CreateChildWidget("emptywidget", "confirmDialog", 0, true)
     confirmDialog:SetExtent(260, 100)
     confirmDialog:AddAnchor("CENTER", fishingWindow, 0, 0)
@@ -659,20 +659,17 @@ local function OnLoad()
     cancelBtn:AddAnchor("BOTTOMRIGHT", confirmDialog, -20, -15)
     ApplyButtonSkin(cancelBtn, BUTTON_BASIC.DEFAULT)
 
-    -- Lógica: Abrir painel
     function rolloverBtn:OnClick()
         confirmDialog:Show(true)
         confirmDialog:Raise()
     end
     rolloverBtn:SetHandler("OnClick", rolloverBtn.OnClick)
 
-    -- Lógica: Cancelar
     function cancelBtn:OnClick()
         confirmDialog:Show(false)
     end
     cancelBtn:SetHandler("OnClick", cancelBtn.OnClick)
 
-    -- Lógica: Confirmar (Move os dados)
     function yesBtn:OnClick()
         confirmDialog:Show(false)
         if pastSessions and pastSessions.sessions then
@@ -680,10 +677,10 @@ local function OnLoad()
             local nowDate = api.Time:TimeToDate(nowStr)
             local changed = false
             
-            for _, sessionObject in pairs(pastSessions.sessions) do
+           for _, sessionObject in pairs(pastSessions.sessions) do
                 local sDate = api.Time:TimeToDate(tostring(sessionObject.localTimestamp))
                 if sDate and nowDate and tonumber(sDate.year) == tonumber(nowDate.year) and tonumber(sDate.month) == tonumber(nowDate.month) and tonumber(sDate.day) == tonumber(nowDate.day) then
-                    sessionObject.localTimestamp = tostring(tonumber(sessionObject.localTimestamp) - 86400)
+                    sessionObject.localTimestamp = string.format("%.0f", tonumber(sessionObject.localTimestamp) - 86400000)
                     changed = true
                 end
             end
@@ -741,5 +738,15 @@ end
 
 elu_fishing_addon.OnLoad = OnLoad
 elu_fishing_addon.OnUnload = OnUnload
+
+elu_fishing_addon.TestAddFish = function(fishId, goldAmount)
+    local coinType = 0
+    if currentSession == nil or tonumber(currentSession["packId"]) ~= tonumber(fishId) then 
+        if currentSession ~= nil then saveCurrentSessionToFile() end
+        startFishTurnInSession(fishId, coinType)
+    end 
+    addFishToSession(goldAmount, coinType, fishId)
+    displayRefreshCounter = DISPLAY_REFRESH_MS
+end
 
 return elu_fishing_addon

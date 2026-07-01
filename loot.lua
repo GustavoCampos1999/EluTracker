@@ -6,26 +6,15 @@ local your_loot_addon = {
 }
 
 local itemTaskTypes = {}
---- Item Task Type IDs'
---> AAC 9 = harvested wild potato
 local ITEM_TASK_ID_FARMED = 9
---> AAC 10 = looted from monsters 
 local ITEM_TASK_ID_LOOTED_FROM_MONSTER = 10
---> AAC 16 = Placed pack into vehicle trade slot
 local ITEM_TASK_ID_PACK_IN_VEHICLE = 16
---> AAC 23 = Picked pack up off floor or out of vehicle
 local ITEM_TASK_ID_PICKED_PACK_UP = 23
---> AAC 27 = Crafted a pack OR items consumed from pack craft
 local ITEM_TASK_ID_PACK_WAS_CRAFTED = 27
---> AAC 39 = Drank a potion
 local ITEM_TASK_ID_CONSUMABLE_USED = 39
---> AAC 41 = From dawnsdrop pickaxe
 local ITEM_TASK_ID_DAWNSDROP_PICKAXE = 41
---> AAC 46 = Mailed item OR take item out of mail
 local ITEM_TASK_ID_MAIL_SEND_OR_RECEIVE = 46
---> AAC 61 = Dropped pack on the floor
 local ITEM_TASK_ID_PACK_DROPPED = 61
---> AAC 109 = turned pack in DOMESTICALLY
 local ITEM_TASK_ID_PACK_TURNED_IN = 109
 
 local AH_PRICES
@@ -54,10 +43,9 @@ local DISPLAY_REFRESH_MS = 60000
 
 local initializeLootWindowPos = false
 
-local pageSize = 20 --> number of sessions on page
+local pageSize = 20 
 local maxPage
 
--- helpers 
 function split(s, sep)
     local fields = {}
     
@@ -109,7 +97,6 @@ local function updateLastKnownChannel(channelId, channelName)
 end 
 
 local function getCleanedItemId(itemId)
-    -- Remove the first and last characters of the Item ID string
     if string.sub(itemId, 1, 1) == "[" and string.sub(itemId, -1) == "]" then
         return string.sub(itemId, 2, #itemId - 1)
     end
@@ -130,7 +117,6 @@ local function fillSessionTableData(itemScrollList, pageIndex)
     for _, sessionObject in pairs(pastSessions["sessions"]) do 
         if count >= startingIndex and count < endingIndex then 
             local itemData = {
-                -- Sessions data fields
                 localTimestamp = sessionObject.localTimestamp,
                 endTimestamp = sessionObject.endTimestamp,
                 items = sessionObject.items,
@@ -141,11 +127,9 @@ local function fillSessionTableData(itemScrollList, pageIndex)
                 zone = sessionObject.zone,
                 index = count,
 
-                -- Required fields
                 isViewData = true, 
                 isAbstention = false
             }
-            -- api.Log:Info(itemData.items)
             itemScrollList:InsertData(count, 1, itemData)
         end
         count = count + 1
@@ -159,10 +143,8 @@ local function saveCurrentSessionToFile()
     end 
 
     local items = currentSession["items"]
-    -- Let's fill in the AH prices
     currentSession["profitTotal"] = 0
     for itemId, itemCount in pairs(items) do 
-        -- item IDs are stored in [itemId] format in the current session
         local cleanedItemId = getCleanedItemId(itemId)
         local itemPrice = AH_PRICES[tonumber(cleanedItemId)]
         
@@ -177,11 +159,9 @@ local function saveCurrentSessionToFile()
         end
         currentSession["profitTotal"] = currentSession["profitTotal"] + (itemPrice * itemCount)
     end
-    -- TODO: Fill in loot session costs
     currentSession["endTimestamp"] = api.Time:GetLocalTime()
     currentSession["costTotal"] = "Unknown"
 
-    -- Iterate through old sessions and change their item arrays to use [itemId] format
     for _, pastSession in ipairs(pastSessions.sessions) do 
         local oldItems = pastSession.items
         local newItems = {}
@@ -194,11 +174,9 @@ local function saveCurrentSessionToFile()
         end 
         pastSession.items = newItems
     end
-    -- Insert it into the top position (to sort by most recent)
     table.insert(pastSessions["sessions"], 1, currentSession)
     api.File:Write(pastSessionsFilename, pastSessions)
 
-    -- Refresh loot session list
     local sessionScrollList = lootWindow.sessionScrollList
     if pastSessions ~= nil then
         if pastSessions.sessions ~= nil then
@@ -232,9 +210,6 @@ local function startLootTrackerSession()
     sessionToStart["profitTotal"] = 0
     sessionToStart["costTotal"] = 0
     sessionToStart["items"] = {}
-    -- TODO: Add date
-
-    -- Before overwriting the old session, if it isn't null, then let's save it.
     endLootTrackerSession()
 
     currentSession = sessionToStart
@@ -252,7 +227,6 @@ local function addItemToSession(itemId, itemCount)
         currentSession["items"][itemId] = currentSession["items"][itemId] + itemCount
     end 
 
-    -- Add to the display for total profit
     local itemPrice = AH_PRICES[tonumber(cleanItemId)]
     if itemPrice ~= nil then
         itemPrice = itemPrice.average
@@ -263,7 +237,6 @@ local function addItemToSession(itemId, itemCount)
 end
 
 local function laborPointsChanged(diff, laborPoints)
-    -- If labor is spent, start the labor used timer for accurate kill tracking
     if diff < 0 then 
         laborUsedTimer = 0
         laborUsed = true
@@ -293,7 +266,6 @@ end
 local function removedItem(itemLinkText, itemCount, removeState, itemTaskType, tradeOtherName)
     local removedItemId = itemIdFromItemLinkText(itemLinkText)
     local itemInfo = api.Item:GetItemInfoByType(tonumber(removedItemId))
-    -- api.Log:Info("Removed: " .. itemInfo.name .. " x" .. itemCount .. " taskType: " .. itemTaskType)
 end
   
 local function lootedItem(itemLinkText, itemCount, itemTaskType, tradeOtherName)
@@ -303,27 +275,24 @@ local function lootedItem(itemLinkText, itemCount, itemTaskType, tradeOtherName)
     end
 
     local itemInfo = api.Item:GetItemInfoByType(tonumber(itemId))
-    -- api.Log:Info("Looted: " .. itemInfo.name .. " x" .. itemCount .. " taskType: " .. itemTaskType)
 end 
 
 local function fillInAHPricesForCrates()
     local CRATE_IDS = {
-        42074, -- Noble's Crate
-        42075, -- Jester's Crate
-        42076, -- Prince's Crate
-        42077, -- Queen's Crate
-        43177, -- Ancestral Crate
+        42074,
+        42075, 
+        42076, 
+        42077, 
+        43177, 
     }
     for _, crateId in ipairs(CRATE_IDS) do 
         local itemInfo = api.Item:GetItemInfoByType(crateId)
-        -- Jester's and Noble's
         local sunDustId = 16347
         local moonDustId = 16348
         local starDustId = 16349
-        -- Prince's, Queen's and Ancestrals
         local brazierId = 15983
         local treeId = 35301
-        local mgpId = 23653 --> Mysterious Garden Powder
+        local mgpId = 23653 
 
         local sunDustPrice = (AH_PRICES[sunDustId] and AH_PRICES[sunDustId].average) or 0
         local moonDustPrice = (AH_PRICES[moonDustId] and AH_PRICES[moonDustId].average) or 0
@@ -333,32 +302,23 @@ local function fillInAHPricesForCrates()
         local brazierPrice = 0.5
         local treePrice = 0.5
         
-
-        -- To Reddit: I literally opened the server's database and looked up these crate drop rates.
-        --          Accept it. I have access to things I shouldn't have access to. 
-        --          I'm obviously kidding grow up.
         if crateId == 42074 then 
-            -- Nobles
             local cratePrice = (sunDustPrice * 1.8) + (moonDustPrice * 1.8) + (starDustPrice * 0.9) + (mgpPrice * 0.18)
             AH_PRICES[crateId] = {}
             AH_PRICES[crateId].average = cratePrice
-        elseif crateId == 42075 then
-            -- Jesters 
+        elseif crateId == 42075 then 
             local cratePrice = (sunDustPrice * 2.2) + (moonDustPrice * 2.2) + (starDustPrice * 1.1) + (mgpPrice * 0.20)
             AH_PRICES[crateId] = {}
             AH_PRICES[crateId].average = cratePrice
         elseif crateId == 42076 then
-            -- Princes 
             local cratePrice = (brazierPrice * 1) + (treePrice * 1) + (mgpPrice * 0.2)
             AH_PRICES[crateId] = {}
             AH_PRICES[crateId].average = cratePrice
         elseif crateId == 42077 then
-            -- Queens 
             local cratePrice = (brazierPrice * 2.25) + (treePrice * 2.25) + (mgpPrice * 0.25)
             AH_PRICES[crateId] = {}
             AH_PRICES[crateId].average = cratePrice
         elseif crateId == 43177 then
-            -- Ancestrals
             local cratePrice = (brazierPrice * 5) + (treePrice * 5) + (mgpPrice * 0.8)
             AH_PRICES[crateId] = {}
             AH_PRICES[crateId].average = cratePrice
@@ -381,7 +341,6 @@ local function fillInRegradeBrazierPrices()
     REGRADE_BRAZIER_LOOT_IDS["Lucky Sunpoint Shard"] = 39814
     REGRADE_BRAZIER_LOOT_IDS["Lucky Sunpoint"] = 28300
 
-    -- Basic Regrade Point Fragments
     local sunFragmentPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Sunpoint Fragment"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Sunpoint Fragment"]].average) or 0
     local sunpointPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Sunpoint"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Sunpoint"]].average) or 0
     local moonFragmentPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Moonpoint Fragment"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Moonpoint Fragment"]].average) or 0
@@ -403,7 +362,6 @@ local function fillInRegradeBrazierPrices()
         AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Starpoint Fragment"]] = {}
         AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Starpoint Fragment"]].average = starFragmentPrice
     end
-    -- Lucky Regrade Point Shards
     local luckySunShardPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Sunpoint Shard"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Sunpoint Shard"]].average) or 0
     local luckySunpointPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Sunpoint"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Sunpoint"]].average) or 0
     local luckyMoonShardPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Moonpoint Shard"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Moonpoint Shard"]].average) or 0
@@ -440,11 +398,11 @@ local function fillInPureOrePrices()
     PURE_ORE_IDS["Pure Gold Ore"] = 8086
     PURE_ORE_IDS["Pure Archeum Ore"] = 17715
 
-    local ironPrice = (AH_PRICES[8022] and AH_PRICES[8022].average) or 0 -- Iron Ore
-    local copperPrice = (AH_PRICES[3411] and AH_PRICES[3411].average) or 0 -- Copper Ore
-    local silverPrice = (AH_PRICES[8023] and AH_PRICES[8023].average) or 0 -- Silver Ore
-    local goldPrice = (AH_PRICES[8027] and AH_PRICES[8027].average) or 0 -- Gold Ore
-    local archeumPrice = (AH_PRICES[1386] and AH_PRICES[1386].average) or 0 -- Archeum Ore
+    local ironPrice = (AH_PRICES[8022] and AH_PRICES[8022].average) or 0 
+    local copperPrice = (AH_PRICES[3411] and AH_PRICES[3411].average) or 0 
+    local silverPrice = (AH_PRICES[8023] and AH_PRICES[8023].average) or 0 
+    local goldPrice = (AH_PRICES[8027] and AH_PRICES[8027].average) or 0 
+    local archeumPrice = (AH_PRICES[1386] and AH_PRICES[1386].average) or 0 
     ironPrice = ironPrice * PURE_ORE_CONVERSION_MULTIPLIER
     AH_PRICES[PURE_ORE_IDS["Pure Iron Ore"]] = {}
     AH_PRICES[PURE_ORE_IDS["Pure Iron Ore"]].average = ironPrice
@@ -464,9 +422,7 @@ end
 
 local lootSessionDetailsWindow = nil
 
---- Loot Session Details Window Drawing
 local function drawLootSessionDetails(sessionIndex)
-    -- api.Log:Info("Drawing loot session details for session index: " .. sessionIndex)
     local session = pastSessions["sessions"][sessionIndex]
     if session == nil then return end 
     local zone = session.zone
@@ -497,7 +453,6 @@ local function drawLootSessionDetails(sessionIndex)
     lootSessionDetailsWindow:SetExtent(430, 450)
     lootSessionDetailsWindow:AddAnchor("CENTER", "UIParent", 0, 0)
     lootSessionDetailsWindow:Show(true)
-    --- Session Summary Statistics
     local lootSessionProfitLabel = lootSessionDetailsWindow:CreateChildWidget("label", "lootSessionProfitLabel", 0, true)
     lootSessionProfitLabel.style:SetFontSize(FONT_SIZE.LARGE)
     lootSessionProfitLabel.style:SetAlign(ALIGN.LEFT)
@@ -537,7 +492,6 @@ local function drawLootSessionDetails(sessionIndex)
     ApplyTextColor(lootSessionPerLaborLabel, FONT_COLOR.DEFAULT)
     lootSessionPerLaborLabel:AddAnchor("TOPLEFT", lootSessionPerKillLabel, 0, 0)
     lootSessionPerLaborLabel:SetText("Silver Per Labor: " .. string.format('%.2f', profitTotal * 100 / laborSpent) .. "s")
-    -- Flip flop between labor and kills being displayed based on labor spent being higher than kills
     if laborSpent > kills then 
         lootSessionKillsLabel:Show(false)
         lootSessionPerKillLabel:Show(false)
@@ -562,9 +516,7 @@ local function drawLootSessionDetails(sessionIndex)
 	lootSessionDeleteBtn:AddAnchor("BOTTOMRIGHT", lootSessionDetailsWindow, -20, -10)
 	ApplyButtonSkin(lootSessionDeleteBtn, BUTTON_BASIC.DEFAULT)
     function lootSessionDeleteBtn:OnClick()
-        -- Remove the session from the past sessions
         table.remove(pastSessions["sessions"], sessionIndex)
-        -- Iterate through old sessions and change their item arrays to use [itemId] format
         for _, pastSession in ipairs(pastSessions.sessions) do 
             local oldItems = pastSession.items
             local newItems = {}
@@ -577,7 +529,6 @@ local function drawLootSessionDetails(sessionIndex)
             end 
             pastSession.items = newItems
         end
-        -- Finally, write it.
         api.File:Write(pastSessionsFilename, pastSessions)
         
         if lootSessionDetailsWindow then
@@ -594,12 +545,10 @@ local function drawLootSessionDetails(sessionIndex)
     lootSessionDeleteBtn:SetHandler("OnClick", lootSessionDeleteBtn.OnClick)
 
 
-    --- Session Details Items List
     local lootSessionItemsList = W_CTRL.CreateScrollListBox("lootSessionItemsList", lootSessionDetailsWindow, "TYPE2")
     lootSessionItemsList:AddAnchor("TOPLEFT", lootSessionDetailsWindow, 10, 100)
     lootSessionItemsList:AddAnchor("BOTTOMRIGHT", lootSessionDetailsWindow, -10, -60)
     lootSessionItemsList:SetExtent(400, 300)
-    -- Sort the list of items by it's value
     local sortedItemsByAHPrice = {}
     for itemId, itemCount in pairs(items) do
         local cleanedItemId = getCleanedItemId(itemId)
@@ -613,7 +562,6 @@ local function drawLootSessionDetails(sessionIndex)
     table.sort(sortedItemsByAHPrice, function(a, b)
         return a.totalValue > b.totalValue
     end)
-    -- Fill the item list with the new sorted list, most valuable at the top
     local count = 1
     for _, item in ipairs(sortedItemsByAHPrice) do 
         local itemInfo = api.Item:GetItemInfoByType(tonumber(getCleanedItemId(item.itemId)))
@@ -635,7 +583,6 @@ end
 
 local function OnUpdate(dt)
     local settings = api.GetSettings("elu_tracker")
-    -- Initialize the loot window position
     if initializeLootWindowPos ~= true then 
         lootWindow.lootTrackerOverlay:RemoveAllAnchors()
         lootWindow.lootTrackerOverlay:AddAnchor("TOPLEFT", "UIParent", settings.lootOverlayX, settings.lootOverlayY)
@@ -644,7 +591,6 @@ local function OnUpdate(dt)
     
     if isLootWindowOpen() then
         if displayRefreshCounter + dt > DISPLAY_REFRESH_MS then
-            -- endLootTrackerSession()
             displayRefreshCounter = 0
 
             local sessionScrollList = lootWindow.sessionScrollList
@@ -657,11 +603,9 @@ local function OnUpdate(dt)
         displayRefreshCounter = DISPLAY_REFRESH_MS
     end
 
-    -- Labor used timer for excluding from kill count
     if laborUsedTimer + dt > LABOR_USED_TIMER_RATE then 
         laborUsedTimer = 0
         laborUsed = false
-        -- api.Log:Info("Labor used timer reset")
     end
     laborUsedTimer = laborUsedTimer + dt
 
@@ -671,7 +615,6 @@ local function OnUpdate(dt)
         if currentSession ~= nil then
             local profitPerHour = currentSession["profitTotal"] / (lootTrackerSessionTimer / 1000) * 3600
             local killsPerHour = currentSession["kills"] / (lootTrackerSessionTimer / 1000) * 3600
-            -- local laborPerHour = currentSession["laborSpent"] / (lootTrackerSessionTimer / 1000) * 3600
             local silverPerLabor = currentSession["profitTotal"] * 100 / currentSession["laborSpent"]
 
             lootWindow.lootTrackerOverlay.profitLabel:SetText("Profit: " .. string.format('%.0f', tostring(currentSession["profitTotal"])) .. "g" .. " (" .. string.format('%.0f', tostring(profitPerHour)) .. "g/hr)")
@@ -691,10 +634,9 @@ local function OnUpdate(dt)
     
 end 
 
---- Session Scroll List Functions
+
 local function SessionSetFunc(subItem, data, setValue)
     if setValue then
-        -- Data Assignments
         local sessionIndex = data.index
         local packObject = nil
         local packName = "Unknown Pack (id: " .. tostring(data.packId) .. ")" 
@@ -711,7 +653,6 @@ local function SessionSetFunc(subItem, data, setValue)
         local duration = differenceBetweenTimestamps(data.endTimestamp, data.localTimestamp)
         local durationStr = displayTimeString(duration)
 
-        -- Display Strings
         local leftTextStr = ""
         if items then
             local highestCrateItemId, highestCrateItemCount = nil, 0
@@ -765,8 +706,6 @@ local function SessionSetFunc(subItem, data, setValue)
         else 
             rightTextStr = rightTextStr .. " \n " .. "Labor Spent: " .. tostring(laborSpent) .. " (" .. string.format('%.0f', laborSpent / (duration / 3600)) .. "/hr)"
         end 
-        -- api.Log:Info(subItem.subItemIcon)
-        -- api.Log:Info(data.items)
         if items then 
             local highestItemId, highestItemCount = nil, 0
             
@@ -782,7 +721,6 @@ local function SessionSetFunc(subItem, data, setValue)
                 highestItemId = getCleanedItemId(highestItemId)
                 local itemInfo = api.Item:GetItemInfoByType(tonumber(highestItemId))
                 if itemInfo ~= nil then 
-                    -- api.Log:Info(itemInfo.name)
                     F_SLOT.SetIconBackGround(subItem.subItemIcon, itemInfo.path) 
                 end 
             end
@@ -792,13 +730,11 @@ local function SessionSetFunc(subItem, data, setValue)
         
         
         if kills > laborSpent then 
-            -- Larceny session, depicted by more kills than labor spent
             if lootZone ~= nil then 
                 titleStr = lootZone .. " Loot Session"
             end 
             subItem.bg:SetColor(ConvertColor(210),ConvertColor(94),ConvertColor(84),0.4)
         else
-            -- Harvesting session
             if lootZone ~= nil then 
                 titleStr = lootZone .. " Harvesting Session"
             end 
@@ -819,10 +755,9 @@ local function SessionSetFunc(subItem, data, setValue)
 end
 
 local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
-    if subItem.bg then return end -- FIX: Memory leak prevention
+    if subItem.bg then return end 
 
     subItem:SetExtent(580, 70)
-    -- Background colouring
     local bg = subItem:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
     bg:SetColor(ConvertColor(210),ConvertColor(94),ConvertColor(84),0.4)
     bg:SetTextureInfo("bg_quest")
@@ -830,7 +765,6 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     bg:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)
     bg:Show(true)
     subItem.bg = bg
-    -- Top-left Session Title
     local sessionTitle = subItem:CreateChildWidget("label", "sessionTitle", 0, true)
     sessionTitle.style:SetFontSize(FONT_SIZE.LARGE)
     ApplyTextColor(sessionTitle, FONT_COLOR.DEFAULT)
@@ -838,7 +772,6 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     sessionTitle:AddAnchor("TOPLEFT", subItem, 10, 10)
     sessionTitle:SetAutoResize(true)
     sessionTitle.style:SetAlign(ALIGN.LEFT)
-    -- Pack Item Icon 
     local subItemIcon = CreateItemIconButton("subItemIcon", sessionTitle)
     subItemIcon:Show(true)
     F_SLOT.ApplySlotSkin(subItemIcon, subItemIcon.back, SLOT_STYLE.BUFF)
@@ -846,7 +779,6 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     subItemIcon:AddAnchor("TOPLEFT", sessionTitle, 0, 10)
     subItem.subItemIcon = subItemIcon
 
-    -- Top-right Session "Is paid?" Label
     local sessionDateLabel = subItem:CreateChildWidget("label", "sessionDateLabel", 0, true)
     sessionDateLabel.style:SetFontSize(FONT_SIZE.LARGE)
     ApplyTextColor(sessionDateLabel, FONT_COLOR.DEFAULT)
@@ -855,52 +787,38 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     sessionDateLabel:SetAutoResize(true)
     sessionDateLabel.style:SetAlign(ALIGN.RIGHT)
 
-    -- Left-side Text
     local textboxLeft = subItem:CreateChildWidget("textbox", "textboxLeft", 0, true)
     textboxLeft:AddAnchor("TOPLEFT", subItem, 55, 10)
     textboxLeft:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)
     textboxLeft.style:SetAlign(ALIGN.LEFT)
     ApplyTextColor(textboxLeft, FONT_COLOR.DEFAULT)
     subItem.textboxLeft = textboxLeft
-    -- Right-side Text
     local textboxRight = subItem:CreateChildWidget("textbox", "textboxRight", 0, true)
     textboxRight:AddAnchor("TOPLEFT", subItem, 55, 10)
     textboxRight:AddAnchor("BOTTOMRIGHT", subItem, -12, 0)
     textboxRight.style:SetAlign(ALIGN.RIGHT)
     ApplyTextColor(textboxRight, FONT_COLOR.DEFAULT)
     subItem.textboxRight = textboxRight
-    -- Interact Layer overtop of everything
     local clickOverlay = subItem:CreateChildWidget("button", "clickOverlay", 0, true)
     clickOverlay:AddAnchor("TOPLEFT", subItem, 0, 0)
     clickOverlay:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)
-    -- function clickOverlay:OnClick()
-    --     api.Log:Info("Ding!")
-    -- end 
-    -- clickOverlay:SetHandler("OnClick", clickOverlay.OnClick)
     subItem.clickOverlay = clickOverlay
 end
 
 
 
 local function OnLoad()
-    -- Initializing addon-wide variables
     local settings = api.GetSettings("elu_tracker")
     pastSessionsFilename = "elu_tracker_loot_sessions.lua"
     AH_PRICES = require("elu_tracker/data/auction_house_prices")
-    -- Initialize the addon's empty window
     eluTrackerEventWindow = api.Interface:CreateEmptyWindow("eluTrackerEventWindow", "UIParent")
     sessionPaused = false
 
-    -- Fill in AH prices for noble's, jester's, prince's, queen's and ancestral crates
     fillInAHPricesForCrates()
-    -- Fill in regrade brazier loot prices
     fillInRegradeBrazierPrices()
-    -- Fill in archeum tree loot prices
     fillInArcheumTreePrices()
-    -- Fill in pure ore prices
     fillInPureOrePrices()
     
-    -- Load previous sessions, or make empty file.
     pastSessions = api.File:Read(pastSessionsFilename)
     if pastSessions == nil or pastSessions.sessions == nil then
         local ok, backupData = pcall(require, "elu_tracker/data/loot_sessions")
@@ -930,7 +848,6 @@ local function OnLoad()
             trackKill(unpack(arg))
         end
         if event == "STORE_SELL" then
-            -- soldAtResourceTrader(unpack(arg))
         end
         if event == "CHAT_JOINED_CHANNEL" then 
             updateLastKnownChannel(unpack(arg))
@@ -944,8 +861,6 @@ local function OnLoad()
     eluTrackerEventWindow:RegisterEvent("STORE_SELL")
     eluTrackerEventWindow:RegisterEvent("CHAT_JOINED_CHANNEL")
 
-    -- Initializing Loot Tracker Tab
-    -- eluDisplayWindow:Show(false)
     lootWindow = eluDisplayWindow.tab.window[2].lootWindow
     local sessionScrollList = lootWindow.sessionScrollList
     sessionScrollList:InsertColumn("", 600, 1, SessionSetFunc, nil, nil, SessionsColumnLayoutSetFunc)
@@ -960,7 +875,6 @@ local function OnLoad()
         fillSessionTableData(sessionScrollList, pageIndex)
     end 
 
-    -- Initialize Loot Tracker overlay
     local lootTrackerOverlay = api.Interface:CreateEmptyWindow("lootTrackerOverlay", "UIParent")
     local lootOverlayX = settings.lootOverlayX or 0
     local lootOverlayY = settings.lootOverlayY or 0
@@ -981,9 +895,7 @@ local function OnLoad()
     bg:SetTextureInfo("bg_quest")
     bg:AddAnchor("TOPLEFT", lootTrackerOverlay, 0, 0)
     bg:AddAnchor("BOTTOMRIGHT", lootTrackerOverlay, 0, 0)
-    -- bg:Show(true)
     lootTrackerOverlay.bg = bg
-    -- Timer clock icon and label
     local timerLabel = lootTrackerOverlay:CreateChildWidget("label", "timerLabel", 0, true)
     timerLabel.style:SetShadow(true)
     timerLabel.style:SetAlign(ALIGN.RIGHT)
@@ -995,7 +907,6 @@ local function OnLoad()
     local clockIconTexture = clockIcon:CreateImageDrawable(TEXTURE_PATH.HUD, "background")
     clockIconTexture:SetTextureInfo("clock")
     clockIconTexture:AddAnchor("TOPLEFT", clockIcon, 0, 0)
-    -- Profit, Labor and kill count labels
     local profitLabel = lootTrackerOverlay:CreateChildWidget("label", "profitLabel", 0, true)
     profitLabel.style:SetShadow(true)
     profitLabel.style:SetAlign(ALIGN.LEFT)
@@ -1014,7 +925,6 @@ local function OnLoad()
     laborLabel:AddAnchor("TOPLEFT", lootTrackerOverlay, "TOPLEFT", 15, 65)
     laborLabel.style:SetFontSize(FONT_SIZE.SMALL)
     laborLabel:SetText("Labor: 0")
-    -- Start and save buttons
     local startBtn = lootTrackerOverlay:CreateChildWidget("button", "startBtn", 0, true)
 	startBtn:SetText("Start")
 	startBtn:AddAnchor("TOPRIGHT", lootTrackerOverlay, -10, 30)
@@ -1023,7 +933,6 @@ local function OnLoad()
     startBtn.bg:SetTextureInfo("bg_quest")
     startBtn.bg:AddAnchor("TOPLEFT", startBtn, 0, 0)
     startBtn.bg:AddAnchor("BOTTOMRIGHT", startBtn, 0, 0)
-    -- startBtn.bg:Show(true)
     startBtn:SetExtent(50,20)
     local saveBtn = lootTrackerOverlay:CreateChildWidget("button", "saveBtn", 0, true)
 	saveBtn:SetText("End")
@@ -1033,9 +942,7 @@ local function OnLoad()
     saveBtn.bg:SetTextureInfo("bg_quest")
     saveBtn.bg:AddAnchor("TOPLEFT", saveBtn, 0, 0)
     saveBtn.bg:AddAnchor("BOTTOMRIGHT", saveBtn, 0, 0)
-    -- saveBtn.bg:Show(true)
     saveBtn:SetExtent(50,20)
-    -- Click handlers for start/save buttons
     function startBtn:OnClick()
         startLootTrackerSession()
     end
@@ -1044,7 +951,6 @@ local function OnLoad()
         endLootTrackerSession()
     end
     saveBtn:SetHandler("OnClick", saveBtn.OnClick)
-    --- Add dragable bar across top
     local moveWnd = lootTrackerOverlay:CreateChildWidget("label", "moveWnd", 0, true)
     moveWnd:AddAnchor("TOPLEFT", lootTrackerOverlay, 0, 0)
     moveWnd:AddAnchor("TOPRIGHT", lootTrackerOverlay, 0, 0)
@@ -1053,7 +959,6 @@ local function OnLoad()
     moveWnd.style:SetAlign(ALIGN.LEFT)
     moveWnd:SetText("   Loot Tracker")
     ApplyTextColor(moveWnd, FONT_COLOR.WHITE)
-    -- Drag handlers for dragable bar
     function moveWnd:OnDragStart()
         if api.Input:IsShiftKeyDown() then
             lootTrackerOverlay:StartMoving()

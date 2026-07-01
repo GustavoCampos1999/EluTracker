@@ -7,20 +7,12 @@ local your_packs_addon = {
 }
 
 local itemTaskTypes = {}
---- Item Task Type IDs
---> AAC 16 = Placed pack into vehicle trade slot
 local ITEM_TASK_ID_PACK_IN_VEHICLE = 16
---> AAC 23 = Picked pack up off floor or out of vehicle
 local ITEM_TASK_ID_PICKED_PACK_UP = 23
---> AAC 27 = Crafted a pack OR items consumed from pack craft
 local ITEM_TASK_ID_PACK_WAS_CRAFTED = 27
---> AAC 39 = Drank a potion
 local ITEM_TASK_ID_CONSUMABLE_USED = 39
---> AAC 46 = Mailed item OR take item out of mail
 local ITEM_TASK_ID_MAIL_SEND_OR_RECEIVE = 46
---> AAC 61 = Dropped pack on the floor
 local ITEM_TASK_ID_PACK_DROPPED = 61
---> AAC 109 = turned pack in DOMESTICALLY
 local ITEM_TASK_ID_PACK_TURNED_IN = 109
 
 local AH_PRICES
@@ -42,8 +34,8 @@ local pastSessions
 local pastSessionsFilename
 
 local sessionTimeoutCounter = 0
-local SESSION_TIMEOUT_MS = 60000 * 3  --> 1 minute is 60000
-local SESSION_TIMEOUT_MS = 1000 * 45  --> TEST OVERRIDE
+local SESSION_TIMEOUT_MS = 60000 * 3  
+local SESSION_TIMEOUT_MS = 1000 * 45  
 
 local displayRefreshCounter = 0
 local DISPLAY_REFRESH_MS = 60000
@@ -53,10 +45,9 @@ local PACK_SLOT_CHECK_MS = 100
 
 local PACK_TIMER_8HRS_IN_SECS = 28800
 
-local pageSize = 20 --> number of sessions on page
+local pageSize = 20 
 local maxPage
 
--- helpers 
 function split(s, sep)
     local fields = {}
     
@@ -98,15 +89,25 @@ local function updateLastKnownChannel(channelId, channelName)
       lastKnownZone = currentZone
     end 
     currentZone = channelName
-    -- api.Log:Info("  you have switched zones: " .. tostring(currentZone) .. " from zone: " .. tostring(lastKnownZone))
 end 
--- Statistics functions
+local function GetCurrentSetPrices()
+    local cVal, dVal = 1.5, 22
+    local data = api.File:Read("elu_commerce_prices.txt")
+    if type(data) == "table" then
+        if data.c then cVal = tonumber(data.c) or 1.5 end
+        if data.d then dVal = tonumber(data.d) or 22 end
+    end
+    return cVal, dVal
+end
+
 local function getTotalGoldMadeFromPacks()
     local totalGold = 0
     if pastSessions == nil then return totalGold end
     for _, sessionObject in pairs(pastSessions["sessions"]) do 
-        if sessionObject.profitTotal ~= "Unknown" then 
-            totalGold = totalGold + sessionObject.profitTotal
+        local pTotal = sessionObject.profitTotal
+
+        if type(pTotal) == "number" then 
+            totalGold = totalGold + pTotal
         end 
     end 
     return totalGold
@@ -147,10 +148,30 @@ local function getPendingPackGoldTotal()
     for _, sessionObject in pairs(pastSessions["sessions"]) do 
         local timeDiffTilNow = PACK_TIMER_8HRS_IN_SECS - differenceBetweenTimestamps(api.Time:GetLocalTime(), sessionObject.localTimestamp)
         if timeDiffTilNow > 0 then
-            pendingGold = pendingGold + sessionObject.profitTotal
+            local pTotal = sessionObject.profitTotal
+            
+            if type(pTotal) == "number" then
+                pendingGold = pendingGold + pTotal
+            end
         end 
     end 
     return pendingGold
+end
+
+local function getPendingResourcesTotal()
+    local pendingC = 0
+    local pendingD = 0
+    local pendingG = 0
+    if pastSessions == nil then return pendingC, pendingD, pendingG end
+    for _, sessionObject in pairs(pastSessions["sessions"]) do 
+        local timeDiffTilNow = PACK_TIMER_8HRS_IN_SECS - differenceBetweenTimestamps(api.Time:GetLocalTime(), sessionObject.localTimestamp)
+        if timeDiffTilNow > 0 then
+            if sessionObject.coinTypeId == 32103 then pendingC = pendingC + sessionObject.refundTotal
+            elseif sessionObject.coinTypeId == 32106 then pendingD = pendingD + sessionObject.refundTotal
+            elseif sessionObject.coinTypeId == 23633 then pendingG = pendingG + sessionObject.refundTotal end
+        end 
+    end 
+    return pendingC, pendingD, pendingG
 end
 
 local function fillSessionTableData(itemScrollList, pageIndex)
@@ -167,12 +188,6 @@ local function fillSessionTableData(itemScrollList, pageIndex)
     for _, sessionObject in pairs(pastSessions["sessions"]) do 
         if count >= startingIndex and count < endingIndex then 
             local itemData = {
-                -- localTimestamp = "1733471130",
-                -- packId = "42023",
-                -- refundTotal = 482872,
-                -- packCount = 1,
-                -- coinTypeId = 0,
-                -- Sessions data fields
                 localTimestamp = sessionObject.localTimestamp,
                 packId = sessionObject.packId,
                 refundTotal = sessionObject.refundTotal,
@@ -184,7 +199,6 @@ local function fillSessionTableData(itemScrollList, pageIndex)
                 
                 index = count,
 
-                -- Required fields
                 isViewData = true, 
                 isAbstention = false
             }
@@ -209,37 +223,26 @@ local function saveCurrentSessionToFile()
     end 
 
     local coinTypeId = currentSession["coinTypeId"]
-    -- Let's fill in the AH prices
-    if coinTypeId == 0 then --> Gold
+    if coinTypeId == 0 then 
         currentSession["profitTotal"] = currentSession["refundTotal"] / 10000
-elseif coinTypeId == 32103 or coinTypeId == 32106 then --> Charcoal Stabilizers & Dragon Essence Stabilizers
-        local stabilizerPrice = 0
-        local settings = api.GetSettings("elu_tracker")
-        
-        -- Prioriza o preço salvo manualmente; se não existir, usa o padrão do arquivo
-        if settings and settings.manualPrices and settings.manualPrices[coinTypeId] then
-            stabilizerPrice = settings.manualPrices[coinTypeId]
-        elseif AH_PRICES and AH_PRICES[coinTypeId] then
-            stabilizerPrice = AH_PRICES[coinTypeId].average
-        end
+    elseif coinTypeId == 32103 or coinTypeId == 32106 then 
+        local cPrice, dPrice = GetCurrentSetPrices()
+        local stabilizerPrice = (coinTypeId == 32103) and cPrice or dPrice
         currentSession["profitTotal"] = stabilizerPrice * currentSession["refundTotal"]
-    elseif coinTypeId == 23633 then --> Gilda Star, valued as Gilda Dust
+    elseif coinTypeId == 23633 then 
         local gildaDustPrice = AH_PRICES[8000026].average
         currentSession["profitTotal"] = gildaDustPrice * currentSession["refundTotal"]
-    elseif coinTypeId == 40229 then --> Lord's Pence, valued as Lord's Coin
+    elseif coinTypeId == 40229 then 
         local lordsCoinPrice = AH_PRICES[26880].average
         currentSession["profitTotal"] = lordsCoinPrice * (currentSession["refundTotal"] / 100)
-    else --> Unknown/untradeable/unpriceable 
+    else 
         currentSession["profitTotal"] = "Unknown"
     end 
-    -- TODO: Fill in pack costs
     currentSession["costTotal"] = "Unknown"
 
-    -- Insert it into the top position (to sort by most recent)
     table.insert(pastSessions["sessions"], 1, currentSession)
     api.File:Write(pastSessionsFilename, pastSessions)
 
-    -- Refresh payment list
     local sessionScrollList = commerceWindow.sessionScrollList
     if pastSessions ~= nil then
         if pastSessions.sessions ~= nil then
@@ -265,12 +268,9 @@ local function startPackTurnInSession(packId, coinTypeId)
     sessionToStart["refundTotal"] = 0
     sessionToStart["profitTotal"] = "Unknown"
     sessionToStart["costTotal"] = "Unknown"
-    -- TODO: Add date
-    -- api.Log:Info("[Elu Tracker] Starting new pack turn-in session for packId: " .. tostring(packId) .. " with coinTypeId: " .. tostring(coinTypeId))
-    -- Before overwriting the old session, if it isn't null, then let's save it.
+
     if currentSession ~= nil then 
         saveCurrentSessionToFile()
-        -- api.Log:Info("[Elu Tracker] Saved previous pack session before starting new one.")
     end 
 
     currentSession = sessionToStart
@@ -278,12 +278,9 @@ end
 
 local function addPackToSession(refund, coinTypeId, packId) 
     if coinTypeId == currentSession["coinTypeId"] and packId == currentSession["packId"] then 
-        -- api.Log:Info("[Elu Tracker] Adding pack to current session for packId: " .. tostring(packId) .. " with coinTypeId: " .. tostring(coinTypeId))
         currentSession["packCount"] = currentSession["packCount"] + 1
         currentSession["refundTotal"] = currentSession["refundTotal"] + refund
-        -- Also, reset the timestamp to latest turn in
         currentSession["localTimestamp"] = api.Time:GetLocalTime()
-        -- We need to update the current session timeout as well.
         sessionTimeoutCounter = 0
     end 
 end 
@@ -296,10 +293,8 @@ local function itemIdFromItemLinkText(itemLinkText)
 end 
 
 local function soldASpecialty(text)
-    -- We just sold a pack!
-    -- api.Log:Info("[Elu Tracker] Detected specialty pack turn-in for packId: " .. tostring(currentBackSlotItem) .. " with refund: " .. tostring(lastSeenPrice) .. " and coinTypeId: " .. tostring(lastSeenCoinType))
+
     if currentBackSlotItem ~= nil then 
-        -- if there is no session, start one
         if currentSession == nil then 
             startPackTurnInSession(currentBackSlotItem, lastSeenCoinType)
             addPackToSession(lastSeenPrice, lastSeenCoinType, currentBackSlotItem)
@@ -307,8 +302,6 @@ local function soldASpecialty(text)
             local timeRightNow = api.Time:GetLocalTime()
             local timeDelta = tonumber(timeRightNow) - tonumber(currentSession["localTimestamp"])
 
-            -- if there is a session, see if it's been less than 5 minutes. if it has been, write to current session
-            -- NOTE: start a new session if the turned in pack doesnt match the packId or its cointype ID
             if lastSeenCoinType == currentSession["coinTypeId"] and currentBackSlotItem == currentSession["packId"] then
                 addPackToSession(lastSeenPrice, lastSeenCoinType, currentBackSlotItem)
             elseif lastSeenCoinType ~= currentSession["coinTypeId"] or currentBackSlotItem ~= currentSession["packId"] then
@@ -324,7 +317,6 @@ end
 
 local function recordPackPayment(itemLinkText, itemCount, removeState, itemTaskType, tradeOtherName)
     local removedItemId = itemIdFromItemLinkText(itemLinkText)
-    -- api.Log:Info("[Elu Tracker] Detected removed item with ID: " .. tostring(removedItemId) .. " and task type: " .. tostring(itemTaskType))
     if removedItemId == currentBackSlotItem and itemTaskType == ITEM_TASK_ID_PACK_DROPPED then  
         currentBackSlotItem = nil
     end 
@@ -337,7 +329,6 @@ end
 local function recordPackPickedUp(itemLinkText, itemCount, itemTaskType, tradeOtherName)
     local itemId = itemIdFromItemLinkText(itemLinkText)
 
-    --- Legacy code, please do not touch.
     if packs_helper:IsASpecialtyPackById(tonumber(itemId)) == true then
         currentBackSlotItem = itemId
         if currentBackSlotItem ~= nil and packs_helper:GetSpecialtyPackNameById(tonumber(currentBackSlotItem)) ~= nil then 
@@ -345,11 +336,9 @@ local function recordPackPickedUp(itemLinkText, itemCount, itemTaskType, tradeOt
             api.Store:GetSpecialtyRatioBetween(packOriginId, 8)
         end
     end 
-    --- Ends untouchable legacy code, PLEASE DO NOT TOUCH.
 end 
 
 local function soldAtResourceTrader(itemLinkText, stackCount)
-    -- api.Log:Info("sold: " .. itemLinkText .. " x" .. tostring(stackCount))
     local removedItemId = itemIdFromItemLinkText(itemLinkText)
     if tonumber(removedItemId) == tonumber(currentBackSlotItem) and tostring(stackCount) == "1" then 
         soldASpecialty("")
@@ -358,18 +347,15 @@ end
 
 local function getSpecialtyInfo(specialtyRatioTable)
     for key, value in pairs(specialtyRatioTable) do 
-        -- api.Log:Info(value.itemInfo.name .. " at " .. value.ratio .. "%")
     end 
 end 
 
 local function sellSpecialtyContentInfo(list)
     for key, value in pairs(list) do 
-        -- api.Log:Info(key .. " " .. value)
     end 
 end 
 
 local function traderDialogOpened(refund, itemType, itemGrade, coinType)
-    -- api.Log:Info(tostring(itemType) .. " turns in for " .. tostring(refund) .. " of coinType: " .. tostring(coinType))
     currentBackSlotItem = itemType
     lastSeenPrice = refund
     lastSeenCoinType = coinType
@@ -380,8 +366,12 @@ local function refreshStatisticsLabels()
     local totalPacks = getTotalPacksTurnedIn()
     local favouritePackId = getFavouritePackType()
     local pendingGold = getPendingPackGoldTotal()
+    local pendingC, pendingD, pendingG = getPendingResourcesTotal()
 
     commerceWindow.pendingGoldStr:SetText("Pending Pack Value: " .. string.format('%.2f', pendingGold) .. "g")
+    if commerceWindow.pendingResourcesStr then
+        commerceWindow.pendingResourcesStr:SetText(string.format("Charcoal: %d  |  Dragon: %d  |  Gilda: %d", math.floor(pendingC), math.floor(pendingD), math.floor(pendingG)))
+    end
     commerceWindow.totalGoldStr:SetText("Total Gold Value Made: " .. string.format('%.2f', totalGold) .. "g")
     commerceWindow.totalPacksStr:SetText("Total Packs Turned In: " .. totalPacks)
     if favouritePackId == nil then favouritePackId = 0 end
@@ -396,8 +386,6 @@ end
 
 local function OnUpdate(dt) 
     if sessionTimeoutCounter + dt > SESSION_TIMEOUT_MS then
-        -- Save, and clear session
-        -- api.Log:Info("[Elu Tracker] Pack session timed out due to inactivity.")
         if currentSession ~= nil then 
             api.Log:Info("[Elu Tracker] Ending current pack session...")
             saveCurrentSessionToFile()
@@ -408,7 +396,6 @@ local function OnUpdate(dt)
     end 
     sessionTimeoutCounter = sessionTimeoutCounter + dt
 
-    -- Only refresh the display if the paystub window is open
     if isPaystubWindowOpen() then
         if displayRefreshCounter + dt > DISPLAY_REFRESH_MS then 
             displayRefreshCounter = 0
@@ -417,12 +404,10 @@ local function OnUpdate(dt)
             fillSessionTableData(sessionScrollList, 1)
             sessionScrollList.pageControl:SetCurrentPage(1, true)
 
-            -- Refresh stats
             refreshStatisticsLabels()
         end 
         displayRefreshCounter = displayRefreshCounter + dt
     else
-        -- Optional: reset so it refreshes promptly when reopened
         displayRefreshCounter = DISPLAY_REFRESH_MS
     end
 
@@ -436,15 +421,12 @@ local function OnUpdate(dt)
         else
             currentBackSlotItem = nil
         end 
-        -- api.Log:Info(currentBackSlotItem) 
     end
     packSlotCheckCounter = packSlotCheckCounter + dt 
 end 
 
---- Session Scroll List Functions
 local function SessionSetFunc(subItem, data, setValue)
     if setValue then
-        -- Data Assignments
         local sessionIndex = data.index
         local packObject = packs_helper:GetSpecialtyPackNameById(tonumber(data.packId))
         local packName = "Unknown Pack (id: " .. tostring(data.packId) .. ")" 
@@ -454,7 +436,9 @@ local function SessionSetFunc(subItem, data, setValue)
         local turnInZone = data.turnInZone
         local packCount = tostring(data.packCount)
         local coinTypeId = tonumber(data.coinTypeId)
+        
         local profitTotal = data.profitTotal
+        
         local costTotal = data.costTotal
         local coinTypeName = "Unknown refund type"
         if coinTypeId ~= nil then 
@@ -463,7 +447,6 @@ local function SessionSetFunc(subItem, data, setValue)
         local date = api.Time:TimeToDate(data.localTimestamp)
         local timeDiffTilNow = PACK_TIMER_8HRS_IN_SECS - differenceBetweenTimestamps(api.Time:GetLocalTime(), data.localTimestamp)
         local timeDiffStr = "Payment In: " .. displayTimeString(tonumber(timeDiffTilNow))
-        -- Display Strings
         local leftTextStr = packName .. " x" .. packCount 
         if coinTypeId == 0 then 
             leftTextStr = leftTextStr .. "\n " .. string.format('%.2f', tostring(data.refundTotal / 10000)) .. " Gold"
@@ -480,12 +463,10 @@ local function SessionSetFunc(subItem, data, setValue)
         else 
             rightTextStr = rightTextStr .. " \n " .. "Cost: " .. tostring(costTotal)
         end 
-        -- api.Log:Info(subItem.subItemIcon)
         if data.packId ~= nil then 
             local packInfo = api.Item:GetItemInfoByType(tonumber(data.packId))
             F_SLOT.SetIconBackGround(subItem.subItemIcon, packInfo.path)
         end 
-        -- api.Log:Info(packInfo.path)
         
         local titleStr = "Unknown Zone Specialty Turn-in"
         if turnInZone ~= nil then 
@@ -502,31 +483,26 @@ local function SessionSetFunc(subItem, data, setValue)
         subItem.textboxRight:SetText(rightTextStr)
         subItem.sessionTitle:SetText(titleStr)
         if timeDiffTilNow > 0 then 
-            -- Not paid yet, set background to red and paid label to remaining time
             subItem.bg:SetColor(ConvertColor(210),ConvertColor(94),ConvertColor(84),0.4)
             subItem.sessionIsPaidLabel:SetText(timeDiffStr)
         else
-            -- Has been paid, set background to green.
             subItem.bg:SetColor(ConvertColor(11),ConvertColor(156),ConvertColor(35),0.3)
-            subItem.sessionIsPaidLabel:SetText("Paid on " .. string.format("%02d/%02d/%04d", date.month, date.day, date.year))
+            subItem.sessionIsPaidLabel:SetText("Paid on " .. string.format("%02d/%02d/%04d", date.day, date.month, date.year))
         end 
-        -- F_SLOT.SetIconBackGround(subItem.subItemIcon, data.dds)
     end
 end
 
 local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
-    if subItem.bg then return end -- FIX: Memory Leak Prevention
+    if subItem.sessionTitle then return end 
     
     subItem:SetExtent(580, 70)
-    -- Background colouring
     local bg = subItem:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
     bg:SetColor(ConvertColor(210),ConvertColor(94),ConvertColor(84),0.4)
     bg:SetTextureInfo("bg_quest")
     bg:AddAnchor("TOPLEFT", subItem, 0, 0)
-    bg:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", subItem, 0, -4)
     bg:Show(true)
     subItem.bg = bg
-    -- Top-left Session Title
     local sessionTitle = subItem:CreateChildWidget("label", "sessionTitle", 0, true)
     sessionTitle.style:SetFontSize(FONT_SIZE.LARGE)
     ApplyTextColor(sessionTitle, FONT_COLOR.DEFAULT)
@@ -534,7 +510,6 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     sessionTitle:AddAnchor("TOPLEFT", subItem, 10, 10)
     sessionTitle:SetAutoResize(true)
     sessionTitle.style:SetAlign(ALIGN.LEFT)
-    -- Pack Item Icon 
     local subItemIcon = CreateItemIconButton("subItemIcon", sessionTitle)
     subItemIcon:Show(true)
     F_SLOT.ApplySlotSkin(subItemIcon, subItemIcon.back, SLOT_STYLE.BUFF)
@@ -542,7 +517,6 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     subItemIcon:AddAnchor("TOPLEFT", sessionTitle, 0, 10)
     subItem.subItemIcon = subItemIcon
 
-    -- Top-right Session "Is paid?" Label
     local sessionIsPaidLabel = subItem:CreateChildWidget("label", "sessionIsPaidLabel", 0, true)
     sessionIsPaidLabel.style:SetFontSize(FONT_SIZE.LARGE)
     ApplyTextColor(sessionIsPaidLabel, FONT_COLOR.DEFAULT)
@@ -551,31 +525,27 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     sessionIsPaidLabel:SetAutoResize(true)
     sessionIsPaidLabel.style:SetAlign(ALIGN.RIGHT)
 
-    -- Left-side Text
     local textboxLeft = subItem:CreateChildWidget("textbox", "textboxLeft", 0, true)
     textboxLeft:AddAnchor("TOPLEFT", subItem, 55, 10)
     textboxLeft:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)
     textboxLeft.style:SetAlign(ALIGN.LEFT)
     ApplyTextColor(textboxLeft, FONT_COLOR.DEFAULT)
     subItem.textboxLeft = textboxLeft
-    -- Right-side Text
     local textboxRight = subItem:CreateChildWidget("textbox", "textboxRight", 0, true)
     textboxRight:AddAnchor("TOPLEFT", subItem, 55, 10)
     textboxRight:AddAnchor("BOTTOMRIGHT", subItem, -12, 0)
     textboxRight.style:SetAlign(ALIGN.RIGHT)
     ApplyTextColor(textboxRight, FONT_COLOR.DEFAULT)
     subItem.textboxRight = textboxRight
-    -- Interact Layer overtop of everything
     local clickOverlay = subItem:CreateChildWidget("button", "clickOverlay", 0, true)
     clickOverlay:AddAnchor("TOPLEFT", subItem, 0, 0)
     clickOverlay:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)
     function clickOverlay:OnClick()
-        -- modelViewerEquipItem(subItem.id, nil, dressUpWindow.modelViewer)
         api.Log:Info("Ding!")
     end 
     clickOverlay:SetHandler("OnClick", clickOverlay.OnClick)
 end
----
+
 
 local function OnLoad()
     packs_helper = require("elu_tracker/packs_helper")
@@ -591,7 +561,6 @@ local function OnLoad()
     lastSeenCoinType = nil
     pastSessionsFilename = "elu_tracker_pack_sessions.lua"
 
-    -- Load past sessions
     pastSessions = api.File:Read(pastSessionsFilename)
     if pastSessions == nil or pastSessions.sessions == nil then
         local ok, backupData = pcall(require, "elu_tracker/data/pack_sessions")
@@ -615,26 +584,22 @@ local function OnLoad()
                 packZoneId = zoneId
             end 
         end 
-        -- api.Log:Info("  This pack belongs to zone: " .. packZoneId)
         
         pack.destinations = {}
         if packZoneId ~= 0 then
             local sellableZones = api.Store:GetSellableZoneGroups(packZoneId)
             for key, value in pairs(sellableZones) do
                 for key, value in pairs(value) do 
-                    -- api.Log:Info(key .. " " .. tostring(value))
                 end         
                 pack.destinations[tostring(key)] = {} 
                 pack.destinations[tostring(key)].id = tostring(value.id)
                 pack.destinations[tostring(key)].name = tostring(value.name)
             end
         end 
-        -- api.Log:Info(table.concat(pack.destinations, ","))
         pack.zone = packZoneId
         
     end 
     
-    -- Load and write statistics to paystub window
     local totalGold = getTotalGoldMadeFromPacks()
     local totalPacks = getTotalPacksTurnedIn()
     local favouritePackId = getFavouritePackType()
@@ -649,7 +614,6 @@ local function OnLoad()
             recordPackPickedUp(unpack(arg))
         end 
         if event == "SELL_SPECIALTY" then 
-            -- soldASpecialty(unpack(arg))
         end
         if event == "STORE_SELL" then
             soldAtResourceTrader(unpack(arg))
@@ -679,7 +643,6 @@ local function OnLoad()
     eluTrackerEventWindow:RegisterEvent("UPDATE_SPECIALTY_RATIO")
     eluTrackerEventWindow:RegisterEvent("SELL_SPECIALTY_CONTENT_INFO")
 
-    -- Initializing Commerce Tab
     eluDisplayWindow:Show(false)
     commerceWindow = eluDisplayWindow.tab.window[1].commerceWindow
     local sessionScrollList = commerceWindow.sessionScrollList
@@ -703,13 +666,22 @@ local function OnLoad()
     pendingGoldStr:SetText("Pending Pack Value: " .. string.format('%.2f', pendingGold) .. "g")
     pendingGoldStr:AddAnchor("BOTTOMLEFT", commerceWindow, 15, 50)
     commerceWindow.pendingGoldStr = pendingGoldStr
+    
+    local pendingC, pendingD, pendingG = getPendingResourcesTotal()
+    local pendingResourcesStr = commerceWindow:CreateChildWidget("label", "pendingResourcesStr", 0, true)
+    pendingResourcesStr.style:SetFontSize(FONT_SIZE.LARGE)
+    pendingResourcesStr.style:SetAlign(ALIGN.LEFT)
+    ApplyTextColor(pendingResourcesStr, FONT_COLOR.DEFAULT)
+    pendingResourcesStr:SetText(string.format("Charcoal: %d  |  Dragon: %d  |  Gilda: %d", math.floor(pendingC), math.floor(pendingD), math.floor(pendingG)))
+    pendingResourcesStr:AddAnchor("BOTTOMLEFT", pendingGoldStr, 0, 20)
+    commerceWindow.pendingResourcesStr = pendingResourcesStr
 
     local totalGoldStr = commerceWindow:CreateChildWidget("label", "totalGoldStr", 0, true)
     totalGoldStr.style:SetFontSize(FONT_SIZE.LARGE)
     totalGoldStr.style:SetAlign(ALIGN.LEFT)
     ApplyTextColor(totalGoldStr, FONT_COLOR.DEFAULT)
     totalGoldStr:SetText("Total Gold Value Made: " .. string.format('%.2f', totalGold) .. "g")
-    totalGoldStr:AddAnchor("BOTTOMLEFT", pendingGoldStr, 0, 30)
+    totalGoldStr:AddAnchor("BOTTOMLEFT", pendingResourcesStr, 0, 20)
     commerceWindow.totalGoldStr = totalGoldStr
 
     local totalPacksStr = commerceWindow:CreateChildWidget("label", "totalPacksStr", 0, true)
@@ -734,11 +706,8 @@ local function OnLoad()
     favouritePackStr:SetText("Favourite Pack: " .. favouritePackName)
     favouritePackStr:AddAnchor("BOTTOMLEFT", totalPacksStr, 0, 20)
     
-    -- api.Map:ToggleMapWithPortal(323, 16461, 11630, 100)
-    -- api.Log:Info(tostring(currentDate.year) .. "-" .. tostring(currentDate.month) .. "-" .. tostring(currentDate.day))
-
     api.On("UPDATE", OnUpdate)
-    -- api.SaveSettings()
+
 end
 
 local function OnUnload()
@@ -747,7 +716,15 @@ local function OnUnload()
     eluTrackerEventWindow = nil
 end
 
+local function RefreshUI()
+    if commerceWindow and commerceWindow.sessionScrollList then
+        fillSessionTableData(commerceWindow.sessionScrollList, commerceWindow.sessionScrollList.pageControl.currentPage)
+        refreshStatisticsLabels()
+    end
+end
+
 your_packs_addon.OnLoad = OnLoad
 your_packs_addon.OnUnload = OnUnload
+your_packs_addon.RefreshUI = RefreshUI
 
 return your_packs_addon

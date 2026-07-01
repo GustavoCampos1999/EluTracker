@@ -2,12 +2,15 @@ local elu_tracker_addon = {
 	name = "Elu Tracker",
 	author = "Eludelu",
 	version = "1.0",
-	desc = "Commerce & Fishing track and Trip Counter."
+	desc = "Commerce & Fishing track and Trip Counter.",
+	tags = {"Economy", "Fishing", "QoL"}
 }
 
 local packsAddon = require("elu_tracker/packs")
 local lootAddon = require("elu_tracker/loot")
 local fishingAddon = require("elu_tracker/fishing")
+local spotTrackerAddon = require("elu_tracker/spot_tracker")
+local stopwatchAddon = require("elu_tracker/stopwatch")
 
 eluDisplayWindow = nil
 local eluBtn
@@ -16,6 +19,16 @@ local tripOverlay
 local tripCount = 0
 local eluCharcoalLabel = nil
 local priceUpdateTimer = 0
+local _charcoalInputRef = nil
+local _charcoalSilverInputRef = nil
+local _dragonInputRef = nil
+local _dragonSilverInputRef = nil
+local _pricePanelRef = nil
+local _pollTimer = 0
+local _pendingCharcoalPrice = nil
+local _pendingCharcoalSilver = nil
+local _pendingDragonPrice = nil
+local _pendingDragonSilver = nil
 
 local function ConvertColor(color) return color / 255 end 
 
@@ -23,16 +36,14 @@ local memoryAHPrices = nil
 
 local function LoadAHPrices()
     if not memoryAHPrices then
-        -- Define os valores padrões de fábrica caso o usuário nunca tenha salvo nada
         memoryAHPrices = {
-            [32103] = { average = 1.50, volume = 1 },
-            [32106] = { average = 20.00, volume = 1 }
+            [32103] = { average = 1.5 },
+            [32106] = { average = 22 }
         }
-        -- Carrega direto do banco de dados persistente de configurações nativas do jogo
-        local settings = api.GetSettings("elu_tracker")
-        if settings and type(settings.manualPrices) == "table" then
-            if settings.manualPrices[32103] then memoryAHPrices[32103].average = settings.manualPrices[32103] end
-            if settings.manualPrices[32106] then memoryAHPrices[32106].average = settings.manualPrices[32106] end
+        local data = api.File:Read("elu_commerce_prices.txt")
+        if type(data) == "table" then
+            if data.c ~= nil then memoryAHPrices[32103].average = tonumber(data.c) or memoryAHPrices[32103].average end
+            if data.d ~= nil then memoryAHPrices[32106].average = tonumber(data.d) or memoryAHPrices[32106].average end
         end
     end
 end
@@ -45,41 +56,35 @@ local function GetAHPriceSafe(itemId)
     return 0
 end
 
-local function SetManualPrices(charcoalStr, dragonStr)
+local function SetManualPrices(cGold, cSilver, dGold, dSilver)
     LoadAHPrices()
     
-    -- Sanitização inteligente: remove letras/espaços mantendo apenas números e pontuações válidas
-    local cClean = string.gsub(string.gsub(tostring(charcoalStr or ""), ",", "."), "[^0-9.]", "")
-    local dClean = string.gsub(string.gsub(tostring(dragonStr or ""), ",", "."), "[^0-9.]", "")
+    local function parseNum(val)
+        if type(val) == "string" then val = val:gsub(",", ".") end
+        return tonumber(val) or 0
+    end
 
-    local charcoalVal = tonumber(cClean)
-    local dragonVal = tonumber(dClean)
+    local cG = parseNum(cGold)
+    local cS = parseNum(cSilver)
+    local dG = parseNum(dGold)
+    local dS = parseNum(dSilver)
 
-    -- Template Automático: Se digitou sem ponto/vírgula (Ex: 150 ou 2000), o sistema calcula os centavos sozinho
-    if charcoalVal and charcoalVal > 100 and not string.find(tostring(charcoalStr), "[.,]") then charcoalVal = charcoalVal / 100 end
-    if dragonVal and dragonVal > 1000 and not string.find(tostring(dragonStr), "[.,]") then dragonVal = dragonVal / 100 end
+    local charcoalVal = cG + (cS / 100)
+    local dragonVal = dG + (dS / 100)
 
-    -- Fallbacks de segurança se o campo vier vazio
-    charcoalVal = charcoalVal or memoryAHPrices[32103].average
-    dragonVal = dragonVal or memoryAHPrices[32106].average
+    if charcoalVal == 0 then charcoalVal = memoryAHPrices[32103].average end
+    if dragonVal == 0 then dragonVal = memoryAHPrices[32106].average end
 
     memoryAHPrices[32103].average = charcoalVal
     memoryAHPrices[32106].average = dragonVal
 
-    -- Salva de forma robusta e limpa no arquivo de persistência do jogo
-    local settings = api.GetSettings("elu_tracker")
-    if settings then
-        if not settings.manualPrices then settings.manualPrices = {} end
-        settings.manualPrices[32103] = charcoalVal
-        settings.manualPrices[32106] = dragonVal
-        api.SaveSettings()
-    end
+    local tableToSave = { c = charcoalVal, d = dragonVal }
+    api.File:Write("elu_commerce_prices.txt", tableToSave)
 
-    -- Força a atualização do texto principal no mesmo milissegundo do clique
     if eluCharcoalLabel then
-        eluCharcoalLabel:SetText(string.format("Charcoal: %.4fg | Dragon: %.4fg", charcoalVal, dragonVal))
+        eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", charcoalVal, dragonVal))
     end
-    api.Log:Info(string.format("[Elu Tracker] Preços atualizados: Charcoal: %.2fg | Dragon: %.2fg", charcoalVal, dragonVal))
+    api.Log:Info(string.format("[Elu Tracker] Prices updated! Charcoal: %.2fg | Dragon: %.2fg", charcoalVal, dragonVal))
 end
 local bagFrameFixed = false
 local function OnUpdate(dt)
@@ -89,7 +94,7 @@ local function OnUpdate(dt)
         if eluCharcoalLabel and eluCharcoalLabel:IsVisible() then
             local charcoalPrice = GetAHPriceSafe(32103)
             local dragonPrice = GetAHPriceSafe(32106)
-            eluCharcoalLabel:SetText(string.format("Charcoal: %.4fg | Dragon: %.4fg", charcoalPrice, dragonPrice))
+            eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", charcoalPrice, dragonPrice))
         end
     end
     
@@ -104,12 +109,22 @@ local function OnUpdate(dt)
             bagFrameFixed = true
         end
     end
+    
+    if spotTrackerAddon and spotTrackerAddon.OnUpdate then
+        spotTrackerAddon:OnUpdate(dt)
+    end
+    
+    if stopwatchAddon and stopwatchAddon.OnUpdate then
+        stopwatchAddon:OnUpdate(dt)
+    end
 end
+
 
 local function CreateCommerceWindow(wndParent)
     local wnd = wndParent:CreateChildWidget("emptywidget", "commerceWindow", 0, true)
     wnd:SetExtent(600, 600)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
+
     local title = wnd:CreateChildWidget("label", "title", 0, true)
     title:SetAutoResize(true)
     title:SetHeight(FONT_SIZE.XLARGE)
@@ -118,12 +133,12 @@ local function CreateCommerceWindow(wndParent)
     ApplyTextColor(title, FONT_COLOR.TITLE)
     title:SetText("Pending Pack Payments")
     title:AddAnchor("TOP", wnd, 0, 10)
-    
+
     local charcoalLabel = wnd:CreateChildWidget("label", "charcoalLabel", 0, true)
     charcoalLabel.style:SetFontSize(FONT_SIZE.LARGE)
     ApplyTextColor(charcoalLabel, FONT_COLOR.EXP_ORANGE)
     charcoalLabel.style:SetAlign(ALIGN.CENTER)
-    charcoalLabel:SetText("Fetching Prices...")
+    charcoalLabel:SetText("Loading...")
     charcoalLabel:AddAnchor("TOP", title, "BOTTOM", 0, 15)
     eluCharcoalLabel = charcoalLabel
 
@@ -133,10 +148,8 @@ local function CreateCommerceWindow(wndParent)
     setPriceBtn:AddAnchor("TOPRIGHT", wnd, -15, 10)
     ApplyButtonSkin(setPriceBtn, BUTTON_BASIC.DEFAULT)
 
- 
--- Painel expansível (escondido por padrão)
     local pricePanel = wnd:CreateChildWidget("emptywidget", "pricePanel", 0, true)
-    pricePanel:SetExtent(160, 110)
+    pricePanel:SetExtent(200, 115)
     pricePanel:AddAnchor("TOPRIGHT", setPriceBtn, "BOTTOMRIGHT", 0, 5)
     pricePanel:Show(false)
 
@@ -146,81 +159,150 @@ local function CreateCommerceWindow(wndParent)
     pBg:AddAnchor("TOPLEFT", pricePanel, 0, 0)
     pBg:AddAnchor("BOTTOMRIGHT", pricePanel, 0, 0)
 
-    -- Input do Charcoal (Alinhado com precisão)
-    local charcoalInput = pricePanel:CreateChildWidget("editbox", "charcoalInput", 0, true)
-    charcoalInput:SetExtent(50, 20)
-    charcoalInput:AddAnchor("TOPRIGHT", pricePanel, -15, 15)
-    charcoalInput.style:SetAlign(ALIGN.CENTER)
-    local cbg = charcoalInput:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    cbg:SetTextureInfo("bg_quest")
-    cbg:SetColor(0, 0, 0, 0.6)
-    cbg:AddAnchor("TOPLEFT", charcoalInput, -2, -2)
-    cbg:AddAnchor("BOTTOMRIGHT", charcoalInput, 2, 2)
+    local charcoalGoldInput = W_CTRL.CreateEdit("charcoalGoldInput", pricePanel)
+    charcoalGoldInput:SetExtent(45, 20)
+    charcoalGoldInput:AddAnchor("TOPRIGHT", pricePanel, -55, 15)
+    charcoalGoldInput.style:SetAlign(ALIGN.CENTER)
+    charcoalGoldInput:SetDigit(true)
 
-    local charcoalLabel = pricePanel:CreateChildWidget("label", "charcoalLabel", 0, true)
-    charcoalLabel:SetText("Charcoal:")
-    charcoalLabel:AddAnchor("RIGHT", charcoalInput, "LEFT", -10, 0)
-    ApplyTextColor(charcoalLabel, FONT_COLOR.DEFAULT)
+    local charcoalSilverInput = W_CTRL.CreateEdit("charcoalSilverInput", pricePanel)
+    charcoalSilverInput:SetExtent(35, 20)
+    charcoalSilverInput:AddAnchor("LEFT", charcoalGoldInput, "RIGHT", 5, 0)
+    charcoalSilverInput.style:SetAlign(ALIGN.CENTER)
+    charcoalSilverInput:SetDigit(true)
 
-    -- Input do Dragon
-    local dragonInput = pricePanel:CreateChildWidget("editbox", "dragonInput", 0, true)
-    dragonInput:SetExtent(50, 20)
-    dragonInput:AddAnchor("TOPRIGHT", charcoalInput, "BOTTOMRIGHT", 0, 10)
-    dragonInput.style:SetAlign(ALIGN.CENTER)
-    local dbg = dragonInput:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    dbg:SetTextureInfo("bg_quest")
-    dbg:SetColor(0, 0, 0, 0.6)
-    dbg:AddAnchor("TOPLEFT", dragonInput, -2, -2)
-    dbg:AddAnchor("BOTTOMRIGHT", dragonInput, 2, 2)
+    local lblG = pricePanel:CreateChildWidget("label", "lblG", 0, true)
+    lblG:SetText("G")
+    lblG:AddAnchor("BOTTOM", charcoalGoldInput, "TOP", 0, -2)
+    ApplyTextColor(lblG, {1, 0.8, 0, 1})
 
-    local dragonLabel = pricePanel:CreateChildWidget("label", "dragonLabel", 0, true)
-    dragonLabel:SetText("Dragon:")
-    dragonLabel:AddAnchor("RIGHT", dragonInput, "LEFT", -10, 0)
-    ApplyTextColor(dragonLabel, FONT_COLOR.DEFAULT)
+    local lblS = pricePanel:CreateChildWidget("label", "lblS", 0, true)
+    lblS:SetText("S")
+    lblS:AddAnchor("BOTTOM", charcoalSilverInput, "TOP", 0, -2)
+    ApplyTextColor(lblS, {0.8, 0.8, 0.8, 1})
 
-    -- Botão Save
+    local charcoalRowLabel = pricePanel:CreateChildWidget("label", "charcoalRowLabel", 0, true)
+    charcoalRowLabel:SetText("Charcoal:")
+    charcoalRowLabel:AddAnchor("RIGHT", charcoalGoldInput, "LEFT", -10, 0)
+    charcoalRowLabel:SetAutoResize(true)
+    ApplyTextColor(charcoalRowLabel, FONT_COLOR.DEFAULT)
+
+    local dragonGoldInput = W_CTRL.CreateEdit("dragonGoldInput", pricePanel)
+    dragonGoldInput:SetExtent(45, 20)
+    dragonGoldInput:AddAnchor("TOPRIGHT", charcoalGoldInput, "BOTTOMRIGHT", 0, 10)
+    dragonGoldInput.style:SetAlign(ALIGN.CENTER)
+    dragonGoldInput:SetDigit(true)
+
+    local dragonSilverInput = W_CTRL.CreateEdit("dragonSilverInput", pricePanel)
+    dragonSilverInput:SetExtent(35, 20)
+    dragonSilverInput:AddAnchor("LEFT", dragonGoldInput, "RIGHT", 5, 0)
+    dragonSilverInput.style:SetAlign(ALIGN.CENTER)
+    dragonSilverInput:SetDigit(true)
+
+    local dragonRowLabel = pricePanel:CreateChildWidget("label", "dragonRowLabel", 0, true)
+    dragonRowLabel:SetText("Dragon:")
+    dragonRowLabel:AddAnchor("RIGHT", dragonGoldInput, "LEFT", -10, 0)
+    dragonRowLabel:SetAutoResize(true)
+    ApplyTextColor(dragonRowLabel, FONT_COLOR.DEFAULT)
+
     local savePriceBtn = pricePanel:CreateChildWidget("button", "savePriceBtn", 0, true)
     savePriceBtn:SetText("Save")
     savePriceBtn:SetExtent(60, 24)
-    savePriceBtn:AddAnchor("BOTTOM", pricePanel, 0, -10)
+    savePriceBtn:AddAnchor("BOTTOM", pricePanel, 0, -8)
     ApplyButtonSkin(savePriceBtn, BUTTON_BASIC.DEFAULT)
 
-    -- Toggle (Abre/Fecha a janela)
+    _charcoalInputRef = charcoalGoldInput
+    _charcoalSilverInputRef = charcoalSilverInput
+    _dragonInputRef = dragonGoldInput
+    _dragonSilverInputRef = dragonSilverInput
+    _pricePanelRef = pricePanel
+
+    local function DoSave()
+        local function safeNum(txt)
+            if type(txt) ~= "string" then txt = tostring(txt) end
+            local m = string.match(txt, "%d+")
+            if m then return tonumber(m) else return 0 end
+        end
+
+        local cG = safeNum(charcoalGoldInput:GetText())
+        local cS = safeNum(charcoalSilverInput:GetText())
+        local dG = safeNum(dragonGoldInput:GetText())
+        local dS = safeNum(dragonSilverInput:GetText())
+        
+        local cVal = (cG or 0) + ((cS or 0) / 100)
+        local dVal = (dG or 0) + ((dS or 0) / 100)
+
+        if cVal <= 0 then 
+            cVal = GetAHPriceSafe(32103) 
+        end
+        if dVal <= 0 then 
+            dVal = GetAHPriceSafe(32106) 
+        end
+
+        memoryAHPrices[32103].average = cVal
+        memoryAHPrices[32106].average = dVal
+        api.File:Write("elu_commerce_prices.txt", { c = cVal, d = dVal })
+
+        if eluCharcoalLabel then
+            eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", cVal, dVal))
+        end
+        api.Log:Info(string.format("[EluTracker] Preco salvo -> Charcoal: %.2fg | Dragon: %.2fg", cVal, dVal))
+
+        _pendingCharcoalPrice = nil
+        _pendingCharcoalSilver = nil
+        _pendingDragonPrice = nil
+        _pendingDragonSilver = nil
+        pricePanel:Show(false)
+        charcoalGoldInput:ClearFocus()
+        charcoalSilverInput:ClearFocus()
+        dragonGoldInput:ClearFocus()
+        dragonSilverInput:ClearFocus()
+        
+        if packsAddon and packsAddon.RefreshUI then
+            packsAddon.RefreshUI()
+        end
+    end
+
     function setPriceBtn:OnClick()
         local isVisible = pricePanel:IsVisible()
         if not isVisible then
             pricePanel:Raise()
-            charcoalInput:SetText(string.format("%.2f", GetAHPriceSafe(32103)))
-            dragonInput:SetText(string.format("%.2f", GetAHPriceSafe(32106)))
+            local cPrice = GetAHPriceSafe(32103)
+            local dPrice = GetAHPriceSafe(32106)
+            _pendingCharcoalPrice = math.floor(cPrice)
+            _pendingCharcoalSilver = math.floor((cPrice % 1) * 100)
+            _pendingDragonPrice = math.floor(dPrice)
+            _pendingDragonSilver = math.floor((dPrice % 1) * 100)
+            charcoalGoldInput:SetText(tostring(_pendingCharcoalPrice))
+            charcoalSilverInput:SetText(string.format("%02d", _pendingCharcoalSilver))
+            dragonGoldInput:SetText(tostring(_pendingDragonPrice))
+            dragonSilverInput:SetText(string.format("%02d", _pendingDragonSilver))
         end
         pricePanel:Show(not isVisible)
     end
     setPriceBtn:SetHandler("OnClick", setPriceBtn.OnClick)
 
-    -- Salva o preço e encolhe a janela
-    local function SaveAndClose()
-        SetManualPrices(charcoalInput:GetText(), dragonInput:GetText())
-        pricePanel:Show(false)
-        charcoalInput:ClearFocus()
-        dragonInput:ClearFocus()
-        priceUpdateTimer = 2000 -- Força atualização imediata do texto da aba
-    end
-
-    function savePriceBtn:OnClick() SaveAndClose() end
+    function savePriceBtn:OnClick() DoSave() end
     savePriceBtn:SetHandler("OnClick", savePriceBtn.OnClick)
 
-    function charcoalInput:OnEnterPressed() SaveAndClose() end
-    charcoalInput:SetHandler("OnEnterPressed", charcoalInput.OnEnterPressed)
+    function charcoalGoldInput:OnEnterPressed() DoSave() end
+    charcoalGoldInput:SetHandler("OnEnterPressed", charcoalGoldInput.OnEnterPressed)
 
-    function dragonInput:OnEnterPressed() SaveAndClose() end
-    dragonInput:SetHandler("OnEnterPressed", dragonInput.OnEnterPressed)
-    
+    function charcoalSilverInput:OnEnterPressed() DoSave() end
+    charcoalSilverInput:SetHandler("OnEnterPressed", charcoalSilverInput.OnEnterPressed)
+
+    function dragonGoldInput:OnEnterPressed() DoSave() end
+    dragonGoldInput:SetHandler("OnEnterPressed", dragonGoldInput.OnEnterPressed)
+
+    function dragonSilverInput:OnEnterPressed() DoSave() end
+    dragonSilverInput:SetHandler("OnEnterPressed", dragonSilverInput.OnEnterPressed)
+
     local sessionScrollList = W_CTRL.CreatePageScrollListCtrl("sessionScrollList", wnd)
     sessionScrollList:Show(true)
     sessionScrollList:AddAnchor("TOPLEFT", wnd, 4, 40)
     sessionScrollList:AddAnchor("BOTTOMRIGHT", wnd, -4, -4)
     return wnd
-end 
+end
 
 local function CreateLootTrackerWindow(wndParent)
     local wnd = wndParent:CreateChildWidget("emptywidget", "lootWindow", 0, true)
@@ -262,8 +344,8 @@ local function CreateFishingWindow(wndParent)
     return wnd
 end 
 
-local function CreateTripCounterWindow(wndParent)
-    local wnd = wndParent:CreateChildWidget("emptywidget", "tripWindow", 0, true)
+local function CreateMiscWindow(wndParent)
+    local wnd = wndParent:CreateChildWidget("emptywidget", "miscWindow", 0, true)
     wnd:SetExtent(600, 600)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
 
@@ -288,8 +370,8 @@ local function CreateTripCounterWindow(wndParent)
     desc:AddAnchor("TOP", title, "BOTTOM", 0, 10)
 
     local toggleBtn = wnd:CreateChildWidget("button", "toggleBtn", 0, true)
-    toggleBtn:SetText("Toggle Overlay")
-    toggleBtn:AddAnchor("TOP", desc, "BOTTOM", 0, 20)
+    toggleBtn:SetText("Toggle Trip Counter")
+    toggleBtn:AddAnchor("TOP", desc, "BOTTOM", -70, 20)
     ApplyButtonSkin(toggleBtn, BUTTON_BASIC.DEFAULT)
     function toggleBtn:OnClick()
         if tripOverlay then
@@ -300,18 +382,20 @@ local function CreateTripCounterWindow(wndParent)
     end
     toggleBtn:SetHandler("OnClick", toggleBtn.OnClick)
 
-    local resetBtn = wnd:CreateChildWidget("button", "resetBtn", 0, true)
-    resetBtn:SetText("Reset Progress")
-    resetBtn:AddAnchor("TOP", toggleBtn, "BOTTOM", 0, 10)
-    ApplyButtonSkin(resetBtn, BUTTON_BASIC.DEFAULT)
-    function resetBtn:OnClick()
-        tripCount = 0
-        if tripOverlay and tripOverlay.countLabel then
-            tripOverlay.countLabel:SetText("Trip: " .. tostring(tripCount or 0))
+    local toggleStopwatchBtn = wnd:CreateChildWidget("button", "toggleStopwatchBtn", 0, true)
+    toggleStopwatchBtn:SetText("Toggle Stopwatch")
+    toggleStopwatchBtn:AddAnchor("TOP", desc, "BOTTOM", 70, 20)
+    ApplyButtonSkin(toggleStopwatchBtn, BUTTON_BASIC.DEFAULT)
+    function toggleStopwatchBtn:OnClick()
+        if stopwatchAddon and stopwatchAddon.ToggleStopwatch then
+            stopwatchAddon.ToggleStopwatch()
         end
-        api.Log:Info("[Elu Tracker] Trip Counter has been reset.")
     end
-    resetBtn:SetHandler("OnClick", resetBtn.OnClick)
+    toggleStopwatchBtn:SetHandler("OnClick", toggleStopwatchBtn.OnClick)
+
+    if spotTrackerAddon and spotTrackerAddon.CreateUI then
+        spotTrackerAddon.CreateUI(wnd)
+    end
 
     return wnd
 end
@@ -321,6 +405,7 @@ local function OnLoad()
     packsAddon = require("elu_tracker/packs")
     lootAddon = require("elu_tracker/loot")
     fishingAddon = require("elu_tracker/fishing")
+    spotTrackerAddon = require("elu_tracker/spot_tracker")
     
     local tabInfo = {
         {
@@ -338,10 +423,10 @@ local function OnLoad()
             title = "Fishing",
             subWindowConstructor = function(parent) CreateFishingWindow(parent) end
         },
-        {
+          {
             validationCheckFunc = function() return true end,
-            title = "Trip Counter",
-            subWindowConstructor = function(parent) CreateTripCounterWindow(parent) end
+            title = "Misc.",
+            subWindowConstructor = function(parent) CreateMiscWindow(parent) end
         }
     }
     
@@ -403,8 +488,9 @@ if eluDisplayWindow.titleBar and eluDisplayWindow.titleBar.bg then
     
     local closeBtn = tripOverlay:CreateChildWidget("button", "closeBtn", 0, true)
     closeBtn:SetText("X")
-    closeBtn:SetExtent(15, 15)
-    closeBtn:AddAnchor("TOPRIGHT", tripOverlay, -2, 2)
+    closeBtn:SetExtent(16, 16)
+    closeBtn:AddAnchor("TOPRIGHT", tripOverlay, -5, 5)
+    closeBtn.style:SetAlign(ALIGN.CENTER)
     ApplyTextColor(closeBtn, FONT_COLOR.RED)
     function closeBtn:OnClick() tripOverlay:Show(false) end
     closeBtn:SetHandler("OnClick", closeBtn.OnClick)
@@ -443,6 +529,8 @@ if eluDisplayWindow.titleBar and eluDisplayWindow.titleBar.bg then
     packsAddon:OnLoad()
     lootAddon:OnLoad()
     fishingAddon:OnLoad()
+    spotTrackerAddon:OnLoad()
+    stopwatchAddon:OnLoad()
 
     api.On("UPDATE", OnUpdate)
 end
@@ -451,6 +539,8 @@ local function OnUnload()
     if packsAddon then packsAddon:OnUnload(); packsAddon = nil end
     if lootAddon then lootAddon:OnUnload(); lootAddon = nil end
     if fishingAddon then fishingAddon:OnUnload(); fishingAddon = nil end
+    if spotTrackerAddon then spotTrackerAddon:OnUnload(); spotTrackerAddon = nil end
+    if stopwatchAddon then stopwatchAddon:OnUnload(); stopwatchAddon = nil end
 
     if eluDisplayWindow then
         eluDisplayWindow:Show(false)
