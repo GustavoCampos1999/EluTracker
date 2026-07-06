@@ -26,7 +26,7 @@ local recentGoldTimer = 8000
 
 local currentSession
 local pastSessions
-local pastSessionsFilename = "elu_tracker_fishing_sessions.lua"
+local pastSessionsFilename = "elu_tracker/data/elu_tracker_fishing_sessions.lua"
 
 local sessionTimeoutCounter = 0
 local SESSION_TIMEOUT_MS = 17000 
@@ -418,21 +418,21 @@ local function refreshStatisticsLabels()
     local yesterdayProfit = 0
     
     if pastSessions and pastSessions.sessions then
-        local nowStr = getSafeTimestamp()
-        local nowDate = api.Time:TimeToDate(nowStr)
+        local nowTime = tonumber(getSafeTimestamp()) or 0
+        local dayOffset = 86400
+        if nowTime > 10000000000 then dayOffset = 86400000 end
+        
+        local nowDate = api.Time:TimeToDate(string.format("%.0f", nowTime))
+        local yesterdayDate = api.Time:TimeToDate(string.format("%.0f", nowTime - dayOffset))
         
         for _, sessionObject in pairs(pastSessions.sessions) do
             if type(sessionObject.profitTotal) == "number" then
                 local sDate = api.Time:TimeToDate(tostring(sessionObject.localTimestamp))
-                if sDate and nowDate then
+                if sDate and nowDate and yesterdayDate then
                     if tonumber(sDate.year) == tonumber(nowDate.year) and tonumber(sDate.month) == tonumber(nowDate.month) and tonumber(sDate.day) == tonumber(nowDate.day) then
                         todayProfit = todayProfit + sessionObject.profitTotal
-                    else
-                        local shiftedMs = tonumber(sessionObject.localTimestamp) + 86400000
-                        local shiftedDate = api.Time:TimeToDate(string.format("%.0f", shiftedMs))
-                        if shiftedDate and tonumber(shiftedDate.year) == tonumber(nowDate.year) and tonumber(shiftedDate.month) == tonumber(nowDate.month) and tonumber(shiftedDate.day) == tonumber(nowDate.day) then
-                            yesterdayProfit = yesterdayProfit + sessionObject.profitTotal
-                        end
+                    elseif tonumber(sDate.year) == tonumber(yesterdayDate.year) and tonumber(sDate.month) == tonumber(yesterdayDate.month) and tonumber(sDate.day) == tonumber(yesterdayDate.day) then
+                        yesterdayProfit = yesterdayProfit + sessionObject.profitTotal
                     end
                 end
             end
@@ -673,14 +673,15 @@ local function OnLoad()
     function yesBtn:OnClick()
         confirmDialog:Show(false)
         if pastSessions and pastSessions.sessions then
-            local nowStr = getSafeTimestamp()
-            local nowDate = api.Time:TimeToDate(nowStr)
+            local nowTime = tonumber(getSafeTimestamp()) or 0
+            local dayOffset = (nowTime > 10000000000) and 86400000 or 86400
+            local nowDate = api.Time:TimeToDate(string.format("%.0f", nowTime))
             local changed = false
             
            for _, sessionObject in pairs(pastSessions.sessions) do
                 local sDate = api.Time:TimeToDate(tostring(sessionObject.localTimestamp))
                 if sDate and nowDate and tonumber(sDate.year) == tonumber(nowDate.year) and tonumber(sDate.month) == tonumber(nowDate.month) and tonumber(sDate.day) == tonumber(nowDate.day) then
-                    sessionObject.localTimestamp = string.format("%.0f", tonumber(sessionObject.localTimestamp) - 86400000)
+                    sessionObject.localTimestamp = string.format("%.0f", tonumber(sessionObject.localTimestamp) - dayOffset)
                     changed = true
                 end
             end
@@ -738,15 +739,5 @@ end
 
 elu_fishing_addon.OnLoad = OnLoad
 elu_fishing_addon.OnUnload = OnUnload
-
-elu_fishing_addon.TestAddFish = function(fishId, goldAmount)
-    local coinType = 0
-    if currentSession == nil or tonumber(currentSession["packId"]) ~= tonumber(fishId) then 
-        if currentSession ~= nil then saveCurrentSessionToFile() end
-        startFishTurnInSession(fishId, coinType)
-    end 
-    addFishToSession(goldAmount, coinType, fishId)
-    displayRefreshCounter = DISPLAY_REFRESH_MS
-end
 
 return elu_fishing_addon

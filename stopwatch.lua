@@ -3,12 +3,51 @@ local stopwatch_addon = {}
 local swOverlay = nil
 local swRunning = false
 local swElapsedMs = 0
+local startTimeMs = 0
+local swPosFile = "elu_tracker/data/elu_stopwatch_pos.txt"
 
-local function ConvertColor(color) return color / 255 end 
+local BSCBTN = {
+    path = "ui/common/default.dds",
+    fontColor = {
+        normal = { 0.407843, 0.266667, 0.0705882, 1 },
+        pushed = { 0.407843, 0.266667, 0.0705882, 1 },
+        highlight = { 0.603922, 0.376471, 0.0627451, 1 },
+        disabled = { 0.360784, 0.360784, 0.360784, 1 },
+    },
+    coords = {
+        normal = { 727, 247, 60, 25 },
+        disable = { 788, 273, 60, 25 },
+        over = { 727, 273, 60, 25 },
+        click = { 788, 247, 60, 25 },
+    },
+    fontInset = { top = 0, right = 11, left = 11, bottom = 0 },
+    width = 30,
+    height = 24,
+    autoResize = true,
+    drawableType = "ninePart",
+    coordsKey = "btn",
+}
+
+local function SavePosition()
+    if swOverlay then
+        local x, y = swOverlay:GetOffset()
+        if x and y then
+            api.File:Write(swPosFile, { x = x, y = y })
+        end
+    end
+end
+
+local function LoadPosition()
+    local data = api.File:Read(swPosFile)
+    if type(data) == "table" and data.x and data.y then
+        swOverlay:RemoveAllAnchors()
+        swOverlay:AddAnchor("TOPLEFT", "UIParent", data.x, data.y)
+    end
+end
 
 function stopwatch_addon:OnLoad()
     swOverlay = api.Interface:CreateEmptyWindow("eluStopwatchOverlay", "UIParent")
-    swOverlay:SetExtent(180, 100)
+    swOverlay:SetExtent(170, 95)
     swOverlay:AddAnchor("TOPLEFT", "UIParent", 500, 250)
     swOverlay:Show(false)
     swOverlay:EnableDrag(true)
@@ -16,60 +55,78 @@ function stopwatch_addon:OnLoad()
     function swOverlay:OnDragStart() self:StartMoving() end
     swOverlay:SetHandler("OnDragStart", swOverlay.OnDragStart)
 
-    function swOverlay:OnDragStop() self:StopMovingOrSizing() end
+    function swOverlay:OnDragStop() 
+        self:StopMovingOrSizing() 
+        SavePosition()
+    end
     swOverlay:SetHandler("OnDragStop", swOverlay.OnDragStop)
 
     local bg = swOverlay:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
     bg:SetTextureInfo("bg_quest")
-    bg:SetColor(0, 0, 0, 0.7)
+    bg:SetColor(0, 0, 0, 0.6)
     bg:AddAnchor("TOPLEFT", swOverlay, 0, 0)
     bg:AddAnchor("BOTTOMRIGHT", swOverlay, 0, 0)
+    
+    local clockIcon = swOverlay:CreateChildWidget("label", "clockIcon", 0, true)  
+    clockIcon:AddAnchor("TOPLEFT", swOverlay, 10, 2)
+    local clockIconTexture = clockIcon:CreateImageDrawable(TEXTURE_PATH.HUD, "background")
+    clockIconTexture:SetTextureInfo("clock")
+    clockIconTexture:AddAnchor("TOPLEFT", clockIcon, 0, 0)
 
-    local closeBtn = swOverlay:CreateChildWidget("button", "closeBtn", 0, true)
-    closeBtn:SetText("X")
-    closeBtn:SetExtent(16, 16)
-    closeBtn:AddAnchor("TOPRIGHT", swOverlay, -5, 5)
-    closeBtn.style:SetAlign(ALIGN.CENTER)
-    ApplyTextColor(closeBtn, FONT_COLOR.RED)
-    function closeBtn:OnClick() swOverlay:Show(false) end
-    closeBtn:SetHandler("OnClick", closeBtn.OnClick)
+    local titleLabel = swOverlay:CreateChildWidget("label", "titleLabel", 0, true)
+    titleLabel.style:SetShadow(true)
+    titleLabel.style:SetAlign(ALIGN.CENTER)
+    titleLabel:AddAnchor("TOP", swOverlay, "TOP", 0, 15)
+    titleLabel.style:SetFontSize(FONT_SIZE.LARGE)
+    titleLabel:SetText("Stopwatch")
 
-    local timeLabel = swOverlay:CreateChildWidget("label", "timeLabel", 0, true)
-    timeLabel:AddAnchor("TOP", swOverlay, 0, 20)
-    timeLabel.style:SetFontSize(FONT_SIZE.XXLARGE)
-    timeLabel:SetText("00:00:00")
-    ApplyTextColor(timeLabel, FONT_COLOR.WHITE)
-    swOverlay.timeLabel = timeLabel
+    local clockLabel = swOverlay:CreateChildWidget("label", "clockLabel", 0, true)
+    clockLabel.style:SetShadow(true)
+    clockLabel.style:SetAlign(ALIGN.CENTER)
+    clockLabel:AddAnchor("CENTER", swOverlay, -5, -3)
+    clockLabel.style:SetFontSize(FONT_SIZE.XLARGE)
+    clockLabel:SetText("00:00:00")
+    swOverlay.clockLabel = clockLabel
 
-    local playBtn = swOverlay:CreateChildWidget("button", "playBtn", 0, true)
-    playBtn:SetText("Start")
-    playBtn:SetExtent(60, 25)
-    playBtn:AddAnchor("BOTTOMLEFT", swOverlay, 20, -15)
-    ApplyButtonSkin(playBtn, BUTTON_BASIC.DEFAULT)
-    swOverlay.playBtn = playBtn
+    local startBtn = swOverlay:CreateChildWidget("button", "startBtn", 0, true)  
+    startBtn:AddAnchor("BOTTOM", swOverlay, -50, -10)
+    startBtn:SetText("Start")
+    api.Interface:ApplyButtonSkin(startBtn, BSCBTN)
+    
+    local stopBtn = swOverlay:CreateChildWidget("button", "stopBtn", 0, true)  
+    stopBtn:AddAnchor("BOTTOM", swOverlay, 0, -10)
+    stopBtn:SetText("Stop")
+    api.Interface:ApplyButtonSkin(stopBtn, BSCBTN)
 
-    function playBtn:OnClick()
-        swRunning = not swRunning
-        if swRunning then
-            swOverlay.playBtn:SetText("Pause")
-        else
-            swOverlay.playBtn:SetText("Start")
+    local restartBtn = swOverlay:CreateChildWidget("button", "restartBtn", 0, true)  
+    restartBtn:AddAnchor("BOTTOM", swOverlay, 50, -10)
+    restartBtn:SetText("Reset")
+    api.Interface:ApplyButtonSkin(restartBtn, BSCBTN)
+
+    function startBtn:OnClick()
+        if not swRunning then
+            swRunning = true
+            startTimeMs = api.Time:GetUiMsec()
         end
     end
-    playBtn:SetHandler("OnClick", playBtn.OnClick)
+    startBtn:SetHandler("OnClick", startBtn.OnClick)
 
-    local resetBtn = swOverlay:CreateChildWidget("button", "resetBtn", 0, true)
-    resetBtn:SetText("Reset")
-    resetBtn:SetExtent(60, 25)
-    resetBtn:AddAnchor("BOTTOMRIGHT", swOverlay, -20, -15)
-    ApplyButtonSkin(resetBtn, BUTTON_BASIC.DEFAULT)
-    function resetBtn:OnClick()
-        swRunning = false
-        swElapsedMs = 0
-        swOverlay.timeLabel:SetText("00:00:00")
-        swOverlay.playBtn:SetText("Start")
+    function stopBtn:OnClick()
+        if swRunning then
+            swElapsedMs = swElapsedMs + (api.Time:GetUiMsec() - startTimeMs)
+            swRunning = false
+        end
     end
-    resetBtn:SetHandler("OnClick", resetBtn.OnClick)
+    stopBtn:SetHandler("OnClick", stopBtn.OnClick)
+
+    function restartBtn:OnClick()
+        swElapsedMs = 0
+        swRunning = false
+        swOverlay.clockLabel:SetText("00:00:00")
+    end
+    restartBtn:SetHandler("OnClick", restartBtn.OnClick)
+
+    LoadPosition()
 end
 
 function stopwatch_addon.ToggleStopwatch()
@@ -80,15 +137,22 @@ function stopwatch_addon.ToggleStopwatch()
 end
 
 function stopwatch_addon:OnUpdate(dt)
-    if swRunning and swOverlay and swOverlay:IsVisible() then
-        swElapsedMs = swElapsedMs + dt
+    if swOverlay and swOverlay:IsVisible() then
+        local currentElapsed = swElapsedMs
+        if swRunning then
+            currentElapsed = currentElapsed + (api.Time:GetUiMsec() - startTimeMs)
+        end
         
-        local totalSecs = math.floor(swElapsedMs / 1000)
+        local totalSecs = math.floor(currentElapsed / 1000)
         local h = math.floor(totalSecs / 3600)
         local m = math.floor((totalSecs % 3600) / 60)
         local s = totalSecs % 60
         
-        swOverlay.timeLabel:SetText(string.format("%02d:%02d:%02d", h, m, s))
+        if h > 0 then
+            swOverlay.clockLabel:SetText(string.format("%02d:%02d:%02d", h, m, s))
+        else
+            swOverlay.clockLabel:SetText(string.format("%02d:%02d", m, s))
+        end
     end
 end
 

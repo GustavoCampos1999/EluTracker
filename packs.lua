@@ -92,7 +92,7 @@ local function updateLastKnownChannel(channelId, channelName)
 end 
 local function GetCurrentSetPrices()
     local cVal, dVal = 1.5, 22
-    local data = api.File:Read("elu_commerce_prices.txt")
+    local data = api.File:Read("elu_tracker/data/elu_commerce_prices.txt")
     if type(data) == "table" then
         if data.c then cVal = tonumber(data.c) or 1.5 end
         if data.d then dVal = tonumber(data.d) or 22 end
@@ -559,8 +559,9 @@ local function OnLoad()
     currentSession = nil
     lastSeenPrice = nil
     lastSeenCoinType = nil
-    pastSessionsFilename = "elu_tracker_pack_sessions.lua"
+    pastSessionsFilename = "elu_tracker/data/elu_tracker_pack_sessions.lua"
 
+    -- Load past sessions
     pastSessions = api.File:Read(pastSessionsFilename)
     if pastSessions == nil or pastSessions.sessions == nil then
         local ok, backupData = pcall(require, "elu_tracker/data/pack_sessions")
@@ -574,6 +575,44 @@ local function OnLoad()
         if maxPage == nil then maxPage = 1 end
     else
         maxPage = math.ceil(#pastSessions.sessions / pageSize)
+    end
+    
+    -- Sync data from your_paystub_pack_sessions.lua without duplicating
+    local paystubSessions = api.File:Read("your_paystub_pack_sessions.lua")
+    if paystubSessions and paystubSessions.sessions then
+        local seen = {}
+        local merged = {}
+        
+        -- Helper function to add a session if not seen
+        local function addSession(session)
+            -- Create a unique key, localTimestamp + packId
+            local key = tostring(session.localTimestamp) .. "_" .. tostring(session.packId)
+            if not seen[key] then
+                seen[key] = true
+                table.insert(merged, session)
+            end
+        end
+
+        -- Add current elu tracker sessions
+        for _, s in ipairs(pastSessions.sessions) do
+            addSession(s)
+        end
+        
+        -- Add paystub sessions
+        for _, s in ipairs(paystubSessions.sessions) do
+            addSession(s)
+        end
+        
+        -- Sort by localTimestamp descending (most recent first)
+        table.sort(merged, function(a, b)
+            return tonumber(a.localTimestamp or 0) > tonumber(b.localTimestamp or 0)
+        end)
+        
+        pastSessions.sessions = merged
+        -- Write to elu_tracker_pack_sessions to persist the merged state
+        api.File:Write(pastSessionsFilename, pastSessions)
+        maxPage = math.ceil(#pastSessions.sessions / pageSize)
+        if maxPage == 0 then maxPage = 1 end
     end
     
 

@@ -1,0 +1,6 @@
+{
+    enabled = true,
+    x = 799,
+    y = 90,
+    scale = 1,
+}

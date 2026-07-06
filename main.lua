@@ -7,11 +7,11 @@ local elu_tracker_addon = {
 }
 
 local packsAddon = require("elu_tracker/packs")
-local lootAddon = require("elu_tracker/loot")
+local guildCheckAddon = require("elu_tracker/guild_check")
 local fishingAddon = require("elu_tracker/fishing")
 local spotTrackerAddon = require("elu_tracker/spot_tracker")
+local zealAlertAddon = require("elu_tracker/zeal_alert")
 local stopwatchAddon = require("elu_tracker/stopwatch")
-
 eluDisplayWindow = nil
 local eluBtn
 
@@ -40,7 +40,7 @@ local function LoadAHPrices()
             [32103] = { average = 1.5 },
             [32106] = { average = 22 }
         }
-        local data = api.File:Read("elu_commerce_prices.txt")
+        local data = api.File:Read("elu_tracker/data/elu_commerce_prices.txt")
         if type(data) == "table" then
             if data.c ~= nil then memoryAHPrices[32103].average = tonumber(data.c) or memoryAHPrices[32103].average end
             if data.d ~= nil then memoryAHPrices[32106].average = tonumber(data.d) or memoryAHPrices[32106].average end
@@ -79,7 +79,7 @@ local function SetManualPrices(cGold, cSilver, dGold, dSilver)
     memoryAHPrices[32106].average = dragonVal
 
     local tableToSave = { c = charcoalVal, d = dragonVal }
-    api.File:Write("elu_commerce_prices.txt", tableToSave)
+    api.File:Write("elu_tracker/data/elu_commerce_prices.txt", tableToSave)
 
     if eluCharcoalLabel then
         eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", charcoalVal, dragonVal))
@@ -117,6 +117,7 @@ local function OnUpdate(dt)
     if stopwatchAddon and stopwatchAddon.OnUpdate then
         stopwatchAddon:OnUpdate(dt)
     end
+    
 end
 
 
@@ -241,7 +242,7 @@ local function CreateCommerceWindow(wndParent)
 
         memoryAHPrices[32103].average = cVal
         memoryAHPrices[32106].average = dVal
-        api.File:Write("elu_commerce_prices.txt", { c = cVal, d = dVal })
+        api.File:Write("elu_tracker/data/elu_commerce_prices.txt", { c = cVal, d = dVal })
 
         if eluCharcoalLabel then
             eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", cVal, dVal))
@@ -304,23 +305,29 @@ local function CreateCommerceWindow(wndParent)
     return wnd
 end
 
-local function CreateLootTrackerWindow(wndParent)
-    local wnd = wndParent:CreateChildWidget("emptywidget", "lootWindow", 0, true)
+local function CreateGuildCheckWindow(wndParent)
+    local wnd = wndParent:CreateChildWidget("emptywidget", "guildCheckWindow", 0, true)
     wnd:SetExtent(600, 600)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
+    
     local title = wnd:CreateChildWidget("label", "title", 0, true)
     title:SetAutoResize(true)
     title:SetHeight(FONT_SIZE.XLARGE)
     title.style:SetAlign(ALIGN.CENTER)
     title.style:SetFontSize(FONT_SIZE.XLARGE)
     ApplyTextColor(title, FONT_COLOR.TITLE)
-    title:SetText("Loot Tracker")
+    title:SetText("Guild Check")
     title:AddAnchor("TOP", wnd, 0, 10)
     
-    local sessionScrollList = W_CTRL.CreatePageScrollListCtrl("sessionScrollList", wnd)
-    sessionScrollList:Show(true)
-    sessionScrollList:AddAnchor("TOPLEFT", wnd, 4, 4)
-    sessionScrollList:AddAnchor("BOTTOMRIGHT", wnd, -4, -4)
+    local desc = wnd:CreateChildWidget("label", "desc", 0, true)
+    desc:SetAutoResize(true)
+    desc:SetHeight(FONT_SIZE.LARGE)
+    desc.style:SetAlign(ALIGN.CENTER)
+    desc.style:SetFontSize(FONT_SIZE.LARGE)
+    ApplyTextColor(desc, FONT_COLOR.DEFAULT)
+    desc:SetText("Under construction")
+    desc:AddAnchor("CENTER", wnd, 0, 0)
+    
     return wnd
 end 
 
@@ -393,17 +400,44 @@ local function CreateMiscWindow(wndParent)
     end
     toggleStopwatchBtn:SetHandler("OnClick", toggleStopwatchBtn.OnClick)
 
+
     if spotTrackerAddon and spotTrackerAddon.CreateUI then
         spotTrackerAddon.CreateUI(wnd)
+    end
+
+    if zealAlertAddon and zealAlertAddon.CreateUI then
+        zealAlertAddon.CreateUI(wnd)
     end
 
     return wnd
 end
 
 local function OnLoad()
+    local migrationFiles = {
+        "elu_commerce_prices.txt",
+        "elu_trip_pos.txt",
+        "elu_tracker_pack_sessions.lua",
+        "elu_tracker_fishing_sessions.lua",
+        "elu_spot_timers.txt",
+        "elu_tracker_misc.txt",
+        "elu_spot_pos.txt",
+        "elu_stopwatch_pos.txt",
+        "elu_zeal_settings.txt"
+    }
+    for _, file in ipairs(migrationFiles) do
+        local newPath = "elu_tracker/data/" .. file
+        local newData = api.File:Read(newPath)
+        if type(newData) ~= "table" then
+            local oldData = api.File:Read(file)
+            if type(oldData) == "table" then
+                api.File:Write(newPath, oldData)
+            end
+        end
+    end
+
     LoadAHPrices()
     packsAddon = require("elu_tracker/packs")
-    lootAddon = require("elu_tracker/loot")
+    guildCheckAddon = require("elu_tracker/guild_check")
     fishingAddon = require("elu_tracker/fishing")
     spotTrackerAddon = require("elu_tracker/spot_tracker")
     
@@ -415,18 +449,18 @@ local function OnLoad()
         },
         {
             validationCheckFunc = function() return true end,
-            title = "Loot Tracker",
-            subWindowConstructor = function(parent) CreateLootTrackerWindow(parent) end
+            title = "Guild Check",
+            subWindowConstructor = function(parent) CreateGuildCheckWindow(parent) end
         },
         {
             validationCheckFunc = function() return true end,
             title = "Fishing",
             subWindowConstructor = function(parent) CreateFishingWindow(parent) end
         },
-          {
+        {
             validationCheckFunc = function() return true end,
             title = "Misc.",
-            subWindowConstructor = function(parent) CreateMiscWindow(parent) end
+            subWindowConstructor = function(parent) return CreateMiscWindow(parent) end
         }
     }
     
@@ -474,11 +508,33 @@ if eluDisplayWindow.titleBar and eluDisplayWindow.titleBar.bg then
     tripOverlay:Show(false)
     tripOverlay:EnableDrag(true)
 
+    local tripPosFile = "elu_tracker/data/elu_trip_pos.txt"
+    local function SaveTripPos()
+        if tripOverlay then
+            local x, y = tripOverlay:GetOffset()
+            if x and y then
+                api.File:Write(tripPosFile, { x = x, y = y })
+            end
+        end
+    end
+
+    local function LoadTripPos()
+        local data = api.File:Read(tripPosFile)
+        if type(data) == "table" and data.x and data.y then
+            tripOverlay:RemoveAllAnchors()
+            tripOverlay:AddAnchor("TOPLEFT", "UIParent", data.x, data.y)
+        end
+    end
+
     function tripOverlay:OnDragStart() self:StartMoving() end
     tripOverlay:SetHandler("OnDragStart", tripOverlay.OnDragStart)
 
-    function tripOverlay:OnDragStop() self:StopMovingOrSizing() end
+    function tripOverlay:OnDragStop() 
+        self:StopMovingOrSizing() 
+        SaveTripPos()
+    end
     tripOverlay:SetHandler("OnDragStop", tripOverlay.OnDragStop)
+    LoadTripPos()
     
     local bg = tripOverlay:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
     bg:SetTextureInfo("bg_quest")
@@ -527,9 +583,10 @@ if eluDisplayWindow.titleBar and eluDisplayWindow.titleBar.bg then
     tripOverlay.compBtn = compBtn
 
     packsAddon:OnLoad()
-    lootAddon:OnLoad()
+    guildCheckAddon:OnLoad()
     fishingAddon:OnLoad()
     spotTrackerAddon:OnLoad()
+    zealAlertAddon:OnLoad()
     stopwatchAddon:OnLoad()
 
     api.On("UPDATE", OnUpdate)
@@ -537,9 +594,10 @@ end
 
 local function OnUnload()
     if packsAddon then packsAddon:OnUnload(); packsAddon = nil end
-    if lootAddon then lootAddon:OnUnload(); lootAddon = nil end
+    if guildCheckAddon then guildCheckAddon:OnUnload(); guildCheckAddon = nil end
     if fishingAddon then fishingAddon:OnUnload(); fishingAddon = nil end
     if spotTrackerAddon then spotTrackerAddon:OnUnload(); spotTrackerAddon = nil end
+    if zealAlertAddon then zealAlertAddon:OnUnload(); zealAlertAddon = nil end
     if stopwatchAddon then stopwatchAddon:OnUnload(); stopwatchAddon = nil end
 
     if eluDisplayWindow then

@@ -1,0 +1,4 @@
+{
+    modifierKey = "SHIFT",
+    enableAltTracking = false,
+}
