@@ -40,7 +40,7 @@ local function LoadAHPrices()
             [32103] = { average = 1.5 },
             [32106] = { average = 22 }
         }
-        local data = api.File:Read("elu_tracker/data/elu_commerce_prices.txt")
+        local data = api.File:Read("elu_tracker/data_sessions/elu_commerce_prices.txt")
         if type(data) == "table" then
             if data.c ~= nil then memoryAHPrices[32103].average = tonumber(data.c) or memoryAHPrices[32103].average end
             if data.d ~= nil then memoryAHPrices[32106].average = tonumber(data.d) or memoryAHPrices[32106].average end
@@ -79,7 +79,7 @@ local function SetManualPrices(cGold, cSilver, dGold, dSilver)
     memoryAHPrices[32106].average = dragonVal
 
     local tableToSave = { c = charcoalVal, d = dragonVal }
-    api.File:Write("elu_tracker/data/elu_commerce_prices.txt", tableToSave)
+    api.File:Write("elu_tracker/data_sessions/elu_commerce_prices.txt", tableToSave)
 
     if eluCharcoalLabel then
         eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", charcoalVal, dragonVal))
@@ -242,7 +242,7 @@ local function CreateCommerceWindow(wndParent)
 
         memoryAHPrices[32103].average = cVal
         memoryAHPrices[32106].average = dVal
-        api.File:Write("elu_tracker/data/elu_commerce_prices.txt", { c = cVal, d = dVal })
+        api.File:Write("elu_tracker/data_sessions/elu_commerce_prices.txt", { c = cVal, d = dVal })
 
         if eluCharcoalLabel then
             eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", cVal, dVal))
@@ -425,12 +425,20 @@ local function OnLoad()
         "elu_zeal_settings.txt"
     }
     for _, file in ipairs(migrationFiles) do
-        local newPath = "elu_tracker/data/" .. file
-        local newData = api.File:Read(newPath)
-        if type(newData) ~= "table" then
-            local oldData = api.File:Read(file)
-            if type(oldData) == "table" then
-                api.File:Write(newPath, oldData)
+        local finalPath = "elu_tracker/data_sessions/" .. file
+        local intermediatePath = "elu_tracker/data/" .. file
+        local rootPath = file
+        
+        local currentData = api.File:Read(finalPath)
+        if type(currentData) ~= "table" then
+            local intermediateData = api.File:Read(intermediatePath)
+            if type(intermediateData) == "table" then
+                api.File:Write(finalPath, intermediateData)
+            else
+                local rootData = api.File:Read(rootPath)
+                if type(rootData) == "table" then
+                    api.File:Write(finalPath, rootData)
+                end
             end
         end
     end
@@ -508,7 +516,7 @@ if eluDisplayWindow.titleBar and eluDisplayWindow.titleBar.bg then
     tripOverlay:Show(false)
     tripOverlay:EnableDrag(true)
 
-    local tripPosFile = "elu_tracker/data/elu_trip_pos.txt"
+    local tripPosFile = "elu_tracker/data_sessions/elu_trip_pos.txt"
     local function SaveTripPos()
         if tripOverlay then
             local x, y = tripOverlay:GetOffset()

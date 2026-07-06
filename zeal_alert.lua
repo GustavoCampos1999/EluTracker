@@ -5,7 +5,7 @@ local zealLabel = nil
 local zealIcon = nil
 local buffIdToTrack = 495
 local trackedBuffInfo = {}
-local zealSettingsFile = "elu_tracker/data/elu_zeal_settings.txt"
+local zealSettingsFile = "elu_tracker/data_sessions/elu_zeal_settings.txt"
 
 local settings = {
     enabled = true,

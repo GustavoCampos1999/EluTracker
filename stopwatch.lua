@@ -4,7 +4,7 @@ local swOverlay = nil
 local swRunning = false
 local swElapsedMs = 0
 local startTimeMs = 0
-local swPosFile = "elu_tracker/data/elu_stopwatch_pos.txt"
+local swPosFile = "elu_tracker/data_sessions/elu_stopwatch_pos.txt"
 
 local BSCBTN = {
     path = "ui/common/default.dds",

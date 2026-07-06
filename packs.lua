@@ -92,7 +92,7 @@ local function updateLastKnownChannel(channelId, channelName)
 end 
 local function GetCurrentSetPrices()
     local cVal, dVal = 1.5, 22
-    local data = api.File:Read("elu_tracker/data/elu_commerce_prices.txt")
+    local data = api.File:Read("elu_tracker/data_sessions/elu_commerce_prices.txt")
     if type(data) == "table" then
         if data.c then cVal = tonumber(data.c) or 1.5 end
         if data.d then dVal = tonumber(data.d) or 22 end
@@ -559,12 +559,12 @@ local function OnLoad()
     currentSession = nil
     lastSeenPrice = nil
     lastSeenCoinType = nil
-    pastSessionsFilename = "elu_tracker/data/elu_tracker_pack_sessions.lua"
+    pastSessionsFilename = "elu_tracker/data_sessions/elu_tracker_pack_sessions.lua"
 
     -- Load past sessions
     pastSessions = api.File:Read(pastSessionsFilename)
     if pastSessions == nil or pastSessions.sessions == nil then
-        local ok, backupData = pcall(require, "elu_tracker/data/pack_sessions")
+        local ok, backupData = pcall(require, "elu_tracker/data_sessions/pack_sessions")
         if ok and type(backupData) == "table" and backupData.sessions then
             pastSessions = backupData
             api.File:Write(pastSessionsFilename, pastSessions)
