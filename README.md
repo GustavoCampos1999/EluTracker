@@ -2,6 +2,8 @@
 
 A highly comprehensive and self-sufficient productivity, economy, and activity tracker designed specifically for ArcheAge Classic. This addon modernizes and heavily expands upon classic tracking capabilities to give players complete transparency over their economic activities, and gameplay loops.
 
+<img width="595" height="149" alt="image" src="https://github.com/user-attachments/assets/dcb79d21-6791-4a73-8216-244b0f954a97" />
+
 ## Acknowledgments & Credits
 Elu_Tracker is a standalone project heavily expanded from its original scope. While the overall addon has evolved independently, the Commerce tab was specifically inspired by and adapted from Your Paystub, originally created by Michaelqt.
 
@@ -17,6 +19,10 @@ Click the custom icon to toggle the main Elu_Tracker control panel.
 
 ## Features
 ### Commerce Tracker
+
+<img width="597" height="838" alt="image" src="https://github.com/user-attachments/assets/abf35314-2840-44f9-b7e8-7bbff63ba5d2" />
+
+
 Originally built upon the baseline framework by Michaelqt, this module has been heavily refactored.
 
 #### Pending Payout Tracking: 
@@ -32,6 +38,10 @@ Features a dedicated manual price-entry interface for critical resources (such a
 Categorizes and records exact delivery types, item amounts, and expected payout times for:  Gold  Charcoal Stabilizer  Gilda Stars  Dragon Essence Stabilizer
 
 ### Fishing Tracker
+
+<img width="594" height="752" alt="image" src="https://github.com/user-attachments/assets/e91bb715-ebac-4950-bc62-8ffcc670693e" />
+
+
 #### Catch & Profit Logging: 
 Tracks exact fish turn-ins and total gold generated. You can view your financial breakdown by Today’s Profit, Yesterday’s Profit, and Lifetime Total.
 
@@ -42,6 +52,10 @@ Aggregates real-time session statistics, detailing total gold accumulated. You c
 Features a smart rollover mechanism. If your fishing session goes past midnight, you can manually transfer "Today's" earnings into "Yesterday's" profit with a single click, resetting your daily tracker without losing your session data.
 
 ### Misc.
+
+<img width="590" height="653" alt="image" src="https://github.com/user-attachments/assets/439e319b-6842-4cf4-a60c-589ba0b6e1e3" />
+
+
 #### Integrated Chronometer (Stopwatch): 
 A highly accurate, low-overhead live timer mapped into the user interface
 
@@ -57,3 +71,6 @@ Multi-Slot Memory: Keep up to 3 active toggles simultaneously without needing ex
 
 ### Guild Check
 Instantly displays the guild of your current target. It creates a customizable floating box at the top of the screen and also adds the guild name directly above the target's health bar.
+
+#### Zeal Alert: 
+Pop an alert when zeal is active, fully customizable
