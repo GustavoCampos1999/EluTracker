@@ -12,7 +12,7 @@ spot_tracker.enableAltTracking = false
 local pendingReplacementInfo = nil
 local replaceWarning = nil
 
-local timersFilename = "elu_tracker/data_sessions/elu_spot_timers.txt"
+local timersFilename = "Elu_Tracker/data_sessions/elu_spot_timers.txt"
 
 local function SaveSpotTimers()
     local timersToSave = {}
@@ -69,7 +69,7 @@ local function LoadSpotTimers()
 end
 
 local function LoadMiscSettings()
-    local data = api.File:Read("elu_tracker/data_sessions/elu_tracker_misc.txt")
+    local data = api.File:Read("Elu_Tracker/data_sessions/elu_tracker_misc.txt")
     if type(data) == "table" then
         if data.enableAltTracking ~= nil then spot_tracker.enableAltTracking = data.enableAltTracking end
         if data.modifierKey ~= nil then spot_tracker.modifierKey = data.modifierKey else spot_tracker.modifierKey = "ALT" end
@@ -80,7 +80,7 @@ local function LoadMiscSettings()
 end
 
 local function SaveMiscSettings()
-    api.File:Write("elu_tracker/data_sessions/elu_tracker_misc.txt", { enableAltTracking = spot_tracker.enableAltTracking, modifierKey = spot_tracker.modifierKey })
+    api.File:Write("Elu_Tracker/data_sessions/elu_tracker_misc.txt", { enableAltTracking = spot_tracker.enableAltTracking, modifierKey = spot_tracker.modifierKey })
 end
 
 function spot_tracker.CreateUI(wndParent)
@@ -351,7 +351,7 @@ function spot_tracker:OnLoad()
     end
     LoadSpotTimers()
     
-    local spotPosFile = "elu_tracker/data_sessions/elu_spot_pos.txt"
+    local spotPosFile = "Elu_Tracker/data_sessions/elu_spot_pos.txt"
     function spot_tracker.SaveSpotPositions()
         local posData = {}
         for i = 1, MAX_TIMERS do

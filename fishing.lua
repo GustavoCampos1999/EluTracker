@@ -26,7 +26,7 @@ local recentGoldTimer = 8000
 
 local currentSession
 local pastSessions
-local pastSessionsFilename = "elu_tracker/data_sessions/elu_tracker_fishing_sessions.lua"
+local pastSessionsFilename = "Elu_Tracker/data_sessions/elu_tracker_fishing_sessions.lua"
 
 local sessionTimeoutCounter = 0
 local SESSION_TIMEOUT_MS = 17000 
@@ -575,7 +575,7 @@ local function OnLoad()
 
     pastSessions = api.File:Read(pastSessionsFilename)
     if pastSessions == nil or pastSessions.sessions == nil then
-        local readOk, backupData = pcall(require, "elu_tracker/data_sessions/fishing_sessions")
+        local readOk, backupData = pcall(require, "Elu_Tracker/data_sessions/fishing_sessions")
         if readOk and type(backupData) == "table" and backupData.sessions then
             pastSessions = backupData
             api.File:Write(pastSessionsFilename, pastSessions)

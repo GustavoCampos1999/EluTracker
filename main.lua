@@ -6,12 +6,12 @@ local elu_tracker_addon = {
 	tags = {"Economy", "Fishing", "QoL"}
 }
 
-local packsAddon = require("elu_tracker/packs")
-local guildCheckAddon = require("elu_tracker/guild_check")
-local fishingAddon = require("elu_tracker/fishing")
-local spotTrackerAddon = require("elu_tracker/spot_tracker")
-local zealAlertAddon = require("elu_tracker/zeal_alert")
-local stopwatchAddon = require("elu_tracker/stopwatch")
+local packsAddon = require("Elu_Tracker/packs")
+local guildCheckAddon = require("Elu_Tracker/guild_check")
+local fishingAddon = require("Elu_Tracker/fishing")
+local spotTrackerAddon = require("Elu_Tracker/spot_tracker")
+local zealAlertAddon = require("Elu_Tracker/zeal_alert")
+local stopwatchAddon = require("Elu_Tracker/stopwatch")
 eluDisplayWindow = nil
 local eluBtn
 
@@ -40,7 +40,7 @@ local function LoadAHPrices()
             [32103] = { average = 1.5 },
             [32106] = { average = 22 }
         }
-        local data = api.File:Read("elu_tracker/data_sessions/elu_commerce_prices.txt")
+        local data = api.File:Read("Elu_Tracker/data_sessions/elu_commerce_prices.txt")
         if type(data) == "table" then
             if data.c ~= nil then memoryAHPrices[32103].average = tonumber(data.c) or memoryAHPrices[32103].average end
             if data.d ~= nil then memoryAHPrices[32106].average = tonumber(data.d) or memoryAHPrices[32106].average end
@@ -79,7 +79,7 @@ local function SetManualPrices(cGold, cSilver, dGold, dSilver)
     memoryAHPrices[32106].average = dragonVal
 
     local tableToSave = { c = charcoalVal, d = dragonVal }
-    api.File:Write("elu_tracker/data_sessions/elu_commerce_prices.txt", tableToSave)
+    api.File:Write("Elu_Tracker/data_sessions/elu_commerce_prices.txt", tableToSave)
 
     if eluCharcoalLabel then
         eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", charcoalVal, dragonVal))
@@ -242,7 +242,7 @@ local function CreateCommerceWindow(wndParent)
 
         memoryAHPrices[32103].average = cVal
         memoryAHPrices[32106].average = dVal
-        api.File:Write("elu_tracker/data_sessions/elu_commerce_prices.txt", { c = cVal, d = dVal })
+        api.File:Write("Elu_Tracker/data_sessions/elu_commerce_prices.txt", { c = cVal, d = dVal })
 
         if eluCharcoalLabel then
             eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", cVal, dVal))
@@ -425,8 +425,8 @@ local function OnLoad()
         "elu_zeal_settings.txt"
     }
     for _, file in ipairs(migrationFiles) do
-        local finalPath = "elu_tracker/data_sessions/" .. file
-        local intermediatePath = "elu_tracker/data/" .. file
+        local finalPath = "Elu_Tracker/data_sessions/" .. file
+        local intermediatePath = "Elu_Tracker/data/" .. file
         local rootPath = file
         
         local currentData = api.File:Read(finalPath)
@@ -444,10 +444,10 @@ local function OnLoad()
     end
 
     LoadAHPrices()
-    packsAddon = require("elu_tracker/packs")
-    guildCheckAddon = require("elu_tracker/guild_check")
-    fishingAddon = require("elu_tracker/fishing")
-    spotTrackerAddon = require("elu_tracker/spot_tracker")
+    packsAddon = require("Elu_Tracker/packs")
+    guildCheckAddon = require("Elu_Tracker/guild_check")
+    fishingAddon = require("Elu_Tracker/fishing")
+    spotTrackerAddon = require("Elu_Tracker/spot_tracker")
     
     local tabInfo = {
         {
@@ -516,7 +516,7 @@ if eluDisplayWindow.titleBar and eluDisplayWindow.titleBar.bg then
     tripOverlay:Show(false)
     tripOverlay:EnableDrag(true)
 
-    local tripPosFile = "elu_tracker/data_sessions/elu_trip_pos.txt"
+    local tripPosFile = "Elu_Tracker/data_sessions/elu_trip_pos.txt"
     local function SaveTripPos()
         if tripOverlay then
             local x, y = tripOverlay:GetOffset()
