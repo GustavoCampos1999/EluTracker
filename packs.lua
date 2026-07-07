@@ -92,7 +92,7 @@ local function updateLastKnownChannel(channelId, channelName)
 end 
 local function GetCurrentSetPrices()
     local cVal, dVal = 1.5, 22
-    local data = api.File:Read("Elu_Tracker/data_sessions/elu_commerce_prices.txt")
+    local data = api.File:Read("elu_commerce_prices.txt")
     if type(data) == "table" then
         if data.c then cVal = tonumber(data.c) or 1.5 end
         if data.d then dVal = tonumber(data.d) or 22 end
@@ -240,7 +240,20 @@ local function saveCurrentSessionToFile()
     end 
     currentSession["costTotal"] = "Unknown"
 
-    table.insert(pastSessions["sessions"], 1, currentSession)
+    local found = false
+    if pastSessions.sessions then
+        for i, s in ipairs(pastSessions.sessions) do
+            if s == currentSession then
+                found = true
+                break
+            end
+        end
+    end
+    
+    if not found then
+        table.insert(pastSessions["sessions"], 1, currentSession)
+    end
+    
     api.File:Write(pastSessionsFilename, pastSessions)
 
     local sessionScrollList = commerceWindow.sessionScrollList
@@ -282,6 +295,7 @@ local function addPackToSession(refund, coinTypeId, packId)
         currentSession["refundTotal"] = currentSession["refundTotal"] + refund
         currentSession["localTimestamp"] = api.Time:GetLocalTime()
         sessionTimeoutCounter = 0
+        saveCurrentSessionToFile()
     end 
 end 
 
@@ -387,10 +401,8 @@ end
 local function OnUpdate(dt) 
     if sessionTimeoutCounter + dt > SESSION_TIMEOUT_MS then
         if currentSession ~= nil then 
-            api.Log:Info("[Elu Tracker] Ending current pack session...")
             saveCurrentSessionToFile()
             currentSession = nil
-            
         end 
         sessionTimeoutCounter = 0
     end 
@@ -541,7 +553,7 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     clickOverlay:AddAnchor("TOPLEFT", subItem, 0, 0)
     clickOverlay:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)
     function clickOverlay:OnClick()
-        api.Log:Info("Ding!")
+        -- Removed spam
     end 
     clickOverlay:SetHandler("OnClick", clickOverlay.OnClick)
 end
@@ -559,16 +571,18 @@ local function OnLoad()
     currentSession = nil
     lastSeenPrice = nil
     lastSeenCoinType = nil
-    pastSessionsFilename = "Elu_Tracker/data_sessions/elu_tracker_pack_sessions.lua"
+    pastSessionsFilename = "elu_tracker_pack_sessions.lua"
 
     -- Load past sessions
     pastSessions = api.File:Read(pastSessionsFilename)
     if pastSessions == nil or pastSessions.sessions == nil then
-        local ok, backupData = pcall(require, "Elu_Tracker/data_sessions/pack_sessions")
+        local ok, backupData = pcall(require, "pack_sessions")
         if ok and type(backupData) == "table" and backupData.sessions then
             pastSessions = backupData
-            api.File:Write(pastSessionsFilename, pastSessions)
-            api.Log:Info("[Elu Tracker] Migrated pack history from addon data folder.")
+            if pastSessions ~= nil and pastSessions.sessions ~= nil then
+                api.File:Write(pastSessionsFilename, pastSessions)
+                api.File:Write("Elu_Tracker/data_sessions/pack_sessions.lua", {})
+            end
         else
             pastSessions = { sessions = {} }
         end

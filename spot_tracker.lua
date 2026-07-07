@@ -12,7 +12,7 @@ spot_tracker.enableAltTracking = false
 local pendingReplacementInfo = nil
 local replaceWarning = nil
 
-local timersFilename = "Elu_Tracker/data_sessions/elu_spot_timers.txt"
+local timersFilename = "elu_spot_timers.txt"
 
 local function SaveSpotTimers()
     local timersToSave = {}
@@ -69,7 +69,7 @@ local function LoadSpotTimers()
 end
 
 local function LoadMiscSettings()
-    local data = api.File:Read("Elu_Tracker/data_sessions/elu_tracker_misc.txt")
+    local data = api.File:Read("elu_tracker_misc.txt")
     if type(data) == "table" then
         if data.enableAltTracking ~= nil then spot_tracker.enableAltTracking = data.enableAltTracking end
         if data.modifierKey ~= nil then spot_tracker.modifierKey = data.modifierKey else spot_tracker.modifierKey = "ALT" end
@@ -80,7 +80,7 @@ local function LoadMiscSettings()
 end
 
 local function SaveMiscSettings()
-    api.File:Write("Elu_Tracker/data_sessions/elu_tracker_misc.txt", { enableAltTracking = spot_tracker.enableAltTracking, modifierKey = spot_tracker.modifierKey })
+    api.File:Write("elu_tracker_misc.txt", { enableAltTracking = spot_tracker.enableAltTracking, modifierKey = spot_tracker.modifierKey })
 end
 
 function spot_tracker.CreateUI(wndParent)
@@ -152,7 +152,7 @@ function spot_tracker.CreateUI(wndParent)
     ApplyTextColor(altLbl, FONT_COLOR.DEFAULT)
 
     LoadMiscSettings()
-    altToggle:SetChecked(spot_tracker.enableAltTracking)
+    altToggle:SetChecked(spot_tracker.enableAltTracking, false)
     
     local modBtn = container:CreateChildWidget("button", "eluTrackerModBtn", 0, true)
     modBtn:SetExtent(60, 25)
@@ -163,16 +163,19 @@ function spot_tracker.CreateUI(wndParent)
     modBtn:SetText(spot_tracker.modifierKey)
     
     function modBtn:OnClick()
-        if spot_tracker.modifierKey == "ALT" then spot_tracker.modifierKey = "SHIFT"
-        elseif spot_tracker.modifierKey == "SHIFT" then spot_tracker.modifierKey = "CTRL"
+        local current = spot_tracker.modifierKey
+        if current == "ALT" then spot_tracker.modifierKey = "SHIFT"
+        elseif current == "SHIFT" then spot_tracker.modifierKey = "CTRL"
         else spot_tracker.modifierKey = "ALT" end
-        self:SetText(spot_tracker.modifierKey)
+        modBtn:SetText(spot_tracker.modifierKey)
+        api.Log:Info("[Spot Tracker] Modifier Key changed to: " .. spot_tracker.modifierKey)
         SaveMiscSettings()
     end
     modBtn:SetHandler("OnClick", modBtn.OnClick)
 
     function altToggle:OnCheckChanged()
         spot_tracker.enableAltTracking = self:GetChecked()
+        api.Log:Info("[Spot Tracker] Status: " .. (spot_tracker.enableAltTracking and "ON" or "OFF"))
         SaveMiscSettings()
     end
     altToggle:SetHandler("OnCheckChanged", altToggle.OnCheckChanged)
@@ -216,7 +219,6 @@ function spot_tracker.CaptureHoveredSpot()
                 end
                 replaceWarning:Show(true) 
             end
-            api.Log:Info(string.format("[Elu Tracker] Spot limit reached. Press %s again to replace oldest.", modKey))
             return true
         else
             if nowMs - pendingReplacementInfo.time > 500 then
@@ -225,7 +227,6 @@ function spot_tracker.CaptureHoveredSpot()
                 spotNameStr = pendingReplacementInfo.name
                 pendingReplacementInfo = nil
                 if replaceWarning then replaceWarning:Show(false) end
-                api.Log:Info("[Elu Tracker] Replaced oldest tracker with new one!")
             else
                 return true
             end
@@ -241,7 +242,6 @@ function spot_tracker.CaptureHoveredSpot()
         targetOverlay.rawSpotName = spotNameStr
         
         local mins = math.floor(exactTimeSeconds / 60)
-        api.Log:Info(string.format("[Elu Tracker] '%s' marked with %d mins timer!", spotNameStr, mins))
         targetOverlay:Show(true)
         SaveSpotTimers()
     end
@@ -351,7 +351,7 @@ function spot_tracker:OnLoad()
     end
     LoadSpotTimers()
     
-    local spotPosFile = "Elu_Tracker/data_sessions/elu_spot_pos.txt"
+    local spotPosFile = "elu_spot_pos.txt"
     function spot_tracker.SaveSpotPositions()
         local posData = {}
         for i = 1, MAX_TIMERS do

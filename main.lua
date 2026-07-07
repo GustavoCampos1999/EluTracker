@@ -40,7 +40,7 @@ local function LoadAHPrices()
             [32103] = { average = 1.5 },
             [32106] = { average = 22 }
         }
-        local data = api.File:Read("Elu_Tracker/data_sessions/elu_commerce_prices.txt")
+        local data = api.File:Read("elu_commerce_prices.txt")
         if type(data) == "table" then
             if data.c ~= nil then memoryAHPrices[32103].average = tonumber(data.c) or memoryAHPrices[32103].average end
             if data.d ~= nil then memoryAHPrices[32106].average = tonumber(data.d) or memoryAHPrices[32106].average end
@@ -79,12 +79,11 @@ local function SetManualPrices(cGold, cSilver, dGold, dSilver)
     memoryAHPrices[32106].average = dragonVal
 
     local tableToSave = { c = charcoalVal, d = dragonVal }
-    api.File:Write("Elu_Tracker/data_sessions/elu_commerce_prices.txt", tableToSave)
+    api.File:Write("elu_commerce_prices.txt", tableToSave)
 
     if eluCharcoalLabel then
         eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", charcoalVal, dragonVal))
     end
-    api.Log:Info(string.format("[Elu Tracker] Prices updated! Charcoal: %.2fg | Dragon: %.2fg", charcoalVal, dragonVal))
 end
 local bagFrameFixed = false
 local function OnUpdate(dt)
@@ -118,6 +117,9 @@ local function OnUpdate(dt)
         stopwatchAddon:OnUpdate(dt)
     end
     
+    if zealAlertAddon and zealAlertAddon.OnUpdate then
+        zealAlertAddon:OnUpdate(dt)
+    end
 end
 
 
@@ -242,12 +244,11 @@ local function CreateCommerceWindow(wndParent)
 
         memoryAHPrices[32103].average = cVal
         memoryAHPrices[32106].average = dVal
-        api.File:Write("Elu_Tracker/data_sessions/elu_commerce_prices.txt", { c = cVal, d = dVal })
+        api.File:Write("elu_commerce_prices.txt", { c = cVal, d = dVal })
 
         if eluCharcoalLabel then
             eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", cVal, dVal))
         end
-        api.Log:Info(string.format("[EluTracker] Preco salvo -> Charcoal: %.2fg | Dragon: %.2fg", cVal, dVal))
 
         _pendingCharcoalPrice = nil
         _pendingCharcoalSilver = nil
@@ -425,19 +426,21 @@ local function OnLoad()
         "elu_zeal_settings.txt"
     }
     for _, file in ipairs(migrationFiles) do
-        local finalPath = "Elu_Tracker/data_sessions/" .. file
-        local intermediatePath = "Elu_Tracker/data/" .. file
-        local rootPath = file
+        local finalPath = file
+        local dataSessionsPath = "Elu_Tracker/data_sessions/" .. file
+        local dataPath = "Elu_Tracker/data/" .. file
         
         local currentData = api.File:Read(finalPath)
         if type(currentData) ~= "table" then
-            local intermediateData = api.File:Read(intermediatePath)
-            if type(intermediateData) == "table" then
-                api.File:Write(finalPath, intermediateData)
+            local dsData = api.File:Read(dataSessionsPath)
+            if type(dsData) == "table" then
+                api.File:Write(finalPath, dsData)
+                api.File:Write(dataSessionsPath, {})
             else
-                local rootData = api.File:Read(rootPath)
-                if type(rootData) == "table" then
-                    api.File:Write(finalPath, rootData)
+                local oldData = api.File:Read(dataPath)
+                if type(oldData) == "table" then
+                    api.File:Write(finalPath, oldData)
+                    api.File:Write(dataPath, {})
                 end
             end
         end
@@ -516,7 +519,7 @@ if eluDisplayWindow.titleBar and eluDisplayWindow.titleBar.bg then
     tripOverlay:Show(false)
     tripOverlay:EnableDrag(true)
 
-    local tripPosFile = "Elu_Tracker/data_sessions/elu_trip_pos.txt"
+    local tripPosFile = "elu_trip_pos.txt"
     local function SaveTripPos()
         if tripOverlay then
             local x, y = tripOverlay:GetOffset()

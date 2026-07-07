@@ -5,7 +5,7 @@ local zealLabel = nil
 local zealIcon = nil
 local buffIdToTrack = 495
 local trackedBuffInfo = {}
-local zealSettingsFile = "Elu_Tracker/data_sessions/elu_zeal_settings.txt"
+local zealSettingsFile = "elu_zeal_settings.txt"
 
 local settings = {
     enabled = true,
@@ -109,7 +109,7 @@ function zeal_alert.CreateUI(wndParent)
     enableLbl:AddAnchor("LEFT", enableCheck, "RIGHT", 5, 0)
     ApplyTextColor(enableLbl, FONT_COLOR.DEFAULT)
     
-    enableCheck:SetChecked(settings.enabled)
+    enableCheck:SetChecked(settings.enabled, false)
     
     local scaleLbl = container:CreateChildWidget("label", "scaleLbl", 0, true)
     scaleLbl:SetAutoResize(true)
@@ -158,6 +158,7 @@ function zeal_alert.CreateUI(wndParent)
     
     function enableCheck:OnCheckChanged()
         settings.enabled = self:GetChecked()
+        api.Log:Info("[Zeal Alert] Status: " .. (settings.enabled and "ON" or "OFF"))
         SaveSettings()
         UpdateVisibility()
         if not settings.enabled and zealOverlay then
@@ -170,7 +171,7 @@ function zeal_alert.CreateUI(wndParent)
     
     function moveBtn:OnClick()
         settings.moving = not settings.moving
-        api.Log:Info("[ZealAlert] Move Mode toggled: " .. tostring(settings.moving))
+        api.Log:Info("[Zeal Alert] Move Mode: " .. (settings.moving and "ON" or "OFF"))
         if settings.moving then
             zealOverlay:Show(true)
             if moveModeLabel then moveModeLabel:Show(true) end

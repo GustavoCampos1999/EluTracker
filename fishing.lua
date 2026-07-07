@@ -26,7 +26,7 @@ local recentGoldTimer = 8000
 
 local currentSession
 local pastSessions
-local pastSessionsFilename = "Elu_Tracker/data_sessions/elu_tracker_fishing_sessions.lua"
+local pastSessionsFilename = "elu_tracker_fishing_sessions.lua"
 
 local sessionTimeoutCounter = 0
 local SESSION_TIMEOUT_MS = 17000 
@@ -331,7 +331,7 @@ local function recordFishPayment(...)
             recentFishRemovedId = removedItemId
             recentFishTimer = 0
             
-            if lastSeenPrice and lastSeenPrice > 0 and tonumber(currentBackSlotItem) == removedItemId then
+            if lastSeenPrice and lastSeenPrice > 0 then
                 recentGoldReceived = lastSeenPrice
                 recentGoldTimer = 0
                 attemptFishSaleMatch(false)
@@ -464,7 +464,7 @@ local function OnUpdate(dt)
         if sessionTimeoutCounter > SESSION_TIMEOUT_MS then
             local fishInfo = api.Item:GetItemInfoByType(tonumber(currentSession.packId) or 0)
             local fishName = fishInfo and fishInfo.name or "Fish"
-            api.Log:Info(string.format("[Elu Tracker] Updated %dx %s payment.", currentSession.packCount, fishName))
+            -- Removed spam log
             
             currentSession = nil
             sessionTimeoutCounter = 0
@@ -575,10 +575,11 @@ local function OnLoad()
 
     pastSessions = api.File:Read(pastSessionsFilename)
     if pastSessions == nil or pastSessions.sessions == nil then
-        local readOk, backupData = pcall(require, "Elu_Tracker/data_sessions/fishing_sessions")
+        local readOk, backupData = pcall(require, "fishing_sessions")
         if readOk and type(backupData) == "table" and backupData.sessions then
             pastSessions = backupData
             api.File:Write(pastSessionsFilename, pastSessions)
+            api.File:Write("Elu_Tracker/data_sessions/fishing_sessions.lua", {})
         else
             pastSessions = { sessions = {} }
         end
