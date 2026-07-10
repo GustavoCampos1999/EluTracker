@@ -1,7 +1,7 @@
 local elu_tracker_addon = {
 	name = "Elu Tracker",
 	author = "Eludelu",
-	version = "1.0",
+	version = "2.0",
 	desc = "Commerce & Fishing tools.",
 	tags = {"Economy", "Fishing", "QoL"}
 }
@@ -13,6 +13,7 @@ local spotTrackerAddon = require("Elu_Tracker/spot_tracker")
 local zealAlertAddon = require("Elu_Tracker/zeal_alert")
 local stopwatchAddon = require("Elu_Tracker/stopwatch")
 eluDisplayWindow = nil
+local eluWasVisible = false
 local eluBtn
 
 local tripOverlay
@@ -109,6 +110,10 @@ local function OnUpdate(dt)
         end
     end
     
+    if guildCheckAddon and guildCheckAddon.OnUpdate then
+        guildCheckAddon:OnUpdate(dt)
+    end
+    
     if spotTrackerAddon and spotTrackerAddon.OnUpdate then
         spotTrackerAddon:OnUpdate(dt)
     end
@@ -119,6 +124,16 @@ local function OnUpdate(dt)
     
     if zealAlertAddon and zealAlertAddon.OnUpdate then
         zealAlertAddon:OnUpdate(dt)
+    end
+    
+    if eluDisplayWindow then
+        local isVis = eluDisplayWindow:IsVisible()
+        if eluWasVisible and not isVis then
+            if guildCheckAddon and guildCheckAddon.OnMainWindowHide then
+                guildCheckAddon.OnMainWindowHide()
+            end
+        end
+        eluWasVisible = isVis
     end
 end
 
@@ -311,23 +326,9 @@ local function CreateGuildCheckWindow(wndParent)
     wnd:SetExtent(600, 600)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
     
-    local title = wnd:CreateChildWidget("label", "title", 0, true)
-    title:SetAutoResize(true)
-    title:SetHeight(FONT_SIZE.XLARGE)
-    title.style:SetAlign(ALIGN.CENTER)
-    title.style:SetFontSize(FONT_SIZE.XLARGE)
-    ApplyTextColor(title, FONT_COLOR.TITLE)
-    title:SetText("Guild Check")
-    title:AddAnchor("TOP", wnd, 0, 10)
-    
-    local desc = wnd:CreateChildWidget("label", "desc", 0, true)
-    desc:SetAutoResize(true)
-    desc:SetHeight(FONT_SIZE.LARGE)
-    desc.style:SetAlign(ALIGN.CENTER)
-    desc.style:SetFontSize(FONT_SIZE.LARGE)
-    ApplyTextColor(desc, FONT_COLOR.DEFAULT)
-    desc:SetText("Under construction")
-    desc:AddAnchor("CENTER", wnd, 0, 0)
+    if guildCheckAddon and guildCheckAddon.CreateUI then
+        guildCheckAddon.CreateUI(wnd)
+    end
     
     return wnd
 end 
@@ -478,7 +479,9 @@ local function OnLoad()
     eluDisplayWindow = api.Interface:CreateWindow("eluDisplayWindow", "Elu Tracker", 600, 840, tabInfo)
     eluDisplayWindow:AddAnchor("CENTER", "UIParent", 0, 0)
     eluDisplayWindow:Show(false)
-if eluDisplayWindow.titleBar and eluDisplayWindow.titleBar.bg then
+    eluWasVisible = false
+    
+    if eluDisplayWindow.titleBar and eluDisplayWindow.titleBar.bg then
         eluDisplayWindow.titleBar.bg:SetColor(ConvertColor(40), ConvertColor(44), ConvertColor(52), 1.0) 
     end
     if eluDisplayWindow.bg then
@@ -487,9 +490,21 @@ if eluDisplayWindow.titleBar and eluDisplayWindow.titleBar.bg then
 
     local bagFrame = ADDON:GetContent(UIC.BAG)
     
+    if bagFrame.eluBtn then
+        bagFrame.eluBtn:Show(false)
+        bagFrame.eluBtn:RemoveAllAnchors()
+    end
+
     eluBtn = bagFrame:CreateChildWidget("button", "eluBtn", 0, true)
     eluBtn:AddAnchor("BOTTOMLEFT", bagFrame.expandBtn, -55, 5)
     eluBtn:SetExtent(50, 50)
+    
+    local blankBg = eluBtn:CreateColorDrawable(0,0,0,0, "background")
+    eluBtn:SetNormalBackground(blankBg)
+    eluBtn:SetPushedBackground(blankBg)
+    eluBtn:SetHighlightBackground(blankBg)
+    eluBtn:SetDisabledBackground(blankBg)
+    
     local btnBg = eluBtn:CreateImageDrawable("Addon/elu_tracker/icon.png", "background")
     btnBg:AddAnchor("TOPLEFT", eluBtn, 0, 0)
     btnBg:AddAnchor("BOTTOMRIGHT", eluBtn, 0, 0)

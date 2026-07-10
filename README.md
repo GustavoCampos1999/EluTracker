@@ -66,7 +66,7 @@ Hot-Key Capture: Bind a modifier key (Alt, Shift, or Ctrl) in the Misc settings,
 
 Multi-Slot Memory: Keep up to 3 active toggles simultaneously without needing external notes. Attempting to track a 4th spot will trigger a quick confirmation prompt; pressing your hotkey again will automatically overwrite your oldest active tracker.
 
-### Guild Check (under construction)
+### Guild Check 
 Instantly displays the guild of your current target. It creates a customizable floating box at the top of the screen and also adds the guild name directly above the target's health bar.
 
 #### Zeal Alert: 
