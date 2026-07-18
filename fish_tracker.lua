@@ -4,7 +4,6 @@ local fish_tracker = {}
 
 fish_tracker.enableDeadFishTimers = true
 fish_tracker.enableSkillIndicators = true
-fish_tracker.enableOwnerMark = true
 fish_tracker.enableDebugMode = true
 fish_tracker.enableOnlyMyFishes = true
 
@@ -67,22 +66,17 @@ local MARKED_FISH_TIMER = 150000
 local deadFishes = {}
 local markedFishUI = {}
 
-local OWNERS_MARK_BUFF_ID = 4867
-local boatOwnerMarkUI = nil
-
 local function LoadMiscSettings()
     local data = api.File:Read("elu_tracker_misc.txt")
     if type(data) == "table" then
         if data.enableDeadFishTimers ~= nil then fish_tracker.enableDeadFishTimers = data.enableDeadFishTimers end
         if data.enableSkillIndicators ~= nil then fish_tracker.enableSkillIndicators = data.enableSkillIndicators end
-        if data.enableOwnerMark ~= nil then fish_tracker.enableOwnerMark = data.enableOwnerMark end
-        api.Log:Info(string.format("[Fish Tracker Debug] Settings Loaded - DeadFish:%s, SkillInd:%s, OwnerMark:%s", 
-            tostring(fish_tracker.enableDeadFishTimers), tostring(fish_tracker.enableSkillIndicators), tostring(fish_tracker.enableOwnerMark)))
+        api.Log:Info(string.format("[Fish Tracker Debug] Settings Loaded - DeadFish:%s, SkillInd:%s", 
+            tostring(fish_tracker.enableDeadFishTimers), tostring(fish_tracker.enableSkillIndicators)))
     else
         api.Log:Info("[Fish Tracker Debug] No settings file found, using defaults.")
         fish_tracker.enableDeadFishTimers = true
         fish_tracker.enableSkillIndicators = true
-        fish_tracker.enableOwnerMark = true
     end
 end
 
@@ -91,7 +85,6 @@ local function SaveMiscSettings()
     if type(data) ~= "table" then data = {} end
     data.enableDeadFishTimers = fish_tracker.enableDeadFishTimers
     data.enableSkillIndicators = fish_tracker.enableSkillIndicators
-    data.enableOwnerMark = fish_tracker.enableOwnerMark
     api.File:Write("elu_tracker_misc.txt", data)
 end
 
@@ -178,43 +171,6 @@ function fish_tracker.CreateUI(wndParent)
     end
     skillIndToggle:SetHandler("OnCheckChanged", skillIndToggle.OnCheckChanged)
 
-    -- Owner Mark Toggle
-    local ownerMarkToggleContainer = wndParent:CreateChildWidget("emptywidget", "ownerMarkToggleContainer", 0, true)
-    ownerMarkToggleContainer:SetExtent(200, 30)
-    if wndParent.toggleBtn then
-        ownerMarkToggleContainer:AddAnchor("TOP", wndParent.toggleBtn, "BOTTOM", -30, 10)
-    else
-        ownerMarkToggleContainer:AddAnchor("TOP", wndParent, 0, 130)
-    end
-
-    local ownerMarkToggle = ownerMarkToggleContainer:CreateChildWidget("checkbutton", "ownerMarkToggle", 0, true)
-    ownerMarkToggle:SetExtent(18, 17)
-    ownerMarkToggle:AddAnchor("LEFT", ownerMarkToggleContainer, 15, 6)
-    
-    local bg1om = ownerMarkToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
-    bg1om:SetExtent(18, 17)
-    bg1om:AddAnchor("CENTER", ownerMarkToggle, 0, 0)
-    bg1om:SetCoords(0, 0, 18, 17)
-    ownerMarkToggle:SetNormalBackground(bg1om)
-    
-    local bg2om = ownerMarkToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
-    bg2om:SetExtent(18, 17)
-    bg2om:AddAnchor("CENTER", ownerMarkToggle, 0, 0)
-    bg2om:SetCoords(18, 0, 18, 17)
-    ownerMarkToggle:SetCheckedBackground(bg2om)
-    
-    local omLbl = ownerMarkToggleContainer:CreateChildWidget("label", "omLbl", 0, true)
-    omLbl:SetAutoResize(true)
-    omLbl:SetText("Enable Owner Mark")
-    omLbl:AddAnchor("LEFT", ownerMarkToggle, "RIGHT", 5, 0)
-    ApplyTextColor(omLbl, FONT_COLOR.DEFAULT)
-
-    ownerMarkToggle:SetChecked(fish_tracker.enableOwnerMark, false)
-    function ownerMarkToggle:OnCheckChanged()
-        fish_tracker.enableOwnerMark = self:GetChecked()
-        SaveMiscSettings()
-    end
-    ownerMarkToggle:SetHandler("OnCheckChanged", ownerMarkToggle.OnCheckChanged)
 end
 
 function fish_tracker:OnLoad()
@@ -305,36 +261,7 @@ function fish_tracker:OnLoad()
         }
     end
 
-    local boatCanvas = api.Interface:CreateEmptyWindow("eluBoatOwnerMarkTarget")
-    boatCanvas:Show(false)
 
-    local boatIcon = CreateItemIconButton("eluBoatOwnerMarkIcon", boatCanvas)
-    boatIcon:AddAnchor("TOPLEFT", boatCanvas, "TOPLEFT", 0, 0)
-    boatIcon:Show(true)
-    F_SLOT.ApplySlotSkin(boatIcon, boatIcon.back, SLOT_STYLE.DEFAULT)
-
-    local boatMarkerLabel = boatCanvas:CreateChildWidget("label", "eluBoatOwnerMarkMarkerLabel", 0, true)
-    boatMarkerLabel:SetText("")
-    boatMarkerLabel:AddAnchor("BOTTOM", boatIcon, "TOP", 0, 2)
-    boatMarkerLabel.style:SetFontSize(14)
-    boatMarkerLabel.style:SetAlign(ALIGN.CENTER)
-    boatMarkerLabel.style:SetShadow(true)
-    boatMarkerLabel.style:SetColor(0.3, 0.6, 1, 1)
-
-    local boatTimeLabel = boatCanvas:CreateChildWidget("label", "eluBoatOwnerMarkTimeLabel", 0, true)
-    boatTimeLabel:SetText("")
-    boatTimeLabel:AddAnchor("TOP", boatIcon, "BOTTOM", 0, 2)
-    boatTimeLabel.style:SetFontSize(18)
-    boatTimeLabel.style:SetAlign(ALIGN.CENTER)
-    boatTimeLabel.style:SetShadow(true)
-    boatTimeLabel.style:SetColor(0.3, 0.6, 1, 1)
-
-    boatOwnerMarkUI = {
-        canvas = boatCanvas,
-        icon = boatIcon,
-        timeLabel = boatTimeLabel,
-        markerLabel = boatMarkerLabel
-    }
 
     deadFishes = {}
     
@@ -505,7 +432,9 @@ function fish_tracker:OnUpdate(dt)
         for i = 1, buffCount do
             local buff = api.Unit:UnitBuff("target", i)
             if buff ~= nil then
-                if buff.buff_id == OWNERS_MARK_BUFF_ID then
+                local bInfo = api.Ability:GetBuffTooltip(buff.buff_id, 1)
+                if buff.buff_id == 4867 or buff.buff_id == 5748 or buff.buff_id == 14470 or 
+                   (bInfo and bInfo.name and string.find(string.lower(bInfo.name), "owner's mark")) then
                     ownersMarkBuff = buff
                 elseif fishBuffIdsToAlert[buff.buff_id] ~= nil then
                     if actionBuffs[buff.buff_id] then
@@ -517,24 +446,11 @@ function fish_tracker:OnUpdate(dt)
             end
         end
 
-        -- Owner Mark Logic (Any target with Buff 4867)
         if fish_tracker.enableOwnerMark and ownersMarkBuff ~= nil then
-
-            
-            local activeDeadFishTimers = 0
-            for _, _ in pairs(deadFishes) do activeDeadFishTimers = activeDeadFishTimers + 1 end
-            
-            local xOffset = (activeDeadFishTimers * 50) - 125
-            boatOwnerMarkUI.canvas:RemoveAllAnchors()
-            boatOwnerMarkUI.canvas:AddAnchor("TOP", "UIParent", "CENTER", xOffset, 200)
-            
-            boatOwnerMarkUI.canvas:Show(true)
-            local ct = ownersMarkBuff.timeLeft / 1000
-            boatOwnerMarkUI.timeLabel:SetText(string.format("%.0fs", ct))
-            F_SLOT.SetIconBackGround(boatOwnerMarkUI.icon, api.Ability:GetBuffTooltip(OWNERS_MARK_BUFF_ID, 1).path)
-        else
-            if boatOwnerMarkUI and boatOwnerMarkUI.canvas then
-                boatOwnerMarkUI.canvas:Show(false)
+            if not fish_tracker.ownerMarkEndTime or currentTime > fish_tracker.ownerMarkEndTime or fish_tracker.ownerMarkUnitId == currentTarget then
+                fish_tracker.ownerMarkEndTime = currentTime + ownersMarkBuff.timeLeft
+                fish_tracker.ownerMarkIconPath = api.Ability:GetBuffTooltip(ownersMarkBuff.buff_id, 1).path
+                fish_tracker.ownerMarkUnitId = currentTarget
             end
         end
 
@@ -609,7 +525,6 @@ function fish_tracker:OnUpdate(dt)
         previousActionBuffId = nil
         previousStrengthBuffId = nil
         if fishTrackerCanvas then fishTrackerCanvas:Show(false) end
-        if boatOwnerMarkUI and boatOwnerMarkUI.canvas then boatOwnerMarkUI.canvas:Show(false) end
     end
 end
 
@@ -628,12 +543,6 @@ function fish_tracker:OnUnload()
     end
     markedFishUI = {}
     deadFishes = {}
-    
-    if boatOwnerMarkUI ~= nil and boatOwnerMarkUI.canvas ~= nil then
-        boatOwnerMarkUI.canvas:Show(false)
-        api.Interface:Free(boatOwnerMarkUI.canvas)
-        boatOwnerMarkUI = nil
-    end
 end
 
 return fish_tracker
