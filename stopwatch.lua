@@ -88,6 +88,15 @@ function stopwatch_addon:OnLoad()
     clockLabel:SetText("00:00:00")
     swOverlay.clockLabel = clockLabel
 
+    local closeBtn = swOverlay:CreateChildWidget("button", "closeBtn", 0, true)
+    closeBtn:SetText("X")
+    closeBtn:SetExtent(16, 16)
+    closeBtn:AddAnchor("TOPRIGHT", swOverlay, -5, 5)
+    closeBtn.style:SetAlign(ALIGN.CENTER)
+    ApplyTextColor(closeBtn, FONT_COLOR.RED)
+    function closeBtn:OnClick() swOverlay:Show(false) end
+    closeBtn:SetHandler("OnClick", closeBtn.OnClick)
+
     local startBtn = swOverlay:CreateChildWidget("button", "startBtn", 0, true)  
     startBtn:AddAnchor("BOTTOM", swOverlay, -50, -10)
     startBtn:SetText("Start")

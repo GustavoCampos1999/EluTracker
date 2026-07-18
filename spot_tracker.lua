@@ -94,7 +94,7 @@ function spot_tracker.CreateUI(wndParent)
     titleSpot:SetAutoResize(true)
     titleSpot.style:SetFontSize(FONT_SIZE.XXLARGE)
     ApplyTextColor(titleSpot, FONT_COLOR.TITLE)
-    titleSpot:SetText("Fishing Spot")
+    titleSpot:SetText("Fishing Settings")
     if anchorWidget == wndParent then
         titleSpot:AddAnchor("TOP", anchorWidget, 0, yOffset)
     else

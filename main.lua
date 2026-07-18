@@ -12,6 +12,7 @@ local fishingAddon = require("Elu_Tracker/fishing")
 local spotTrackerAddon = require("Elu_Tracker/spot_tracker")
 local zealAlertAddon = require("Elu_Tracker/zeal_alert")
 local stopwatchAddon = require("Elu_Tracker/stopwatch")
+local fishTrackerAddon = require("Elu_Tracker/fish_tracker")
 eluDisplayWindow = nil
 local eluWasVisible = false
 local eluBtn
@@ -124,6 +125,10 @@ local function OnUpdate(dt)
     
     if zealAlertAddon and zealAlertAddon.OnUpdate then
         zealAlertAddon:OnUpdate(dt)
+    end
+    
+    if fishTrackerAddon and fishTrackerAddon.OnUpdate then
+        fishTrackerAddon:OnUpdate(dt)
     end
     
     if eluDisplayWindow then
@@ -411,6 +416,10 @@ local function CreateMiscWindow(wndParent)
         zealAlertAddon.CreateUI(wnd)
     end
 
+    if fishTrackerAddon and fishTrackerAddon.CreateUI then
+        fishTrackerAddon.CreateUI(wnd)
+    end
+
     return wnd
 end
 
@@ -452,6 +461,7 @@ local function OnLoad()
     guildCheckAddon = require("Elu_Tracker/guild_check")
     fishingAddon = require("Elu_Tracker/fishing")
     spotTrackerAddon = require("Elu_Tracker/spot_tracker")
+    fishTrackerAddon = require("Elu_Tracker/fish_tracker")
     
     local tabInfo = {
         {
@@ -552,6 +562,20 @@ local function OnLoad()
         end
     end
 
+    local tripCountFile = "elu_trip_count.txt"
+    local function SaveTripCount()
+        api.File:Write(tripCountFile, { count = tripCount })
+    end
+
+    local function LoadTripCount()
+        local data = api.File:Read(tripCountFile)
+        if type(data) == "table" and data.count then
+            tripCount = data.count
+        else
+            tripCount = 0
+        end
+    end
+
     function tripOverlay:OnDragStart() self:StartMoving() end
     tripOverlay:SetHandler("OnDragStart", tripOverlay.OnDragStart)
 
@@ -561,6 +585,7 @@ local function OnLoad()
     end
     tripOverlay:SetHandler("OnDragStop", tripOverlay.OnDragStop)
     LoadTripPos()
+    LoadTripCount()
     
     local bg = tripOverlay:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
     bg:SetTextureInfo("bg_quest")
@@ -587,6 +612,7 @@ local function OnLoad()
         if tripOverlay and tripOverlay.countLabel then
             tripOverlay.countLabel:SetText("Trip: " .. tostring(tripCount))
         end
+        SaveTripCount()
     end
     resetOverlayBtn:SetHandler("OnClick", resetOverlayBtn.OnClick)
 
@@ -604,6 +630,7 @@ local function OnLoad()
     function compBtn:OnClick()
         tripCount = (tripCount or 0) + 1
         countLabel:SetText("Trip: " .. tostring(tripCount or 0))
+        SaveTripCount()
     end
     compBtn:SetHandler("OnClick", compBtn.OnClick)
     tripOverlay.compBtn = compBtn
@@ -614,6 +641,7 @@ local function OnLoad()
     spotTrackerAddon:OnLoad()
     zealAlertAddon:OnLoad()
     stopwatchAddon:OnLoad()
+    if fishTrackerAddon then fishTrackerAddon:OnLoad() end
 
     api.On("UPDATE", OnUpdate)
 end
@@ -625,6 +653,7 @@ local function OnUnload()
     if spotTrackerAddon then spotTrackerAddon:OnUnload(); spotTrackerAddon = nil end
     if zealAlertAddon then zealAlertAddon:OnUnload(); zealAlertAddon = nil end
     if stopwatchAddon then stopwatchAddon:OnUnload(); stopwatchAddon = nil end
+    if fishTrackerAddon then fishTrackerAddon:OnUnload(); fishTrackerAddon = nil end
 
     if eluDisplayWindow then
         eluDisplayWindow:Show(false)

@@ -38,7 +38,7 @@ Categorizes and records exact delivery types, item amounts, and expected payout 
 
 ### Fishing Tracker
 
-![image](https://github.com/user-attachments/assets/947adc20-1d00-4f81-b9ba-d6e61a59c7cf)
+![image](https://github.com/user-attachments/assets/e91bb715-ebac-4950-bc62-8ffcc670693e)
 
 #### Catch & Profit Logging: 
 Tracks exact fish turn-ins and total gold generated. You can view your financial breakdown by Today’s Profit, Yesterday’s Profit, and Lifetime Total.
@@ -56,17 +56,11 @@ Features a smart rollover mechanism. If your fishing session goes past midnight,
 #### Integrated Chronometer (Stopwatch): 
 A highly accurate, low-overhead live timer mapped into the user interface
 
-![image](https://github.com/user-attachments/assets/d2a1031e-18be-4a9e-a6e9-fd7aaed6c39b)
-
 #### Trip Counter: 
 A persistent counter for your trade runs. It features anti-DC protection, meaning your progress is safely cached and will only reset if you manually click the "Reset" button. You can set a specific run goal (e.g., 18) and save up to 5 favorite route presets to load them instantly
 
-![image](https://github.com/user-attachments/assets/5d1c722a-ea64-4f07-ba8d-574030f7875e)
-
 #### Dynamic Fishing Spot Tracker: 
 An advanced utility designed to actively record and time active fishing and schools fish.
-
-![image](https://github.com/user-attachments/assets/91041361-14fd-4ec7-8b90-0a2099776744)
 
 Hot-Key Capture: Bind a modifier key (Alt, Shift, or Ctrl) in the Misc settings, hover over a spot, and instantly open a persistent tracking toggle showing the spot's name and remaining time.
 
@@ -75,15 +69,5 @@ Multi-Slot Memory: Keep up to 3 active toggles simultaneously without needing ex
 ### Guild Check 
 Instantly displays the guild of your current target. It creates a customizable floating box at the top of the screen and also adds the guild name directly above the target's health bar.
 
-![image](https://github.com/user-attachments/assets/b796e760-1d97-4b6c-bc8e-e492ac606e01)
-
-![image](https://github.com/user-attachments/assets/2e5d2291-2130-42d5-9d96-9f94157c2a10)
-
-![image](https://github.com/user-attachments/assets/c346bce2-7464-4f87-9ca1-e13f7f4cb969)
-
 #### Zeal Alert: 
 Pop an alert when zeal is active, fully customizable
-
-![image](https://github.com/user-attachments/assets/bc765df1-2514-425d-89e7-d2ccb5ef0238)
-
-![image](https://github.com/user-attachments/assets/0b06c1e1-f2d5-4722-b00d-fe03ec780822)

@@ -67,7 +67,7 @@ end
 function zeal_alert.CreateUI(wndParent)
     local container = wndParent:CreateChildWidget("emptywidget", "zealAlertContainer", 0, true)
     container:SetExtent(500, 150)
-    container:AddAnchor("TOP", wndParent, 0, 360)
+    container:AddAnchor("TOP", wndParent, 0, 420)
     
     local title = container:CreateChildWidget("label", "title", 0, true)
     title:SetAutoResize(true)
