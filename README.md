@@ -71,6 +71,8 @@ Instantly displays the guild of your current target. It creates a customizable f
 
 ![image](https://github.com/user-attachments/assets/dce6edb5-43ed-445c-b38c-f70bc54318f7)
 
+![image](https://github.com/user-attachments/assets/2d8231e5-3b85-4f69-bb90-49b2db8e46b6)
+
 #### Zeal Alert: 
 Pop an alert when zeal is active, fully customizable
 
