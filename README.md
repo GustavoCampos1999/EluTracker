@@ -69,5 +69,11 @@ Multi-Slot Memory: Keep up to 3 active toggles simultaneously without needing ex
 ### Guild Check 
 Instantly displays the guild of your current target. It creates a customizable floating box at the top of the screen and also adds the guild name directly above the target's health bar.
 
+![image](https://github.com/user-attachments/assets/dce6edb5-43ed-445c-b38c-f70bc54318f7)
+
+![image](https://github.com/user-attachments/assets/2d8231e5-3b85-4f69-bb90-49b2db8e46b6)
+
 #### Zeal Alert: 
 Pop an alert when zeal is active, fully customizable
+
+![image](https://github.com/user-attachments/assets/96845923-49d8-438f-8f42-722e78fbeb03)
