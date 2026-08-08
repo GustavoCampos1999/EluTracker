@@ -25,7 +25,7 @@ jobs:
       - run: pip install requests
 
       - name: Rodar Script de Precos
-        run: python Elu_Tracker/data/update_prices.py
+        run: python data/update_prices.py
 
       - name: Commit, Bump Version and Release
         run: |
@@ -33,7 +33,7 @@ jobs:
           git config --global user.email "action@github.com"
           
           # Adiciona o arquivo modificado
-          git add Elu_Tracker/data/auction_house_prices.lua
+          git add data/auction_house_prices.lua
           
           # Verifica se houveram mudanças
           if git diff --staged --quiet; then
@@ -42,7 +42,7 @@ jobs:
           fi
           
           # Salva a modificacao
-          git commit -m "Auto-Update: Atualizando precos de mercado"
+          git commit -m "Auto-Update: market price weekly update"
           
           # Gerar uma nova versao, exemplo: v2.0.1 -> v2.0.2
           # (Você pode usar um script pra incrementar isso baseado no ultimo commit)
