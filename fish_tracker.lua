@@ -1,5 +1,24 @@
 local api = require("api")
 
+local function safeGetUnitScreenPosition(unit)
+    local x, y = nil, nil
+    if api.Unit ~= nil and api.Unit.GetUnitScreenNameTagOffset ~= nil then
+        pcall(function() x, y = api.Unit:GetUnitScreenNameTagOffset(unit) end)
+    end
+    if x == nil or y == nil then
+        pcall(function() x, y = api.Unit:GetUnitScreenPosition(unit) end)
+    end
+    return x or 0, y or 0, 0
+end
+
+local function safeGetOverHeadMarkerUnitId(markerIndex)
+    local unitId = nil
+    if api.Unit ~= nil and api.Unit.GetOverHeadMarkerUnitId ~= nil then
+        pcall(function() unitId = api.Unit:GetOverHeadMarkerUnitId(markerIndex) end)
+    end
+    return unitId
+end
+
 local fish_tracker = {}
 
 fish_tracker.enableDeadFishTimers = true
@@ -269,7 +288,7 @@ function fish_tracker:OnLoad()
 end
 
 function fish_tracker:OnUpdate(dt)
-    if not fishTrackerCanvas or not boatOwnerMarkUI then return end
+    if not fishTrackerCanvas then return end
     
     local currentTime = api.Time:GetUiMsec()
     local currentTarget = api.Unit:GetUnitId("target")
@@ -319,7 +338,7 @@ function fish_tracker:OnUpdate(dt)
                 if not fish_tracker.enableOnlyMyFishes or fish_tracker.lastTargetTargetingMe then
                     local mIdx = nil
                     for i = 1, 9 do
-                        local mUnit = api.Unit:GetOverHeadMarkerUnitId(i)
+                        local mUnit = safeGetOverHeadMarkerUnitId(i)
                         if mUnit and mUnit == currentTarget then
                             mIdx = i
                             break
@@ -417,10 +436,10 @@ function fish_tracker:OnUpdate(dt)
 
     -- 2. Owner Mark & Skill Indicators
     if currentTarget then
-        local x, y, z = api.Unit:GetUnitScreenPosition("target")
+        local x, y, z = safeGetUnitScreenPosition("target")
         local currentXYZ = tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
         if previousXYZ ~= currentXYZ then
-            fishTrackerCanvas:AddAnchor("TOP", "UIParent", "TOPLEFT", (x or 0) - 42, (y or 0) + 5)
+            fishTrackerCanvas:AddAnchor("TOP", "UIParent", "TOPLEFT", (x or 0) - 42, (y or 0) - 100)
             previousXYZ = currentXYZ
         end
 
@@ -431,7 +450,7 @@ function fish_tracker:OnUpdate(dt)
 
         for i = 1, buffCount do
             local buff = api.Unit:UnitBuff("target", i)
-            if buff ~= nil then
+            if buff ~= nil and buff.buff_id ~= nil then
                 local bInfo = api.Ability:GetBuffTooltip(buff.buff_id, 1)
                 if buff.buff_id == 4867 or buff.buff_id == 5748 or buff.buff_id == 14470 or 
                    (bInfo and bInfo.name and string.find(string.lower(bInfo.name), "owner's mark")) then
@@ -465,7 +484,7 @@ function fish_tracker:OnUpdate(dt)
             if (fishHealth ~= nil and fishHealth <= 0) or buffCount == 0 then
                 strengthContestIcon:Show(false)
                 strengthContestTimeLabel:SetText("")
-                fishTrackerCanvas:AddAnchor("TOP", "UIParent", "TOPLEFT", (x or 0) - 42, (y or 0) + 5)
+                fishTrackerCanvas:AddAnchor("TOP", "UIParent", "TOPLEFT", (x or 0) - 42, (y or 0) - 100)
                 if fishNamesToAlert[targetName] then
                     fishTrackerCanvas:Show(true)
                 end
@@ -474,7 +493,7 @@ function fish_tracker:OnUpdate(dt)
                 fishBuffTimeLeftLabel:Show(false)
             else
                 if actionBuff ~= nil then
-                    fishTrackerCanvas:AddAnchor("TOP", "UIParent", "TOPLEFT", (x or 0) - 42, (y or 0) + 5)
+                    fishTrackerCanvas:AddAnchor("TOP", "UIParent", "TOPLEFT", (x or 0) - 42, (y or 0) - 100)
                     fishTrackerCanvas:Show(true)
                     targetFishIcon:Show(true)
                     fishBuffTimeLeftLabel:Show(true)
@@ -487,7 +506,7 @@ function fish_tracker:OnUpdate(dt)
                         previousActionBuffId = actionBuff.buff_id
                     end
                 else
-                    fishTrackerCanvas:AddAnchor("TOP", "UIParent", "TOPLEFT", (x or 0) - 42, (y or 0) + 5)
+                    fishTrackerCanvas:AddAnchor("TOP", "UIParent", "TOPLEFT", (x or 0) - 42, (y or 0) - 100)
                     if fishNamesToAlert[targetName] then
                         fishTrackerCanvas:Show(true)
                     end
@@ -531,13 +550,11 @@ end
 function fish_tracker:OnUnload()
     if fishTrackerCanvas ~= nil then
         fishTrackerCanvas:Show(false)
-        api.Interface:Free(fishTrackerCanvas)
         fishTrackerCanvas = nil
     end
     for i = 1, 9 do
-        if markedFishUI[i] ~= nil and markedFishUI[i].canvas ~= nil then
+        if markedFishUI[i] and markedFishUI[i].canvas then
             markedFishUI[i].canvas:Show(false)
-            api.Interface:Free(markedFishUI[i].canvas)
             markedFishUI[i] = nil
         end
     end

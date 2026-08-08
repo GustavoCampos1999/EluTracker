@@ -1,3 +1,7 @@
+local settingsManager = require('Elu_Tracker/settings_manager')
+local EluTrackerSettings = settingsManager.Settings
+local SaveEluTrackerSettings = settingsManager.SaveSettings
+
 local zeal_alert = {}
 
 local zealOverlay = nil
@@ -23,16 +27,17 @@ local function SaveSettings()
             settings.y = oy
         end
     end
-    api.File:Write(zealSettingsFile, { 
+    EluTrackerSettings.zealSettings = { 
         enabled = settings.enabled, 
         scale = settings.scale,
         x = settings.x,
         y = settings.y
-    })
+    }
+    SaveEluTrackerSettings()
 end
 
 local function LoadSettings()
-    local data = api.File:Read(zealSettingsFile)
+    local data = EluTrackerSettings.zealSettings
     if type(data) == "table" then
         if data.enabled ~= nil then settings.enabled = data.enabled end
         if data.scale ~= nil then settings.scale = data.scale end
@@ -193,7 +198,7 @@ end
 
 function zeal_alert:OnLoad()
     LoadSettings()
-    trackedBuffInfo = api.Ability:GetBuffTooltip(buffIdToTrack)
+    trackedBuffInfo = api.Ability:GetBuffTooltip(buffIdToTrack, 1)
 
     zealOverlay = api.Interface:CreateEmptyWindow("eluZealOverlay", "UIParent")
     zealOverlay:SetExtent(300, 60)
@@ -275,7 +280,7 @@ end
 function zeal_alert:OnUnload()
     if zealOverlay then
         zealOverlay:Show(false)
-        api.Interface:Free(zealOverlay)
+        zealOverlay:Show(false)
         zealOverlay = nil
     end
 end

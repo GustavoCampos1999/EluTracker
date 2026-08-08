@@ -1,3 +1,7 @@
+local settingsManager = require('Elu_Tracker/settings_manager')
+local EluTrackerSettings = settingsManager.Settings
+local SaveEluTrackerSettings = settingsManager.SaveSettings
+
 local spot_tracker = {}
 
 local MAX_TIMERS = 3
@@ -27,11 +31,12 @@ local function SaveSpotTimers()
             })
         end
     end
-    api.File:Write(timersFilename, timersToSave)
+    EluTrackerSettings.spotTimers = timersToSave
+    SaveEluTrackerSettings()
 end
 
 local function LoadSpotTimers()
-    local savedTimers = api.File:Read(timersFilename)
+    local savedTimers = EluTrackerSettings.spotTimers
     if savedTimers and type(savedTimers) == "table" then
         local overlayIdx = 1
         for _, timer in ipairs(savedTimers) do
@@ -69,21 +74,23 @@ local function LoadSpotTimers()
 end
 
 local function LoadMiscSettings()
-    local data = api.File:Read("elu_tracker_misc.txt")
+    local data = EluTrackerSettings.misc
     if type(data) == "table" then
         if data.enableAltTracking ~= nil then spot_tracker.enableAltTracking = data.enableAltTracking end
-        if data.modifierKey ~= nil then spot_tracker.modifierKey = data.modifierKey else spot_tracker.modifierKey = "ALT" end
     else
         spot_tracker.enableAltTracking = false
-        spot_tracker.modifierKey = "ALT"
     end
+    spot_tracker.modifierKey = "SHIFT"
 end
 
 local function SaveMiscSettings()
-    api.File:Write("elu_tracker_misc.txt", { enableAltTracking = spot_tracker.enableAltTracking, modifierKey = spot_tracker.modifierKey })
+    EluTrackerSettings.misc = { enableAltTracking = spot_tracker.enableAltTracking, modifierKey = spot_tracker.modifierKey }
+    SaveEluTrackerSettings()
 end
 
 function spot_tracker.CreateUI(wndParent)
+    LoadMiscSettings()
+    if not spot_tracker.modifierKey then spot_tracker.modifierKey = "ALT" end
     local anchorWidget = wndParent.resetBtn or wndParent
     local yOffset = wndParent.resetBtn and 40 or 250
 
@@ -103,7 +110,7 @@ function spot_tracker.CreateUI(wndParent)
 
     local desc = wndParent:CreateChildWidget("label", "descSpot", 0, true)
     ApplyTextColor(desc, FONT_COLOR.DEFAULT)
-    desc:SetText("Hover over a fishing spot and press ALT/SHIFT/CTRL to track.")
+    desc:SetText("Hover over a fishing spot and press " .. spot_tracker.modifierKey .. " to track.")
     desc:AddAnchor("TOP", titleSpot, "BOTTOM", 0, 30)
 
     if eluAltToggleContainer then eluAltToggleContainer:Show(false) end
@@ -151,9 +158,6 @@ function spot_tracker.CreateUI(wndParent)
     altLbl:AddAnchor("LEFT", altToggle, "RIGHT", 5, 0)
     ApplyTextColor(altLbl, FONT_COLOR.DEFAULT)
 
-    LoadMiscSettings()
-    altToggle:SetChecked(spot_tracker.enableAltTracking, false)
-    
     local modBtn = container:CreateChildWidget("button", "eluTrackerModBtn", 0, true)
     modBtn:SetExtent(60, 25)
     modBtn:AddAnchor("LEFT", altLbl, "RIGHT", 10, 0)
@@ -168,11 +172,13 @@ function spot_tracker.CreateUI(wndParent)
         elseif current == "SHIFT" then spot_tracker.modifierKey = "CTRL"
         else spot_tracker.modifierKey = "ALT" end
         modBtn:SetText(spot_tracker.modifierKey)
+        desc:SetText("Hover over a fishing spot and press " .. spot_tracker.modifierKey .. " to track.")
         api.Log:Info("[Spot Tracker] Modifier Key changed to: " .. spot_tracker.modifierKey)
         SaveMiscSettings()
     end
     modBtn:SetHandler("OnClick", modBtn.OnClick)
-
+    altToggle:SetChecked(spot_tracker.enableAltTracking, false)
+    
     function altToggle:OnCheckChanged()
         spot_tracker.enableAltTracking = self:GetChecked()
         api.Log:Info("[Spot Tracker] Status: " .. (spot_tracker.enableAltTracking and "ON" or "OFF"))
@@ -278,7 +284,7 @@ function spot_tracker:OnLoad()
     rwBg:AddAnchor("BOTTOMRIGHT", replaceWarning, 0, 0)
     
     local rwLbl = replaceWarning:CreateChildWidget("label", "rwLbl", 0, true)
-    rwLbl:SetText("Press ALT again to replace oldest timer! (Move/Wait 5s to cancel)")
+    rwLbl:SetText("Press SHIFT again to replace oldest timer! (Move/Wait 5s to cancel)")
     rwLbl.style:SetFontSize(FONT_SIZE.LARGE)
     ApplyTextColor(rwLbl, FONT_COLOR.RED)
     rwLbl:AddAnchor("CENTER", replaceWarning, 0, 0)
@@ -360,11 +366,12 @@ function spot_tracker:OnLoad()
                 posData[i] = { x = x, y = y }
             end
         end
-        api.File:Write(spotPosFile, posData)
+        EluTrackerSettings.spotPos = posData
+        SaveEluTrackerSettings()
     end
     
     local function LoadSpotPositions()
-        local data = api.File:Read(spotPosFile)
+        local data = EluTrackerSettings.spotPos
         if type(data) == "table" then
             for i = 1, MAX_TIMERS do
                 if data[i] and data[i].x and data[i].y and spotOverlays[i] then
@@ -469,20 +476,18 @@ end
 
 function spot_tracker:OnUnload()
     if doodadListener then
-        api.Interface:Free(doodadListener)
+        doodadListener:Show(false)
         doodadListener = nil
     end
 
     if replaceWarning then
         replaceWarning:Show(false)
-        api.Interface:Free(replaceWarning)
         replaceWarning = nil
     end
 
     for i = 1, MAX_TIMERS do
         if spotOverlays[i] then
             spotOverlays[i]:Show(false)
-            api.Interface:Free(spotOverlays[i])
             spotOverlays[i] = nil
         end
     end

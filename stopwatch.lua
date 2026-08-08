@@ -1,3 +1,7 @@
+local settingsManager = require('Elu_Tracker/settings_manager')
+local EluTrackerSettings = settingsManager.Settings
+local SaveEluTrackerSettings = settingsManager.SaveSettings
+
 local stopwatch_addon = {}
 
 local swOverlay = nil
@@ -32,13 +36,14 @@ local function SavePosition()
     if swOverlay then
         local x, y = swOverlay:GetOffset()
         if x and y then
-            api.File:Write(swPosFile, { x = x, y = y })
+            EluTrackerSettings.stopwatchPos = { x = x, y = y }
+            SaveEluTrackerSettings()
         end
     end
 end
 
 local function LoadPosition()
-    local data = api.File:Read(swPosFile)
+    local data = EluTrackerSettings.stopwatchPos
     if type(data) == "table" and data.x and data.y then
         swOverlay:RemoveAllAnchors()
         swOverlay:AddAnchor("TOPLEFT", "UIParent", data.x, data.y)
@@ -168,7 +173,7 @@ end
 function stopwatch_addon:OnUnload()
     if swOverlay then
         swOverlay:Show(false)
-        api.Interface:Free(swOverlay)
+        swOverlay:Show(false)
         swOverlay = nil
     end
 end

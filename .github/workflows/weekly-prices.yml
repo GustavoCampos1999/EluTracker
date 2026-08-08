@@ -1,0 +1,57 @@
+name: Atualizar Precos Semanalmente
+
+on:
+  schedule:
+    # Executa toda Terca-feira as 05:00 da madrugada UTC (01:00 AM horario do Canada EDT/EST)
+    - cron: '0 5 * * 2'
+  workflow_dispatch: # Permite que voce rode o script manualmente no GitHub se quiser
+
+permissions:
+  contents: write
+
+jobs:
+  update-prices:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Instalar Python e Requests
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - run: pip install requests
+
+      - name: Rodar Script de Precos
+        run: python Elu_Tracker/data/update_prices.py
+
+      - name: Commit, Bump Version and Release
+        run: |
+          git config --global user.name "GitHub Action Bot"
+          git config --global user.email "action@github.com"
+          
+          # Adiciona o arquivo modificado
+          git add Elu_Tracker/data/auction_house_prices.lua
+          
+          # Verifica se houveram mudanças
+          if git diff --staged --quiet; then
+            echo "Nenhuma mudança nos preços, pulando update."
+            exit 0
+          fi
+          
+          # Salva a modificacao
+          git commit -m "Auto-Update: Atualizando precos de mercado"
+          
+          # Gerar uma nova versao, exemplo: v2.0.1 -> v2.0.2
+          # (Você pode usar um script pra incrementar isso baseado no ultimo commit)
+          NEW_TAG="v$(date +'%Y.%m.%d-%H%M')"
+          git tag $NEW_TAG
+          git push origin main
+          git push origin $NEW_TAG
+
+          # Cria a Release Oficial
+          gh release create $NEW_TAG -t "Atualização de Preços ($NEW_TAG)" -n "Preços sincronizados com a planilha."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -6,6 +6,16 @@ local your_packs_addon = {
 	desc = ""
 }
 
+local api = require("api")
+
+local function safeTimeToDate(timestamp)
+    local dateStr = ""
+    if api.Time and api.Time.TimeToDate then
+        pcall(function() dateStr = api.Time:TimeToDate(timestamp) end)
+    end
+    return dateStr or ""
+end
+
 local itemTaskTypes = {}
 local ITEM_TASK_ID_PACK_IN_VEHICLE = 16
 local ITEM_TASK_ID_PICKED_PACK_UP = 23
@@ -90,22 +100,14 @@ local function updateLastKnownChannel(channelId, channelName)
     end 
     currentZone = channelName
 end 
-local function GetCurrentSetPrices()
-    local cVal, dVal = 1.5, 22
-    local data = api.File:Read("elu_commerce_prices.txt")
-    if type(data) == "table" then
-        if data.c then cVal = tonumber(data.c) or 1.5 end
-        if data.d then dVal = tonumber(data.d) or 22 end
-    end
-    return cVal, dVal
-end
+
 
 local function getTotalGoldMadeFromPacks()
+    if pastSessions == nil then return 0 end
+    if pastSessions.lifetimeGold ~= nil then return pastSessions.lifetimeGold end
     local totalGold = 0
-    if pastSessions == nil then return totalGold end
-    for _, sessionObject in pairs(pastSessions["sessions"]) do 
+    for _, sessionObject in pairs(pastSessions["sessions"] or {}) do 
         local pTotal = sessionObject.profitTotal
-
         if type(pTotal) == "number" then 
             totalGold = totalGold + pTotal
         end 
@@ -113,10 +115,11 @@ local function getTotalGoldMadeFromPacks()
     return totalGold
 end 
 local function getTotalPacksTurnedIn()
+    if pastSessions == nil then return 0 end
+    if pastSessions.lifetimePacks ~= nil then return pastSessions.lifetimePacks end
     local totalPacks = 0
-    if pastSessions == nil then return totalPacks end
-    for _, sessionObject in pairs(pastSessions["sessions"]) do 
-        totalPacks = totalPacks + sessionObject.packCount
+    for _, sessionObject in pairs(pastSessions["sessions"] or {}) do 
+        totalPacks = totalPacks + (sessionObject.packCount or 1)
     end 
     return totalPacks
 end
@@ -218,22 +221,20 @@ end
 
 local function saveCurrentSessionToFile()
     if pastSessions == nil then 
-        pastSessions = {}
-        pastSessions["sessions"] = {}
+        pastSessions = { sessions = {}, lifetimeGold = 0, lifetimePacks = 0 }
     end 
 
     local coinTypeId = currentSession["coinTypeId"]
     if coinTypeId == 0 then 
         currentSession["profitTotal"] = currentSession["refundTotal"] / 10000
     elseif coinTypeId == 32103 or coinTypeId == 32106 then 
-        local cPrice, dPrice = GetCurrentSetPrices()
-        local stabilizerPrice = (coinTypeId == 32103) and cPrice or dPrice
+        local stabilizerPrice = (AH_PRICES[coinTypeId] and AH_PRICES[coinTypeId].average) or (coinTypeId == 32103 and 1.5 or 22)
         currentSession["profitTotal"] = stabilizerPrice * currentSession["refundTotal"]
     elseif coinTypeId == 23633 then 
-        local gildaDustPrice = AH_PRICES[8000026].average
+        local gildaDustPrice = AH_PRICES[8000026] and AH_PRICES[8000026].average or 0
         currentSession["profitTotal"] = gildaDustPrice * currentSession["refundTotal"]
     elseif coinTypeId == 40229 then 
-        local lordsCoinPrice = AH_PRICES[26880].average
+        local lordsCoinPrice = AH_PRICES[26880] and AH_PRICES[26880].average or 0
         currentSession["profitTotal"] = lordsCoinPrice * (currentSession["refundTotal"] / 100)
     else 
         currentSession["profitTotal"] = "Unknown"
@@ -251,24 +252,36 @@ local function saveCurrentSessionToFile()
     end
     
     if not found then
+        if pastSessions.lifetimeGold == nil then
+            pastSessions.lifetimeGold = getTotalGoldMadeFromPacks()
+            pastSessions.lifetimePacks = getTotalPacksTurnedIn()
+        end
         table.insert(pastSessions["sessions"], 1, currentSession)
+        
+        if type(currentSession.profitTotal) == "number" then
+            pastSessions.lifetimeGold = pastSessions.lifetimeGold + currentSession.profitTotal
+        end
+        pastSessions.lifetimePacks = pastSessions.lifetimePacks + (tonumber(currentSession.packCount) or 1)
+        
+        while #pastSessions.sessions > 160 do
+            table.remove(pastSessions.sessions)
+        end
     end
     
     api.File:Write(pastSessionsFilename, pastSessions)
 
-    local sessionScrollList = commerceWindow.sessionScrollList
-    if pastSessions ~= nil then
-        if pastSessions.sessions ~= nil then
+    local sessionScrollList = commerceWindow and commerceWindow.sessionScrollList
+    if sessionScrollList then
+        if pastSessions and pastSessions.sessions then
             maxPage = math.ceil(#pastSessions.sessions / pageSize)    
         else
             maxPage = 1
-        end   
-    else
-        maxPage = 1
-    end 
-    sessionScrollList.pageControl.maxPage = maxPage
-    fillSessionTableData(sessionScrollList, 1)
-    sessionScrollList.pageControl:SetCurrentPage(1, true)
+        end 
+        if maxPage == 0 then maxPage = 1 end
+        sessionScrollList.pageControl.maxPage = maxPage
+        fillSessionTableData(sessionScrollList, 1)
+        sessionScrollList.pageControl:SetCurrentPage(1, true)
+    end
 end 
 
 local function startPackTurnInSession(packId, coinTypeId)
@@ -456,7 +469,7 @@ local function SessionSetFunc(subItem, data, setValue)
         if coinTypeId ~= nil then 
             coinTypeName = api.Item:GetItemInfoByType(coinTypeId).name
         end
-        local date = api.Time:TimeToDate(data.localTimestamp)
+        local date = safeTimeToDate(data.localTimestamp)
         local timeDiffTilNow = PACK_TIMER_8HRS_IN_SECS - differenceBetweenTimestamps(api.Time:GetLocalTime(), data.localTimestamp)
         local timeDiffStr = "Payment In: " .. displayTimeString(tonumber(timeDiffTilNow))
         local leftTextStr = packName .. " x" .. packCount 
@@ -629,7 +642,31 @@ local function OnLoad()
         if maxPage == 0 then maxPage = 1 end
     end
     
-
+    if pastSessions and pastSessions.lifetimeGold == nil then
+        local sumGold = 0
+        local sumPacks = 0
+        if pastSessions.sessions then
+            for _, s in ipairs(pastSessions.sessions) do
+                if type(s.profitTotal) == "number" then
+                    sumGold = sumGold + s.profitTotal
+                end
+                sumPacks = sumPacks + (tonumber(s.packCount) or 1)
+            end
+            
+            while #pastSessions.sessions > 160 do
+                table.remove(pastSessions.sessions)
+            end
+        end
+        pastSessions.lifetimeGold = sumGold
+        pastSessions.lifetimePacks = sumPacks
+        api.File:Write(pastSessionsFilename, pastSessions)
+        
+        if pastSessions.sessions then
+            maxPage = math.ceil(#pastSessions.sessions / pageSize)
+        end
+        if maxPage == nil or maxPage == 0 then maxPage = 1 end
+    end  
+    
     for packId, pack in pairs(packs_helper.packsInfo) do
         local packZoneId = 0
         for zoneId, zoneName in pairs(packs_helper.zonesInfo) do
@@ -764,7 +801,7 @@ local function OnLoad()
 end
 
 local function OnUnload()
-    api.Interface:Free(eluTrackerEventWindow)
+    if eluTrackerEventWindow then eluTrackerEventWindow:Show(false) end
     api.On("UPDATE", function() return end)
     eluTrackerEventWindow = nil
 end

@@ -9,10 +9,11 @@ local elu_tracker_addon = {
 local packsAddon = require("Elu_Tracker/packs")
 local guildCheckAddon = require("Elu_Tracker/guild_check")
 local fishingAddon = require("Elu_Tracker/fishing")
+local fishTrackerAddon = require("Elu_Tracker/fish_tracker")
+local raidInviteAddon = require("Elu_Tracker/raid_invite")
 local spotTrackerAddon = require("Elu_Tracker/spot_tracker")
 local zealAlertAddon = require("Elu_Tracker/zeal_alert")
 local stopwatchAddon = require("Elu_Tracker/stopwatch")
-local fishTrackerAddon = require("Elu_Tracker/fish_tracker")
 eluDisplayWindow = nil
 local eluWasVisible = false
 local eluBtn
@@ -25,12 +26,7 @@ local _charcoalInputRef = nil
 local _charcoalSilverInputRef = nil
 local _dragonInputRef = nil
 local _dragonSilverInputRef = nil
-local _pricePanelRef = nil
 local _pollTimer = 0
-local _pendingCharcoalPrice = nil
-local _pendingCharcoalSilver = nil
-local _pendingDragonPrice = nil
-local _pendingDragonSilver = nil
 
 local function ConvertColor(color) return color / 255 end 
 
@@ -38,14 +34,19 @@ local memoryAHPrices = nil
 
 local function LoadAHPrices()
     if not memoryAHPrices then
-        memoryAHPrices = {
-            [32103] = { average = 1.5 },
-            [32106] = { average = 22 }
-        }
-        local data = api.File:Read("elu_commerce_prices.txt")
-        if type(data) == "table" then
-            if data.c ~= nil then memoryAHPrices[32103].average = tonumber(data.c) or memoryAHPrices[32103].average end
-            if data.d ~= nil then memoryAHPrices[32106].average = tonumber(data.d) or memoryAHPrices[32106].average end
+        local status, data = pcall(require, "Elu_Tracker/data/auction_house_prices")
+        if status and type(data) == "table" then
+            memoryAHPrices = data
+        else
+            memoryAHPrices = {
+                [32103] = { average = 1.5 },
+                [32106] = { average = 22 }
+            }
+        end
+        local dataFile = api.File:Read("elu_commerce_prices.txt")
+        if type(dataFile) == "table" then
+            if dataFile.c ~= nil and memoryAHPrices[32103] then memoryAHPrices[32103].average = tonumber(dataFile.c) or memoryAHPrices[32103].average end
+            if dataFile.d ~= nil and memoryAHPrices[32106] then memoryAHPrices[32106].average = tonumber(dataFile.d) or memoryAHPrices[32106].average end
         end
     end
 end
@@ -58,35 +59,6 @@ local function GetAHPriceSafe(itemId)
     return 0
 end
 
-local function SetManualPrices(cGold, cSilver, dGold, dSilver)
-    LoadAHPrices()
-    
-    local function parseNum(val)
-        if type(val) == "string" then val = val:gsub(",", ".") end
-        return tonumber(val) or 0
-    end
-
-    local cG = parseNum(cGold)
-    local cS = parseNum(cSilver)
-    local dG = parseNum(dGold)
-    local dS = parseNum(dSilver)
-
-    local charcoalVal = cG + (cS / 100)
-    local dragonVal = dG + (dS / 100)
-
-    if charcoalVal == 0 then charcoalVal = memoryAHPrices[32103].average end
-    if dragonVal == 0 then dragonVal = memoryAHPrices[32106].average end
-
-    memoryAHPrices[32103].average = charcoalVal
-    memoryAHPrices[32106].average = dragonVal
-
-    local tableToSave = { c = charcoalVal, d = dragonVal }
-    api.File:Write("elu_commerce_prices.txt", tableToSave)
-
-    if eluCharcoalLabel then
-        eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", charcoalVal, dragonVal))
-    end
-end
 local bagFrameFixed = false
 local function OnUpdate(dt)
     priceUpdateTimer = priceUpdateTimer + (type(dt) == "number" and dt or 0)
@@ -97,6 +69,10 @@ local function OnUpdate(dt)
             local dragonPrice = GetAHPriceSafe(32106)
             eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", charcoalPrice, dragonPrice))
         end
+    end
+    
+    if fishTrackerAddon and fishTrackerAddon.OnUpdate then
+        fishTrackerAddon:OnUpdate(dt)
     end
     
     if not bagFrameFixed then
@@ -125,10 +101,6 @@ local function OnUpdate(dt)
     
     if zealAlertAddon and zealAlertAddon.OnUpdate then
         zealAlertAddon:OnUpdate(dt)
-    end
-    
-    if fishTrackerAddon and fishTrackerAddon.OnUpdate then
-        fishTrackerAddon:OnUpdate(dt)
     end
     
     if eluDisplayWindow then
@@ -165,159 +137,7 @@ local function CreateCommerceWindow(wndParent)
     charcoalLabel:AddAnchor("TOP", title, "BOTTOM", 0, 15)
     eluCharcoalLabel = charcoalLabel
 
-    local setPriceBtn = wnd:CreateChildWidget("button", "setPriceBtn", 0, true)
-    setPriceBtn:SetText("Set Price")
-    setPriceBtn:SetExtent(80, 25)
-    setPriceBtn:AddAnchor("TOPRIGHT", wnd, -15, 10)
-    ApplyButtonSkin(setPriceBtn, BUTTON_BASIC.DEFAULT)
-
-    local pricePanel = wnd:CreateChildWidget("emptywidget", "pricePanel", 0, true)
-    pricePanel:SetExtent(200, 115)
-    pricePanel:AddAnchor("TOPRIGHT", setPriceBtn, "BOTTOMRIGHT", 0, 5)
-    pricePanel:Show(false)
-
-    local pBg = pricePanel:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    pBg:SetTextureInfo("bg_quest")
-    pBg:SetColor(0, 0, 0, 0.95)
-    pBg:AddAnchor("TOPLEFT", pricePanel, 0, 0)
-    pBg:AddAnchor("BOTTOMRIGHT", pricePanel, 0, 0)
-
-    local charcoalGoldInput = W_CTRL.CreateEdit("charcoalGoldInput", pricePanel)
-    charcoalGoldInput:SetExtent(45, 20)
-    charcoalGoldInput:AddAnchor("TOPRIGHT", pricePanel, -55, 15)
-    charcoalGoldInput.style:SetAlign(ALIGN.CENTER)
-    charcoalGoldInput:SetDigit(true)
-
-    local charcoalSilverInput = W_CTRL.CreateEdit("charcoalSilverInput", pricePanel)
-    charcoalSilverInput:SetExtent(35, 20)
-    charcoalSilverInput:AddAnchor("LEFT", charcoalGoldInput, "RIGHT", 5, 0)
-    charcoalSilverInput.style:SetAlign(ALIGN.CENTER)
-    charcoalSilverInput:SetDigit(true)
-
-    local lblG = pricePanel:CreateChildWidget("label", "lblG", 0, true)
-    lblG:SetText("G")
-    lblG:AddAnchor("BOTTOM", charcoalGoldInput, "TOP", 0, -2)
-    ApplyTextColor(lblG, {1, 0.8, 0, 1})
-
-    local lblS = pricePanel:CreateChildWidget("label", "lblS", 0, true)
-    lblS:SetText("S")
-    lblS:AddAnchor("BOTTOM", charcoalSilverInput, "TOP", 0, -2)
-    ApplyTextColor(lblS, {0.8, 0.8, 0.8, 1})
-
-    local charcoalRowLabel = pricePanel:CreateChildWidget("label", "charcoalRowLabel", 0, true)
-    charcoalRowLabel:SetText("Charcoal:")
-    charcoalRowLabel:AddAnchor("RIGHT", charcoalGoldInput, "LEFT", -10, 0)
-    charcoalRowLabel:SetAutoResize(true)
-    ApplyTextColor(charcoalRowLabel, FONT_COLOR.DEFAULT)
-
-    local dragonGoldInput = W_CTRL.CreateEdit("dragonGoldInput", pricePanel)
-    dragonGoldInput:SetExtent(45, 20)
-    dragonGoldInput:AddAnchor("TOPRIGHT", charcoalGoldInput, "BOTTOMRIGHT", 0, 10)
-    dragonGoldInput.style:SetAlign(ALIGN.CENTER)
-    dragonGoldInput:SetDigit(true)
-
-    local dragonSilverInput = W_CTRL.CreateEdit("dragonSilverInput", pricePanel)
-    dragonSilverInput:SetExtent(35, 20)
-    dragonSilverInput:AddAnchor("LEFT", dragonGoldInput, "RIGHT", 5, 0)
-    dragonSilverInput.style:SetAlign(ALIGN.CENTER)
-    dragonSilverInput:SetDigit(true)
-
-    local dragonRowLabel = pricePanel:CreateChildWidget("label", "dragonRowLabel", 0, true)
-    dragonRowLabel:SetText("Dragon:")
-    dragonRowLabel:AddAnchor("RIGHT", dragonGoldInput, "LEFT", -10, 0)
-    dragonRowLabel:SetAutoResize(true)
-    ApplyTextColor(dragonRowLabel, FONT_COLOR.DEFAULT)
-
-    local savePriceBtn = pricePanel:CreateChildWidget("button", "savePriceBtn", 0, true)
-    savePriceBtn:SetText("Save")
-    savePriceBtn:SetExtent(60, 24)
-    savePriceBtn:AddAnchor("BOTTOM", pricePanel, 0, -8)
-    ApplyButtonSkin(savePriceBtn, BUTTON_BASIC.DEFAULT)
-
-    _charcoalInputRef = charcoalGoldInput
-    _charcoalSilverInputRef = charcoalSilverInput
-    _dragonInputRef = dragonGoldInput
-    _dragonSilverInputRef = dragonSilverInput
-    _pricePanelRef = pricePanel
-
-    local function DoSave()
-        local function safeNum(txt)
-            if type(txt) ~= "string" then txt = tostring(txt) end
-            local m = string.match(txt, "%d+")
-            if m then return tonumber(m) else return 0 end
-        end
-
-        local cG = safeNum(charcoalGoldInput:GetText())
-        local cS = safeNum(charcoalSilverInput:GetText())
-        local dG = safeNum(dragonGoldInput:GetText())
-        local dS = safeNum(dragonSilverInput:GetText())
-        
-        local cVal = (cG or 0) + ((cS or 0) / 100)
-        local dVal = (dG or 0) + ((dS or 0) / 100)
-
-        if cVal <= 0 then 
-            cVal = GetAHPriceSafe(32103) 
-        end
-        if dVal <= 0 then 
-            dVal = GetAHPriceSafe(32106) 
-        end
-
-        memoryAHPrices[32103].average = cVal
-        memoryAHPrices[32106].average = dVal
-        api.File:Write("elu_commerce_prices.txt", { c = cVal, d = dVal })
-
-        if eluCharcoalLabel then
-            eluCharcoalLabel:SetText(string.format("Charcoal: %.2fg | Dragon: %.2fg", cVal, dVal))
-        end
-
-        _pendingCharcoalPrice = nil
-        _pendingCharcoalSilver = nil
-        _pendingDragonPrice = nil
-        _pendingDragonSilver = nil
-        pricePanel:Show(false)
-        charcoalGoldInput:ClearFocus()
-        charcoalSilverInput:ClearFocus()
-        dragonGoldInput:ClearFocus()
-        dragonSilverInput:ClearFocus()
-        
-        if packsAddon and packsAddon.RefreshUI then
-            packsAddon.RefreshUI()
-        end
-    end
-
-    function setPriceBtn:OnClick()
-        local isVisible = pricePanel:IsVisible()
-        if not isVisible then
-            pricePanel:Raise()
-            local cPrice = GetAHPriceSafe(32103)
-            local dPrice = GetAHPriceSafe(32106)
-            _pendingCharcoalPrice = math.floor(cPrice)
-            _pendingCharcoalSilver = math.floor((cPrice % 1) * 100)
-            _pendingDragonPrice = math.floor(dPrice)
-            _pendingDragonSilver = math.floor((dPrice % 1) * 100)
-            charcoalGoldInput:SetText(tostring(_pendingCharcoalPrice))
-            charcoalSilverInput:SetText(string.format("%02d", _pendingCharcoalSilver))
-            dragonGoldInput:SetText(tostring(_pendingDragonPrice))
-            dragonSilverInput:SetText(string.format("%02d", _pendingDragonSilver))
-        end
-        pricePanel:Show(not isVisible)
-    end
-    setPriceBtn:SetHandler("OnClick", setPriceBtn.OnClick)
-
-    function savePriceBtn:OnClick() DoSave() end
-    savePriceBtn:SetHandler("OnClick", savePriceBtn.OnClick)
-
-    function charcoalGoldInput:OnEnterPressed() DoSave() end
-    charcoalGoldInput:SetHandler("OnEnterPressed", charcoalGoldInput.OnEnterPressed)
-
-    function charcoalSilverInput:OnEnterPressed() DoSave() end
-    charcoalSilverInput:SetHandler("OnEnterPressed", charcoalSilverInput.OnEnterPressed)
-
-    function dragonGoldInput:OnEnterPressed() DoSave() end
-    dragonGoldInput:SetHandler("OnEnterPressed", dragonGoldInput.OnEnterPressed)
-
-    function dragonSilverInput:OnEnterPressed() DoSave() end
-    dragonSilverInput:SetHandler("OnEnterPressed", dragonSilverInput.OnEnterPressed)
+    -- Set Price UI removed
 
     local sessionScrollList = W_CTRL.CreatePageScrollListCtrl("sessionScrollList", wnd)
     sessionScrollList:Show(true)
@@ -355,6 +175,9 @@ local function CreateFishingWindow(wndParent)
     sessionScrollList:Show(true)
     sessionScrollList:AddAnchor("TOPLEFT", wnd, 4, 4)
     sessionScrollList:AddAnchor("BOTTOMRIGHT", wnd, -4, -4)
+    
+
+    
     return wnd
 end 
 
@@ -412,12 +235,12 @@ local function CreateMiscWindow(wndParent)
         spotTrackerAddon.CreateUI(wnd)
     end
 
-    if zealAlertAddon and zealAlertAddon.CreateUI then
-        zealAlertAddon.CreateUI(wnd)
-    end
-
     if fishTrackerAddon and fishTrackerAddon.CreateUI then
         fishTrackerAddon.CreateUI(wnd)
+    end
+
+    if zealAlertAddon and zealAlertAddon.CreateUI then
+        zealAlertAddon.CreateUI(wnd)
     end
 
     return wnd
@@ -460,8 +283,23 @@ local function OnLoad()
     packsAddon = require("Elu_Tracker/packs")
     guildCheckAddon = require("Elu_Tracker/guild_check")
     fishingAddon = require("Elu_Tracker/fishing")
-    spotTrackerAddon = require("Elu_Tracker/spot_tracker")
     fishTrackerAddon = require("Elu_Tracker/fish_tracker")
+    raidInviteAddon = require("Elu_Tracker/raid_invite")
+    spotTrackerAddon = require("Elu_Tracker/spot_tracker")
+    lootTrackerAddon = require("Elu_Tracker/loot")
+
+    function CreateLootTrackerWindow(wndParent)
+        local wnd = wndParent:CreateChildWidget("emptywidget", "lootWindow", 0, true)
+        wnd:SetExtent(600, 600)
+        wnd:AddAnchor("TOP", wndParent, 0, 0)
+        
+        local sessionScrollList = W_CTRL.CreatePageScrollListCtrl("sessionScrollList", wnd)
+        sessionScrollList:Show(true)
+        sessionScrollList:AddAnchor("TOPLEFT", wnd, 4, 10)
+        sessionScrollList:AddAnchor("BOTTOMRIGHT", wnd, -4, -60)
+        
+        return wnd
+    end
     
     local tabInfo = {
         {
@@ -471,8 +309,8 @@ local function OnLoad()
         },
         {
             validationCheckFunc = function() return true end,
-            title = "Guild Check",
-            subWindowConstructor = function(parent) CreateGuildCheckWindow(parent) end
+            title = "Loot Tracker",
+            subWindowConstructor = function(parent) CreateLootTrackerWindow(parent) end
         },
         {
             validationCheckFunc = function() return true end,
@@ -483,6 +321,11 @@ local function OnLoad()
             validationCheckFunc = function() return true end,
             title = "Misc.",
             subWindowConstructor = function(parent) return CreateMiscWindow(parent) end
+        },
+        {
+            validationCheckFunc = function() return true end,
+            title = "Guild Check",
+            subWindowConstructor = function(parent) CreateGuildCheckWindow(parent) end
         }
     }
     
@@ -562,20 +405,6 @@ local function OnLoad()
         end
     end
 
-    local tripCountFile = "elu_trip_count.txt"
-    local function SaveTripCount()
-        api.File:Write(tripCountFile, { count = tripCount })
-    end
-
-    local function LoadTripCount()
-        local data = api.File:Read(tripCountFile)
-        if type(data) == "table" and data.count then
-            tripCount = data.count
-        else
-            tripCount = 0
-        end
-    end
-
     function tripOverlay:OnDragStart() self:StartMoving() end
     tripOverlay:SetHandler("OnDragStart", tripOverlay.OnDragStart)
 
@@ -585,7 +414,6 @@ local function OnLoad()
     end
     tripOverlay:SetHandler("OnDragStop", tripOverlay.OnDragStop)
     LoadTripPos()
-    LoadTripCount()
     
     local bg = tripOverlay:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
     bg:SetTextureInfo("bg_quest")
@@ -612,7 +440,6 @@ local function OnLoad()
         if tripOverlay and tripOverlay.countLabel then
             tripOverlay.countLabel:SetText("Trip: " .. tostring(tripCount))
         end
-        SaveTripCount()
     end
     resetOverlayBtn:SetHandler("OnClick", resetOverlayBtn.OnClick)
 
@@ -630,7 +457,6 @@ local function OnLoad()
     function compBtn:OnClick()
         tripCount = (tripCount or 0) + 1
         countLabel:SetText("Trip: " .. tostring(tripCount or 0))
-        SaveTripCount()
     end
     compBtn:SetHandler("OnClick", compBtn.OnClick)
     tripOverlay.compBtn = compBtn
@@ -638,38 +464,43 @@ local function OnLoad()
     packsAddon:OnLoad()
     guildCheckAddon:OnLoad()
     fishingAddon:OnLoad()
+    fishTrackerAddon:OnLoad()
+    if raidInviteAddon and raidInviteAddon.OnLoad then raidInviteAddon.OnLoad() end
     spotTrackerAddon:OnLoad()
     zealAlertAddon:OnLoad()
     stopwatchAddon:OnLoad()
-    if fishTrackerAddon then fishTrackerAddon:OnLoad() end
+    lootTrackerAddon:OnLoad()
 
     api.On("UPDATE", OnUpdate)
+    if api.Log and api.Log.Info then api.Log:Info("[Elu Tracker] Loaded Successfully!") end
 end
 
 local function OnUnload()
     if packsAddon then packsAddon:OnUnload(); packsAddon = nil end
     if guildCheckAddon then guildCheckAddon:OnUnload(); guildCheckAddon = nil end
     if fishingAddon then fishingAddon:OnUnload(); fishingAddon = nil end
+    if fishTrackerAddon then fishTrackerAddon:OnUnload(); fishTrackerAddon = nil end
+    if raidInviteAddon and raidInviteAddon.OnUnload then raidInviteAddon.OnUnload(); raidInviteAddon = nil end
     if spotTrackerAddon then spotTrackerAddon:OnUnload(); spotTrackerAddon = nil end
     if zealAlertAddon then zealAlertAddon:OnUnload(); zealAlertAddon = nil end
     if stopwatchAddon then stopwatchAddon:OnUnload(); stopwatchAddon = nil end
-    if fishTrackerAddon then fishTrackerAddon:OnUnload(); fishTrackerAddon = nil end
+    if lootTrackerAddon then lootTrackerAddon:OnUnload(); lootTrackerAddon = nil end
 
     if eluDisplayWindow then
         eluDisplayWindow:Show(false)
-        api.Interface:Free(eluDisplayWindow)
+        eluDisplayWindow:Show(false)
         eluDisplayWindow = nil
     end
     
     if tripOverlay then
         tripOverlay:Show(false)
-        api.Interface:Free(tripOverlay)
+        tripOverlay:Show(false)
         tripOverlay = nil
     end
     
     if eluBtn then
         eluBtn:Show(false)
-        api.Interface:Free(eluBtn)
+        eluBtn:Show(false)
         eluBtn = nil
     end
     

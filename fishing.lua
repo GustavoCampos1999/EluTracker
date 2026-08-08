@@ -9,6 +9,16 @@ local ITEM_TASK_ID_PACK_IN_VEHICLE = 16
 local ITEM_TASK_ID_PACK_DROPPED = 61
 local ITEM_TASK_ID_PACK_TURNED_IN = 109
 
+-- local locale = require("locale")
+
+local function safeTimeToDate(timestamp)
+    local dateStr = ""
+    if api.Time and api.Time.TimeToDate then
+        pcall(function() dateStr = api.Time:TimeToDate(timestamp) end)
+    end
+    return dateStr or ""
+end
+
 local eluFishingEventWindow
 local fishingWindow 
 
@@ -367,9 +377,7 @@ local previousPlayerGold = -1
 local function CheckMoney()
     local currentGold = 0
     if X2Util and type(X2Util.GetMyMoneyString) == "function" then
-        currentGold = tonumber(X2Util:GetMyMoneyString()) or 0
-    else
-        local ok, g = pcall(function() return api.Unit:GetUnitMoney("player") end)
+        local ok, g = pcall(function() return tonumber(X2Util.GetMyMoneyString()) or 0 end)
         if ok and type(g) == "number" then currentGold = g end
     end
 
@@ -404,12 +412,12 @@ local function refreshStatisticsLabels()
         local dayOffset = 86400
         if nowTime > 10000000000 then dayOffset = 86400000 end
         
-        local nowDate = api.Time:TimeToDate(string.format("%.0f", nowTime))
-        local yesterdayDate = api.Time:TimeToDate(string.format("%.0f", nowTime - dayOffset))
+        local nowDate = safeTimeToDate(string.format("%.0f", nowTime))
+        local yesterdayDate = safeTimeToDate(string.format("%.0f", nowTime - dayOffset))
         
         for _, sessionObject in pairs(pastSessions.sessions) do
             if type(sessionObject.profitTotal) == "number" then
-                local sDate = api.Time:TimeToDate(tostring(sessionObject.localTimestamp))
+                local sDate = safeTimeToDate(tostring(sessionObject.localTimestamp))
                 if sDate and nowDate and yesterdayDate then
                     if tonumber(sDate.year) == tonumber(nowDate.year) and tonumber(sDate.month) == tonumber(nowDate.month) and tonumber(sDate.day) == tonumber(nowDate.day) then
                         todayProfit = todayProfit + sessionObject.profitTotal
@@ -473,7 +481,7 @@ local function SessionSetFunc(subItem, data, setValue)
         local fishInfo = api.Item:GetItemInfoByType(tonumber(data.packId) or 0)
         local fishName = fishInfo and fishInfo.name or ("Unknown Fish (id: " .. tostring(data.packId) .. ")")
         
-        local date = api.Time:TimeToDate(tostring(data.localTimestamp))
+        local date = safeTimeToDate(tostring(data.localTimestamp))
         
         local leftTextStr  = fishName .. " x" .. tostring(data.packCount or 1)
         local refundG = (tonumber(data.refundTotal) or 0) / 10000
@@ -658,11 +666,11 @@ local function OnLoad()
         if pastSessions and pastSessions.sessions then
             local nowTime = tonumber(getSafeTimestamp()) or 0
             local dayOffset = (nowTime > 10000000000) and 86400000 or 86400
-            local nowDate = api.Time:TimeToDate(string.format("%.0f", nowTime))
+            local nowDate = safeTimeToDate(string.format("%.0f", nowTime))
             local changed = false
             
            for _, sessionObject in pairs(pastSessions.sessions) do
-                local sDate = api.Time:TimeToDate(tostring(sessionObject.localTimestamp))
+                local sDate = safeTimeToDate(tostring(sessionObject.localTimestamp))
                 if sDate and nowDate and tonumber(sDate.year) == tonumber(nowDate.year) and tonumber(sDate.month) == tonumber(nowDate.month) and tonumber(sDate.day) == tonumber(nowDate.day) then
                     sessionObject.localTimestamp = string.format("%.0f", tonumber(sessionObject.localTimestamp) - dayOffset)
                     changed = true
@@ -714,7 +722,7 @@ end
 
 local function OnUnload()
     if eluFishingEventWindow then
-        api.Interface:Free(eluFishingEventWindow)
+        eluFishingEventWindow:Show(false)
         eluFishingEventWindow = nil
     end
     api.On("UPDATE", function() return end)

@@ -1,3 +1,7 @@
+local settingsManager = require('Elu_Tracker/settings_manager')
+local EluTrackerSettings = settingsManager.Settings
+local SaveEluTrackerSettings = settingsManager.SaveSettings
+
 local api = require("api")
 
 local guild_check = {}
@@ -35,7 +39,8 @@ local currentGuildText = nil
 
 local function SaveSettings()
     local success, err = pcall(function()
-        api.File:Write(settingsFile, settings)
+        EluTrackerSettings.guildCheck = settings
+        SaveEluTrackerSettings()
     end)
     if not success then
         api.Log:Info("[Guild Check] Save ERROR: " .. tostring(err))
@@ -44,7 +49,7 @@ end
 
 local function LoadSettings()
     local success, err = pcall(function()
-        local data = api.File:Read(settingsFile)
+        local data = EluTrackerSettings.guildCheck
         if type(data) == "table" then
             if data.enabled ~= nil then settings.enabled = data.enabled end
             
