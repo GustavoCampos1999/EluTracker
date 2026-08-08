@@ -13,7 +13,7 @@ local raid_invite = {}
 
 -- State
 local state = {
-    keyword = "x elu",
+    keyword = "",
     isActive = false,
     autoInvitePublic = true,
     whitelistMode = false,
@@ -510,17 +510,39 @@ local function BuildSidePanel(parent)
             api.Interface:ApplyButtonSkin(addRaidBtn, BUTTON_BASIC.DEFAULT)
             addRaidBtn:SetHandler("OnClick", function()
                 if not wnd.isWhite then return end
+                
+                local myName = ""
+                local okMy, myUnitId = pcall(function() return api.Unit:GetUnitId("player") end)
+                if okMy and myUnitId then
+                    local okMy2, myInfo = pcall(function() return api.Unit:GetUnitInfoById(myUnitId) end)
+                    if okMy2 and type(myInfo) == "table" and myInfo.name then
+                        myName = myInfo.name
+                        if string.find(myName, "@") then
+                            myName = string.sub(myName, 1, string.find(myName, "@") - 1)
+                        end
+                        myName = myName:gsub("^%s*(.-)%s*$", "%1")
+                    end
+                end
+
                 for i = 1, 50 do
-                    local name = api.Team:GetMemberName("team" .. tostring(i))
-                    if name and name ~= "" then
-                        local myName = api.Unit:GetUnitNameById(api.Unit:GetUnitId("player"))
-                        if name ~= myName then
-                            local found = false
-                            for _, v in ipairs(state.whitelist) do
-                                if string.lower(v) == string.lower(name) then found = true break end
+                    local ok, unitId = pcall(function() return api.Unit:GetUnitId("team" .. tostring(i)) end)
+                    if ok and unitId then
+                        local ok2, info = pcall(function() return api.Unit:GetUnitInfoById(unitId) end)
+                        if ok2 and type(info) == "table" and info.name and info.name ~= "" then
+                            local name = info.name
+                            if string.find(name, "@") then
+                                name = string.sub(name, 1, string.find(name, "@") - 1)
                             end
-                            if not found and #state.whitelist < 100 then
-                                table.insert(state.whitelist, name)
+                            name = name:gsub("^%s*(.-)%s*$", "%1")
+                            
+                            if name ~= myName and name ~= "" then
+                                local found = false
+                                for _, v in ipairs(state.whitelist) do
+                                    if string.lower(v) == string.lower(name) then found = true break end
+                                end
+                                if not found and #state.whitelist < 100 then
+                                    table.insert(state.whitelist, name)
+                                end
                             end
                         end
                     end
