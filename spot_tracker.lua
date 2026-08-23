@@ -121,12 +121,12 @@ function spot_tracker.CreateUI(wndParent)
     if altLbl then altLbl:Show(false) end
 
     local container = wndParent:CreateChildWidget("emptywidget", "eluAltToggleContainer", 0, true)
-    container:SetExtent(200, 30)
+    container:SetExtent(300, 30)
     container:AddAnchor("TOP", desc, "BOTTOM", 0, 10)
 
     local altToggle = container:CreateChildWidget("checkbutton", "eluAltToggleCheck", 0, true)
     altToggle:SetExtent(18, 17)
-    altToggle:AddAnchor("LEFT", container, 15, 6)
+    altToggle:AddAnchor("LEFT", container, 60, 6)
     
     local bg1 = altToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
     bg1:SetExtent(18, 17)
@@ -414,22 +414,31 @@ function spot_tracker:OnUpdate(dt)
         local overlay = spotOverlays[i]
         if overlay and overlay:IsVisible() then
             local remaining = overlay.timerEndMs - nowMs
-            local spotName = string.lower(overlay.rawSpotName or overlay.nameLabel:GetText() or "")
-            spotName = spotName:gsub("<[^>]+>", "")
-            
-            local displayName = overlay.rawSpotName or "Spot"
-            local labelColor = {1.0, 0.8, 0.2, 1.0} 
-            
-            local s_idx = string.find(spotName, " schooling")
-            local f_idx = string.find(spotName, " feeding frenzy")
-            
-            if s_idx then
-                displayName = string.sub(displayName, 1, s_idx-1) .. "\nSchooling"
-                labelColor = {0.2, 0.8, 1.0, 1.0} 
-            elseif f_idx then
-                displayName = string.sub(displayName, 1, f_idx-1) .. "\nFeeding Frenzy"
-                labelColor = {0.6, 0.2, 1.0, 1.0} 
+            if not overlay.cachedDisplayName or overlay.cachedRawName ~= overlay.rawSpotName then
+                local spotName = string.lower(overlay.rawSpotName or overlay.nameLabel:GetText() or "")
+                spotName = spotName:gsub("<[^>]+>", "")
+                
+                local displayName = overlay.rawSpotName or "Spot"
+                local labelColor = {1.0, 0.8, 0.2, 1.0} 
+                
+                local s_idx = string.find(spotName, " schooling")
+                local f_idx = string.find(spotName, " feeding frenzy")
+                
+                if s_idx then
+                    displayName = string.sub(displayName, 1, s_idx-1) .. "\nSchooling"
+                    labelColor = {0.2, 0.8, 1.0, 1.0} 
+                elseif f_idx then
+                    displayName = string.sub(displayName, 1, f_idx-1) .. "\nFeeding Frenzy"
+                    labelColor = {0.6, 0.2, 1.0, 1.0} 
+                end
+                
+                overlay.cachedDisplayName = displayName
+                overlay.cachedLabelColor = labelColor
+                overlay.cachedRawName = overlay.rawSpotName
             end
+            
+            local displayName = overlay.cachedDisplayName
+            local labelColor = overlay.cachedLabelColor
             
             if remaining > 0 then
                 local totalSecs = math.ceil(remaining / 1000)

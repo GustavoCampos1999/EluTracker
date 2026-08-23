@@ -158,14 +158,17 @@ function stopwatch_addon:OnUpdate(dt)
         end
         
         local totalSecs = math.floor(currentElapsed / 1000)
-        local h = math.floor(totalSecs / 3600)
-        local m = math.floor((totalSecs % 3600) / 60)
-        local s = totalSecs % 60
-        
-        if h > 0 then
-            swOverlay.clockLabel:SetText(string.format("%02d:%02d:%02d", h, m, s))
-        else
-            swOverlay.clockLabel:SetText(string.format("%02d:%02d", m, s))
+        if swOverlay.lastSecs ~= totalSecs then
+            swOverlay.lastSecs = totalSecs
+            local h = math.floor(totalSecs / 3600)
+            local m = math.floor((totalSecs % 3600) / 60)
+            local s = totalSecs % 60
+            
+            if h > 0 then
+                swOverlay.clockLabel:SetText(string.format("%02d:%02d:%02d", h, m, s))
+            else
+                swOverlay.clockLabel:SetText(string.format("%02d:%02d", m, s))
+            end
         end
     end
 end

@@ -255,11 +255,16 @@ function zeal_alert:OnLoad()
     ApplyScale()
 end
 
+local buffCheckTimer = 0
 function zeal_alert:OnUpdate(dt)
     if not settings.enabled then return end
     if settings.moving then return end
     
     if trackedBuffInfo == nil then return end
+    
+    buffCheckTimer = buffCheckTimer + dt
+    if buffCheckTimer < 100 then return end
+    buffCheckTimer = 0
     
     local buffCount = api.Unit:UnitBuffCount("player")
     for i = 1, buffCount, 1 do

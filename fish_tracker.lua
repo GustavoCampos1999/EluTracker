@@ -1,22 +1,24 @@
 local api = require("api")
 
 local function safeGetUnitScreenPosition(unit)
-    local x, y = nil, nil
+    local ok, x, y = false, nil, nil
     if api.Unit ~= nil and api.Unit.GetUnitScreenNameTagOffset ~= nil then
-        pcall(function() x, y = api.Unit:GetUnitScreenNameTagOffset(unit) end)
+        ok, x, y = pcall(api.Unit.GetUnitScreenNameTagOffset, api.Unit, unit)
+        if not ok then x, y = nil, nil end
     end
     if x == nil or y == nil then
-        pcall(function() x, y = api.Unit:GetUnitScreenPosition(unit) end)
+        ok, x, y = pcall(api.Unit.GetUnitScreenPosition, api.Unit, unit)
+        if not ok then x, y = nil, nil end
     end
     return x or 0, y or 0, 0
 end
 
 local function safeGetOverHeadMarkerUnitId(markerIndex)
-    local unitId = nil
+    local ok, unitId = false, nil
     if api.Unit ~= nil and api.Unit.GetOverHeadMarkerUnitId ~= nil then
-        pcall(function() unitId = api.Unit:GetOverHeadMarkerUnitId(markerIndex) end)
+        ok, unitId = pcall(api.Unit.GetOverHeadMarkerUnitId, api.Unit, markerIndex)
     end
-    return unitId
+    if ok then return unitId else return nil end
 end
 
 local fish_tracker = {}
@@ -27,6 +29,7 @@ fish_tracker.enableDebugMode = true
 fish_tracker.enableOnlyMyFishes = true
 fish_tracker.deadFishContainerPos = {0, 200} -- default position relative to center
 
+local sortedFishes_cache = {}
 local markerColors = {
     [1] = {1.0, 0.5, 0.0, 1},
     [2] = {0.5, 1.0, 0.0, 1},
@@ -39,6 +42,9 @@ local markerColors = {
     [9] = {1.0, 0.0, 0.0, 1},
 }
 
+local ownersMarkCache = { [4867] = true, [5748] = true, [14470] = true }
+local nonOwnersMarkCache = {}
+local actionBuffs = {[5264]=true, [5265]=true, [5266]=true, [5267]=true, [5508]=true}
 local fishBuffIdsToAlert = {
 	[5715] = "Strength Contest",
 	[5264] = "Stand Firm Right",
@@ -127,7 +133,7 @@ function fish_tracker.CreateUI(wndParent)
     -- Dead Fish Timers Toggle
     local deadFishToggle = container:CreateChildWidget("checkbutton", "deadFishToggle", 0, true)
     deadFishToggle:SetExtent(18, 17)
-    deadFishToggle:AddAnchor("TOPLEFT", container, "TOPLEFT", 15, 0)
+    deadFishToggle:AddAnchor("TOPLEFT", container, "TOPLEFT", 60, 0)
     
     local bg1 = deadFishToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
     bg1:SetExtent(18, 17)
@@ -143,7 +149,7 @@ function fish_tracker.CreateUI(wndParent)
     
     local dfLbl = container:CreateChildWidget("label", "dfLbl", 0, true)
     dfLbl:SetAutoResize(true)
-    dfLbl:SetText("Enable Dead Fish Timers (Beta)")
+    dfLbl:SetText("Enable Dead Fish Timers")
     dfLbl:AddAnchor("LEFT", deadFishToggle, "RIGHT", 5, 0)
     ApplyTextColor(dfLbl, FONT_COLOR.DEFAULT)
 
@@ -186,7 +192,7 @@ function fish_tracker.CreateUI(wndParent)
     
     local siLbl = container:CreateChildWidget("label", "siLbl", 0, true)
     siLbl:SetAutoResize(true)
-    siLbl:SetText("Enable Fish Skill Indicators (Beta)")
+    siLbl:SetText("Enable Fish Skill Indicators")
     siLbl:AddAnchor("LEFT", skillIndToggle, "RIGHT", 5, 0)
     ApplyTextColor(siLbl, FONT_COLOR.DEFAULT)
 
@@ -426,9 +432,16 @@ function fish_tracker:OnUpdate(dt)
         local activeTimerCount = 0
         local index = 1
         
-        local sortedFishes = {}
+        local sortedFishes = sortedFishes_cache
+        local sort_idx = 1
         for key, data in pairs(deadFishes) do
-            table.insert(sortedFishes, { key = key, data = data })
+            if sortedFishes[sort_idx] == nil then sortedFishes[sort_idx] = {} end
+            sortedFishes[sort_idx].key = key
+            sortedFishes[sort_idx].data = data
+            sort_idx = sort_idx + 1
+        end
+        for i = sort_idx, #sortedFishes do
+            sortedFishes[i] = nil
         end
         table.sort(sortedFishes, function(a, b)
             local timeA = type(a.data) == "table" and a.data.time or a.data
@@ -525,33 +538,54 @@ function fish_tracker:OnUpdate(dt)
     -- 2. Owner Mark & Skill Indicators
     if currentTarget then
         local x, y, z = safeGetUnitScreenPosition("target")
-        local currentXYZ = tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
-        if previousXYZ ~= currentXYZ then
+        if prevX ~= x or prevY ~= y or prevZ ~= z then
             fishTrackerCanvas:AddAnchor("TOP", "UIParent", "TOPLEFT", (x or 0) - 42, (y or 0) - 100)
-            previousXYZ = currentXYZ
+            prevX, prevY, prevZ = x, y, z
         end
 
-        local buffCount = api.Unit:UnitBuffCount("target") or 0
-        local ownersMarkBuff = nil
-        local actionBuff = nil
-        local strengthContestBuff = nil
-
-        for i = 1, buffCount do
-            local buff = api.Unit:UnitBuff("target", i)
-            if buff ~= nil and buff.buff_id ~= nil then
-                local bInfo = api.Ability:GetBuffTooltip(buff.buff_id, 1)
-                if buff.buff_id == 4867 or buff.buff_id == 5748 or buff.buff_id == 14470 or 
-                   (bInfo and bInfo.name and string.find(string.lower(bInfo.name), "owner's mark")) then
-                    ownersMarkBuff = buff
-                elseif fishBuffIdsToAlert[buff.buff_id] ~= nil then
-                    if actionBuffs[buff.buff_id] then
-                        actionBuff = buff
-                    elseif buff.buff_id == 5715 then
-                        strengthContestBuff = buff
+        fish_tracker.buffCheckTimer = (fish_tracker.buffCheckTimer or 0) + dt
+        if fish_tracker.buffCheckTimer > 100 then
+            fish_tracker.buffCheckTimer = 0
+            local buffCount = api.Unit:UnitBuffCount("target") or 0
+            local ownersMarkBuff = nil
+            local actionBuff = nil
+            local strengthContestBuff = nil
+    
+            for i = 1, buffCount do
+                local buff = api.Unit:UnitBuff("target", i)
+                if buff ~= nil and buff.buff_id ~= nil then
+                    local isOwner = ownersMarkCache[buff.buff_id]
+                    if isOwner == nil and not nonOwnersMarkCache[buff.buff_id] then
+                        local bInfo = api.Ability:GetBuffTooltip(buff.buff_id, 1)
+                        if bInfo and bInfo.name and string.find(string.lower(bInfo.name), "owner's mark") then
+                            ownersMarkCache[buff.buff_id] = true
+                            isOwner = true
+                        else
+                            nonOwnersMarkCache[buff.buff_id] = true
+                            isOwner = false
+                        end
+                    end
+                    
+                    if isOwner then
+                        ownersMarkBuff = buff
+                    elseif fishBuffIdsToAlert[buff.buff_id] ~= nil then
+                        if actionBuffs[buff.buff_id] then
+                            actionBuff = buff
+                        elseif buff.buff_id == 5715 then
+                            strengthContestBuff = buff
+                        end
                     end
                 end
             end
+            
+            fish_tracker.lastOwnersMarkBuff = ownersMarkBuff
+            fish_tracker.lastActionBuff = actionBuff
+            fish_tracker.lastStrengthContestBuff = strengthContestBuff
         end
+        
+        local ownersMarkBuff = fish_tracker.lastOwnersMarkBuff
+        local actionBuff = fish_tracker.lastActionBuff
+        local strengthContestBuff = fish_tracker.lastStrengthContestBuff
 
         if fish_tracker.enableOwnerMark and ownersMarkBuff ~= nil then
             if not fish_tracker.ownerMarkEndTime or currentTime > fish_tracker.ownerMarkEndTime or fish_tracker.ownerMarkUnitId == currentTarget then
