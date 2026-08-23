@@ -291,8 +291,15 @@ function spot_tracker:OnLoad()
     replaceWarning.rwLbl = rwLbl
     replaceWarning:Show(false)
 
+    spot_tracker.masterOverlay = api.Interface:CreateEmptyWindow("eluSpotMasterOverlay", "UIParent")
+    local masterOverlay = spot_tracker.masterOverlay
+    --("eluSpotMasterOverlay", "UIParent")
+    masterOverlay:Show(true)
+    masterOverlay:SetExtent(0, 0)
+    masterOverlay:AddAnchor("TOPLEFT", "UIParent", 0, 0)
+
     for i = 1, MAX_TIMERS do
-        local overlay = api.Interface:CreateEmptyWindow("eluSpotOverlay"..i, "UIParent")
+        local overlay = masterOverlay:CreateChildWidget("emptywidget", "eluSpotOverlay"..i, 0, true)
         overlay:SetExtent(145, 65)
         overlay:AddAnchor("TOPLEFT", "UIParent", 500, 100 + ((i-1)*75))
         overlay:Show(false)
@@ -484,6 +491,10 @@ function spot_tracker:OnUpdate(dt)
 end
 
 function spot_tracker:OnUnload()
+    if spot_tracker.masterOverlay then
+        spot_tracker.masterOverlay:Show(false)
+        spot_tracker.masterOverlay = nil
+    end
     if doodadListener then
         doodadListener:Show(false)
         doodadListener = nil

@@ -374,10 +374,11 @@ end
 -- ESTATÍSTICAS E TABELA 
 -- ==========================================
 local previousPlayerGold = -1
+local function GetGoldString() return tonumber(X2Util.GetMyMoneyString()) or 0 end
 local function CheckMoney()
     local currentGold = 0
     if X2Util and type(X2Util.GetMyMoneyString) == "function" then
-        local ok, g = pcall(function() return tonumber(X2Util.GetMyMoneyString()) or 0 end)
+        local ok, g = pcall(GetGoldString)
         if ok and type(g) == "number" then currentGold = g end
     end
 

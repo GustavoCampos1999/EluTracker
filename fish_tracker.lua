@@ -21,6 +21,26 @@ local function safeGetOverHeadMarkerUnitId(markerIndex)
     if ok then return unitId else return nil end
 end
 
+local cachedIconPaths = {}
+local function GetCachedIconPath(buffId)
+    if not buffId then return "" end
+    if not cachedIconPaths[buffId] then
+        local t = api.Ability:GetBuffTooltip(buffId, 1)
+        cachedIconPaths[buffId] = t and t.path or ""
+    end
+    return cachedIconPaths[buffId]
+end
+
+local cachedBuffNames = {}
+local function GetCachedBuffName(buffId)
+    if not buffId then return "" end
+    if not cachedBuffNames[buffId] then
+        local t = api.Ability:GetBuffTooltip(buffId, 1)
+        cachedBuffNames[buffId] = t and t.name or ""
+    end
+    return cachedBuffNames[buffId]
+end
+
 local fish_tracker = {}
 
 fish_tracker.enableDeadFishTimers = true
@@ -364,8 +384,7 @@ function fish_tracker:OnUpdate(dt)
 
     local hp = nil
     if currentTarget then
-        local tInfo = api.Unit:GetUnitInfoById(currentTarget)
-        if tInfo then targetName = tInfo.name end
+        targetName = api.Unit:GetUnitNameById(currentTarget)
         hp = api.Unit:UnitHealth("target")
     end
 
@@ -484,12 +503,12 @@ function fish_tracker:OnUpdate(dt)
                     end
                         
                     if ui.canvas.deleteState then
-                        F_SLOT.SetIconBackGround(ui.icon, api.Ability:GetBuffTooltip(11487, 1).path)
+                        F_SLOT.SetIconBackGround(ui.icon, GetCachedIconPath(11487))
                         ui.timeLabel:SetText(string.format("%.0fs(X)", remaining / 1000))
                         ui.timeLabel.style:SetColor(1, 0, 0, 1)
                         ui.canvas:SetAlpha(0.5)
                     else
-                        F_SLOT.SetIconBackGround(ui.icon, api.Ability:GetBuffTooltip(11487, 1).path)
+                        F_SLOT.SetIconBackGround(ui.icon, GetCachedIconPath(11487))
                         ui.timeLabel:SetText(string.format("%.0fs", remaining / 1000))
                         if remaining <= 5000 then
                             if math.floor(remaining / 250) % 2 == 0 then
@@ -556,7 +575,7 @@ function fish_tracker:OnUpdate(dt)
                 if buff ~= nil and buff.buff_id ~= nil then
                     local isOwner = ownersMarkCache[buff.buff_id]
                     if isOwner == nil and not nonOwnersMarkCache[buff.buff_id] then
-                        local bInfo = api.Ability:GetBuffTooltip(buff.buff_id, 1)
+                        local bInfoName = GetCachedBuffName(buff.buff_id)
                         if bInfo and bInfo.name and string.find(string.lower(bInfo.name), "owner's mark") then
                             ownersMarkCache[buff.buff_id] = true
                             isOwner = true
@@ -590,7 +609,7 @@ function fish_tracker:OnUpdate(dt)
         if fish_tracker.enableOwnerMark and ownersMarkBuff ~= nil then
             if not fish_tracker.ownerMarkEndTime or currentTime > fish_tracker.ownerMarkEndTime or fish_tracker.ownerMarkUnitId == currentTarget then
                 fish_tracker.ownerMarkEndTime = currentTime + ownersMarkBuff.timeLeft
-                fish_tracker.ownerMarkIconPath = api.Ability:GetBuffTooltip(ownersMarkBuff.buff_id, 1).path
+                fish_tracker.ownerMarkIconPath = GetCachedIconPath(ownersMarkBuff.buff_id)
                 fish_tracker.ownerMarkUnitId = currentTarget
             end
         end
@@ -614,7 +633,7 @@ function fish_tracker:OnUpdate(dt)
                     fishTrackerCanvas:Show(true)
                 end
                 targetFishIcon:Show(true)
-                F_SLOT.SetIconBackGround(targetFishIcon, api.Ability:GetBuffTooltip(4053, 1).path)
+                F_SLOT.SetIconBackGround(targetFishIcon, GetCachedIconPath(4053))
                 fishBuffTimeLeftLabel:Show(false)
             else
                 if actionBuff ~= nil then
@@ -636,14 +655,14 @@ function fish_tracker:OnUpdate(dt)
                         fishTrackerCanvas:Show(true)
                     end
                     targetFishIcon:Show(true)
-                    F_SLOT.SetIconBackGround(targetFishIcon, api.Ability:GetBuffTooltip(4622, 1).path)
+                    F_SLOT.SetIconBackGround(targetFishIcon, GetCachedIconPath(4622))
                     fishBuffTimeLeftLabel:Show(false)
                     previousActionBuffId = nil
                 end
 
                 if strengthContestBuff ~= nil then
                     strengthContestIcon:Show(true)
-                    F_SLOT.SetIconBackGround(strengthContestIcon, api.Ability:GetBuffTooltip(5715, 1).path)
+                    F_SLOT.SetIconBackGround(strengthContestIcon, GetCachedIconPath(5715))
                     
                     local timeLeftSecs = math.max(0, strengthContestBuff.timeLeft / 1000)
                     strengthContestTimeLabel:SetText(string.format("%.0fs", timeLeftSecs))
@@ -673,6 +692,10 @@ function fish_tracker:OnUpdate(dt)
 end
 
 function fish_tracker:OnUnload()
+    if fish_tracker.masterCanvas then
+        fish_tracker.masterCanvas:Show(false)
+        fish_tracker.masterCanvas = nil
+    end
     if fishTrackerCanvas ~= nil then
         fishTrackerCanvas:Show(false)
         fishTrackerCanvas = nil
