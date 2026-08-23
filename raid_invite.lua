@@ -674,7 +674,7 @@ local function BuildSidePanel(parent)
 
             local function ShowImportWindow()
                 local impWnd = api.Interface:CreateWindow("eluRImportWnd_"..tostring(math.random(1000, 9999)), "Import Code", 0, 0)
-                impWnd:SetExtent(300, 320)
+                impWnd:SetExtent(300, 420)
                 impWnd:AddAnchor("CENTER", "UIParent", 0, 0)
                 
     
@@ -688,7 +688,7 @@ local function BuildSidePanel(parent)
                 inst:SetText("Paste (Ctrl+V) the code you received from your friend in the box below:")
                 
                 local input = W_CTRL.CreateMultiLineEdit("importInput", impWnd)
-                input:SetExtent(260, 100)
+                input:SetExtent(260, 200)
                 input:AddAnchor("TOP", inst, "BOTTOM", 0, 10)
                 input:SetMaxTextLength(65535)
                 
