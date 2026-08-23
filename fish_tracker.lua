@@ -347,7 +347,6 @@ function fish_tracker:OnLoad()
 
     deadFishes = {}
     
-    )
 end
 
 function fish_tracker:OnUpdate(dt)
