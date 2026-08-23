@@ -25,6 +25,7 @@ fish_tracker.enableDeadFishTimers = true
 fish_tracker.enableSkillIndicators = true
 fish_tracker.enableDebugMode = true
 fish_tracker.enableOnlyMyFishes = true
+fish_tracker.deadFishContainerPos = {0, 200} -- default position relative to center
 
 local markerColors = {
     [1] = {1.0, 0.5, 0.0, 1},
@@ -90,12 +91,14 @@ local function LoadMiscSettings()
     if type(data) == "table" then
         if data.enableDeadFishTimers ~= nil then fish_tracker.enableDeadFishTimers = data.enableDeadFishTimers end
         if data.enableSkillIndicators ~= nil then fish_tracker.enableSkillIndicators = data.enableSkillIndicators end
+        if data.deadFishContainerPos ~= nil then fish_tracker.deadFishContainerPos = data.deadFishContainerPos end
         api.Log:Info(string.format("[Fish Tracker Debug] Settings Loaded - DeadFish:%s, SkillInd:%s", 
             tostring(fish_tracker.enableDeadFishTimers), tostring(fish_tracker.enableSkillIndicators)))
     else
-        api.Log:Info("[Fish Tracker Debug] No settings file found, using defaults.")
+        
         fish_tracker.enableDeadFishTimers = true
         fish_tracker.enableSkillIndicators = true
+        fish_tracker.deadFishContainerPos = {0, 200}
     end
 end
 
@@ -104,6 +107,7 @@ local function SaveMiscSettings()
     if type(data) ~= "table" then data = {} end
     data.enableDeadFishTimers = fish_tracker.enableDeadFishTimers
     data.enableSkillIndicators = fish_tracker.enableSkillIndicators
+    data.deadFishContainerPos = fish_tracker.deadFishContainerPos
     api.File:Write("elu_tracker_misc.txt", data)
 end
 
@@ -142,6 +146,12 @@ function fish_tracker.CreateUI(wndParent)
     dfLbl:SetText("Enable Dead Fish Timers (Beta)")
     dfLbl:AddAnchor("LEFT", deadFishToggle, "RIGHT", 5, 0)
     ApplyTextColor(dfLbl, FONT_COLOR.DEFAULT)
+
+    local dfMoveBtn = container:CreateChildWidget("button", "dfMoveBtn", 0, true)
+    dfMoveBtn:SetExtent(50, 25)
+    dfMoveBtn:AddAnchor("LEFT", dfLbl, "RIGHT", 10, 0)
+    dfMoveBtn:SetText("Move")
+    api.Interface:ApplyButtonSkin(dfMoveBtn, BUTTON_BASIC.DEFAULT)
 
     deadFishToggle:SetChecked(fish_tracker.enableDeadFishTimers, false)
     function deadFishToggle:OnCheckChanged()
@@ -190,6 +200,28 @@ function fish_tracker.CreateUI(wndParent)
     end
     skillIndToggle:SetHandler("OnCheckChanged", skillIndToggle.OnCheckChanged)
 
+    local moveMode = false
+    function dfMoveBtn:OnClick()
+        moveMode = not moveMode
+        if moveMode then
+            dfMoveBtn:SetText("Save")
+            if fish_tracker.deadFishDragBox then
+                fish_tracker.deadFishDragBox:Show(true)
+                fish_tracker.deadFishDragBox:EnableDrag(true)
+            end
+        else
+            dfMoveBtn:SetText("Move")
+            if fish_tracker.deadFishDragBox then
+                fish_tracker.deadFishDragBox:Show(false)
+                fish_tracker.deadFishDragBox:EnableDrag(false)
+                
+                local x, y = fish_tracker.deadFishDragBox:GetOffset()
+                fish_tracker.deadFishContainerPos = {x, y, "TOPLEFT"}
+                SaveMiscSettings()
+            end
+        end
+    end
+    dfMoveBtn:SetHandler("OnClick", dfMoveBtn.OnClick)
 end
 
 function fish_tracker:OnLoad()
@@ -224,8 +256,39 @@ function fish_tracker:OnLoad()
     strengthContestTimeLabel.style:SetShadow(true)
     strengthContestTimeLabel.style:SetColor(1, 1, 0, 1)
 
+    local deadFishDragBox = api.Interface:CreateEmptyWindow("eluDeadFishDragBox", "UIParent")
+    deadFishDragBox:SetExtent(300, 50)
+    deadFishDragBox:AddAnchor("CENTER", "UIParent", "CENTER", fish_tracker.deadFishContainerPos[1], fish_tracker.deadFishContainerPos[2])
+    deadFishDragBox:Show(false)
+
+    local bg = deadFishDragBox:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+    bg:SetTextureInfo("bg_quest")
+    bg:SetColor(0, 0, 0, 0.4)
+    bg:AddAnchor("TOPLEFT", deadFishDragBox, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", deadFishDragBox, 0, 0)
+    
+    deadFishDragBox:SetHandler("OnDragStart", function() 
+        deadFishDragBox:StartMoving() 
+    end)
+    deadFishDragBox:SetHandler("OnDragStop", function() 
+        deadFishDragBox:StopMovingOrSizing() 
+        local x, y = deadFishDragBox:GetOffset()
+        deadFishDragBox:RemoveAllAnchors()
+        deadFishDragBox:AddAnchor("TOPLEFT", "UIParent", "TOPLEFT", x, y)
+        fish_tracker.deadFishContainerPos = {x, y, "TOPLEFT"}
+        SaveMiscSettings()
+    end)
+    
+    if fish_tracker.deadFishContainerPos[3] == "TOPLEFT" then
+        deadFishDragBox:RemoveAllAnchors()
+        deadFishDragBox:AddAnchor("TOPLEFT", "UIParent", "TOPLEFT", fish_tracker.deadFishContainerPos[1], fish_tracker.deadFishContainerPos[2])
+    end
+    
+    fish_tracker.deadFishDragBox = deadFishDragBox
+
     for i = 1, 9 do
         local canvas = api.Interface:CreateEmptyWindow("eluMarkedFishTarget" .. i)
+        canvas:SetExtent(40, 60)
         canvas:Show(false)
 
         local icon = CreateItemIconButton("eluMarkedFishIcon" .. i, canvas)
@@ -284,7 +347,7 @@ function fish_tracker:OnLoad()
 
     deadFishes = {}
     
-    api.Log:Info("[Fish Tracker] OnLoad complete. OwnerMark enabled: " .. tostring(fish_tracker.enableOwnerMark))
+    )
 end
 
 function fish_tracker:OnUpdate(dt)
@@ -363,7 +426,20 @@ function fish_tracker:OnUpdate(dt)
     if fish_tracker.enableDeadFishTimers then
         local activeTimerCount = 0
         local index = 1
+        
+        local sortedFishes = {}
         for key, data in pairs(deadFishes) do
+            table.insert(sortedFishes, { key = key, data = data })
+        end
+        table.sort(sortedFishes, function(a, b)
+            local timeA = type(a.data) == "table" and a.data.time or a.data
+            local timeB = type(b.data) == "table" and b.data.time or b.data
+            return timeA < timeB
+        end)
+        
+        for _, entry in ipairs(sortedFishes) do
+            local key = entry.key
+            local data = entry.data
             local deathTime = type(data) == "table" and data.time or data
             local marker = type(data) == "table" and data.marker or nil
             local elapsed = currentTime - deathTime
@@ -381,45 +457,58 @@ function fish_tracker:OnUpdate(dt)
                         ui.canvas.deleteState = false
                     end
                     ui.canvas.deadFishKey = key
-                    local xOffset = (activeTimerCount * 50) - 125
-                        ui.canvas:RemoveAllAnchors()
-                        ui.canvas:AddAnchor("TOP", "UIParent", "CENTER", xOffset, 200)
-                        ui.canvas:Show(true)
+                    local xOffset = (activeTimerCount * 55)
+                    ui.canvas:RemoveAllAnchors()
+                    local bx = fish_tracker.deadFishContainerPos[1] or 0
+                    local by = fish_tracker.deadFishContainerPos[2] or 200
+                    local apt = fish_tracker.deadFishContainerPos[3] or "CENTER"
+                    ui.canvas:AddAnchor("TOPLEFT", "UIParent", apt, bx + xOffset, by)
+                    ui.canvas:Show(true)
                         
-                        if ui.canvas.deleteState then
-                            if currentTime - (ui.canvas.deleteTime or currentTime) > 3000 then
-                                ui.canvas.deleteState = false
-                            end
+                    if ui.canvas.deleteState then
+                        if currentTime - (ui.canvas.deleteTime or currentTime) > 3000 then
+                            ui.canvas.deleteState = false
                         end
-                        
-                        if ui.canvas.deleteState then
-                            F_SLOT.SetIconBackGround(ui.icon, api.Ability:GetBuffTooltip(11487, 1).path)
-                            ui.timeLabel:SetText(string.format("%.0fs(X)", remaining / 1000))
-                            ui.timeLabel.style:SetColor(1, 0, 0, 1)
-                            ui.canvas:SetAlpha(0.5)
-                        else
-                            F_SLOT.SetIconBackGround(ui.icon, api.Ability:GetBuffTooltip(11487, 1).path)
-                            ui.timeLabel:SetText(string.format("%.0fs", remaining / 1000))
-                            ui.timeLabel.style:SetColor(1, 1, 1, 1)
-                            ui.canvas:SetAlpha(1.0)
-                        end
-                        
-                        if marker ~= nil then
-                            ui.markerLabel:SetText(tostring(marker))
-                            local color = markerColors[marker]
-                            if color then
-                                ui.markerLabel.style:SetColor(color[1], color[2], color[3], color[4])
-                            else
-                                ui.markerLabel.style:SetColor(1, 0.8, 0, 1)
-                            end
-                        else
-                            ui.markerLabel:SetText("")
-                        end
-                        
-                        activeTimerCount = activeTimerCount + 1
-                        index = index + 1
                     end
+                        
+                    if ui.canvas.deleteState then
+                        F_SLOT.SetIconBackGround(ui.icon, api.Ability:GetBuffTooltip(11487, 1).path)
+                        ui.timeLabel:SetText(string.format("%.0fs(X)", remaining / 1000))
+                        ui.timeLabel.style:SetColor(1, 0, 0, 1)
+                        ui.canvas:SetAlpha(0.5)
+                    else
+                        F_SLOT.SetIconBackGround(ui.icon, api.Ability:GetBuffTooltip(11487, 1).path)
+                        ui.timeLabel:SetText(string.format("%.0fs", remaining / 1000))
+                        if remaining <= 5000 then
+                            if math.floor(remaining / 250) % 2 == 0 then
+                                ui.timeLabel.style:SetColor(1, 0, 0, 1)
+                            else
+                                ui.timeLabel.style:SetColor(1, 1, 1, 1)
+                            end
+                        elseif remaining <= 20000 then
+                            ui.timeLabel.style:SetColor(1, 0, 0, 1)
+                        else
+                            ui.timeLabel.style:SetColor(1, 1, 1, 1)
+                        end
+                        ui.canvas:SetAlpha(1.0)
+                    end
+                        
+                    if marker ~= nil then
+                        ui.markerLabel:SetText(tostring(marker))
+                        local color = markerColors[marker]
+                        if color then
+                            ui.markerLabel.style:SetColor(color[1], color[2], color[3], color[4])
+                        else
+                            ui.markerLabel.style:SetColor(1, 0.8, 0, 1)
+                        end
+                    else
+                        ui.markerLabel:SetText("")
+                    end
+                        
+                    activeTimerCount = activeTimerCount + 1
+                    index = index + 1
                 end
+            end
             if index > 9 then break end
         end
         
@@ -478,9 +567,12 @@ function fish_tracker:OnUpdate(dt)
         if fish_tracker.enableOnlyMyFishes and not isTargetingMe then
             showSkillIndicators = false
         end
+        local fishHealth = api.Unit:UnitHealth("target")
+        if fishHealth ~= nil and fishHealth <= 0 and fish_tracker.enableSkillIndicators then
+            showSkillIndicators = true
+        end
 
         if showSkillIndicators then
-            local fishHealth = api.Unit:UnitHealth("target")
             if (fishHealth ~= nil and fishHealth <= 0) or buffCount == 0 then
                 strengthContestIcon:Show(false)
                 strengthContestTimeLabel:SetText("")
@@ -489,7 +581,7 @@ function fish_tracker:OnUpdate(dt)
                     fishTrackerCanvas:Show(true)
                 end
                 targetFishIcon:Show(true)
-                F_SLOT.SetIconBackGround(targetFishIcon, api.Ability:GetBuffTooltip(4622, 1).path)
+                F_SLOT.SetIconBackGround(targetFishIcon, api.Ability:GetBuffTooltip(4053, 1).path)
                 fishBuffTimeLeftLabel:Show(false)
             else
                 if actionBuff ~= nil then
@@ -558,8 +650,25 @@ function fish_tracker:OnUnload()
             markedFishUI[i] = nil
         end
     end
+    if fish_tracker.deadFishDragBox ~= nil then
+        fish_tracker.deadFishDragBox:Show(false)
+        fish_tracker.deadFishDragBox = nil
+    end
     markedFishUI = {}
     deadFishes = {}
 end
 
 return fish_tracker
+
+
+
+
+
+
+
+
+
+
+
+
+

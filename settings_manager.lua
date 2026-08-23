@@ -19,7 +19,13 @@ function EluTrackerSettingsManager.LoadSettings()
     local data = api.File:Read(ELU_TRACKER_SETTINGS_FILE)
     if type(data) == "table" then
         for k, v in pairs(data) do
-            EluTrackerSettingsManager.Settings[k] = v
+            if type(v) == "table" and type(EluTrackerSettingsManager.Settings[k]) == "table" then
+                for subK, subV in pairs(v) do
+                    EluTrackerSettingsManager.Settings[k][subK] = subV
+                end
+            else
+                EluTrackerSettingsManager.Settings[k] = v
+            end
         end
     end
 end
