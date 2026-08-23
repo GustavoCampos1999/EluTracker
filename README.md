@@ -1,8 +1,8 @@
-# EluTracker
+# Elu Tracker 3.0
 
-A highly comprehensive and self-sufficient productivity, economy, and activity tracker designed specifically for ArcheAge Classic. This addon modernizes and heavily expands upon classic tracking capabilities to give players complete transparency over their economic activities, and gameplay loops.
+A highly comprehensive and self-sufficient productivity, economy, utility, and recruitment tracker designed specifically for ArcheAge Classic. This addon modernizes and heavily expands upon classic tracking capabilities to give players complete transparency over their economic activities, fishing, and raid management.
 
-![image](https://github.com/user-attachments/assets/dcb79d21-6791-4a73-8216-244b0f954a97)
+![image](https://github.com/user-attachments/assets/41da48ee-265c-477a-896c-364430f89ead)
 
 ## Acknowledgments & Credits
 Elu_Tracker is a standalone project heavily expanded from its original scope. While the overall addon has evolved independently, the Commerce tab was specifically inspired by and adapted from Your Paystub, originally created by Michaelqt.
@@ -17,63 +17,68 @@ A custom interactive button is injected directly into your main Inventory (Bag) 
 
 Click the custom icon to toggle the main Elu_Tracker control panel.
 
+
 ## Features
-### Commerce Tracker
+## 1. Commerce Tracker
 
-![image](https://github.com/user-attachments/assets/abf35314-2840-44f9-b7e8-7bbff63ba5d2)
+![image](https://github.com/user-attachments/assets/b2c928a7-87ff-40d6-ada0-df09cf51b54e)
 
-Originally built upon the baseline framework by Michaelqt, this module has been heavily refactored.
+*Originally built upon the baseline framework by Michaelqt, this module has been heavily refactored.*
 
-#### Pending Payout Tracking: 
-Real-time countdowns and monitoring for all pending merchant mail payouts.  
+- **Pending Payout Tracking**: Real-time countdowns and monitoring for all pending merchant mail payouts.
+- **Enhanced Resource Accumulation**: Dynamically aggregates data across all active cooldowns to display the exact total volume of pending resources currently en route to your mailbox.
+- **Manual or Auto Pricing Engine**: Features a dedicated manual price-entry interface for critical resources (such as Charcoal and Dragon Stabilizers), allowing you to define custom values to maintain perfectly accurate profit math regardless of server API status. Features a fast Reset button to revert to dynamic server prices.
+- **Accurate Resource Logs**: Categorizes and records exact delivery types, item amounts, and expected payout times for Gold, Charcoal Stabilizers, Gilda Stars, and Dragon Essences.
 
-#### Enhanced Resource Accumulation: 
-Dynamically aggregates data across all active cooldowns to display the exact total volume of pending resources currently en route to your mailbox.
+## 2. Raid & Recruitment Manager (Auto Invite)
 
-#### Manual Pricing Engine: 
-Features a dedicated manual price-entry interface for critical resources (such as Charcoal and Dragon Stabilizers), allowing you to define custom values to maintain perfectly accurate profit math regardless of server API status.  
+![image](https://github.com/user-attachments/assets/5a6b21bf-01d8-41b9-8d35-91af884cf015)
 
-#### Accurate Resource Logs: 
-Categorizes and records exact delivery types, item amounts, and expected payout times for:  Gold  Charcoal Stabilizer  Gilda Stars  Dragon Essence Stabilizer
+*A massive overhaul of the native raid recruitment system, seamlessly integrated into the Raid Info window.*
 
-### Fishing Tracker
+- **Smart Auto-Recruitment**: Define a keyword and automatically invite anyone who whispers or shouts it. Includes "Contains" or "Exact Match" filters, and an option to only invite players within a 150m radius (perfect for open-world events).
+- **Auto Givelead & Auto Raid**: Automatically pass leadership to specific players upon joining, and automatically convert a 5-man party into a raid without lifting a finger.
+- **Advanced Whitelist & Blacklist**: Manage large lists of friends and foes. Whitelisted players are invited instantly without needing keywords. Blacklisted players are ignored completely.
+- **Export & Import Engine**: Built-in system to safely export your huge Whitelists and Blacklists into a copy-pasteable text code, allowing you to easily share and import lists with your friends or guildmates.
+- **Floating Status Icon**: A draggable, clickable screen icon that visually tells you if recruitment is ON, OFF, or in Whitelist-Only mode, so you never accidentally leave auto-invite running.
 
-![image](https://github.com/user-attachments/assets/e91bb715-ebac-4950-bc62-8ffcc670693e)
+## 3. Fishing Tracker & Enhancements
 
-#### Catch & Profit Logging: 
-Tracks exact fish turn-ins and total gold generated. You can view your financial breakdown by Today’s Profit, Yesterday’s Profit, and Lifetime Total.
+![image](https://github.com/user-attachments/assets/18fc870b-708d-49e8-9a31-66185354f498)
 
-#### Session Performance: 
-Aggregates real-time session statistics, detailing total gold accumulated. You can view your financial breakdown by Today’s Profit, Yesterday’s Profit, and Lifetime Total, and your most frequently caught fish type.
+- **Catch & Profit Logging**: Tracks exact fish turn-ins and total gold generated. View your financial breakdown by Today's Profit, Yesterday's Profit, and Lifetime Total.
+- **Dynamic Fishing Spot Tracker**: Bind a modifier key (Alt, Shift, or Ctrl), hover over a spot, and instantly open a persistent tracking toggle showing the spot's name and remaining time (supports up to 3 spots simultaneously).
+- **Midnight Session Transfer**: Features a smart rollover mechanism. If your fishing session goes past midnight, manually transfer "Today's" earnings into "Yesterday's" profit with a single click.
+- **Dead Fish Timers (Visual Overlay)**: Automatically draws a visible 5-minute countdown timer directly floating over the bodies of dropped Large Fishes so you know exactly when they will despawn.
+- **Skill Indicators (Visual Overlay)**: Automatically detects what skill a hooked fish requires and displays the required skill icon directly above the fish in the 3D world.
 
-#### Midnight Session Transfer: 
-Features a smart rollover mechanism. If your fishing session goes past midnight, you can manually transfer "Today's" earnings into "Yesterday's" profit with a single click, resetting your daily tracker without losing your session data.
+## 4. Loot Tracker
 
-### Misc.
+![image](https://github.com/user-attachments/assets/7b3c6e9e-06cb-4378-aca3-67b0b5ac5782)
 
-![image](https://github.com/user-attachments/assets/439e319b-6842-4cf4-a60c-589ba0b6e1e3)
+*Originally built upon the baseline framework by Michaelqt, this module has been refactored.*
+- **Session-Based Logging**: Start and stop loot sessions to precisely track every single item dropped during your grinding or farming runs.
+- **Visual Grid Inventory**: See exactly how many of each item you looted in a clean, visual grid interface, helping you calculate exactly how much money you made in an hour.
 
-#### Integrated Chronometer (Stopwatch): 
-A highly accurate, low-overhead live timer mapped into the user interface
+# 5. Misc & Utility
 
-#### Trip Counter: 
-A persistent counter for your trade runs. It features anti-DC protection, meaning your progress is safely cached and will only reset if you manually click the "Reset" button. You can set a specific run goal (e.g., 18) and save up to 5 favorite route presets to load them instantly
+![image](https://github.com/user-attachments/assets/fd1105f3-c496-4021-a043-25e5a31bbd14)
 
-#### Dynamic Fishing Spot Tracker: 
-An advanced utility designed to actively record and time active fishing and schools fish.
+- **Integrated Chronometer (Stopwatch)**: A highly accurate, low-overhead live timer mapped into the user interface.
+- **Trip Counter**: A persistent counter for your trade runs featuring anti-DC protection (your progress is safely cached and only resets if you click it). Set a specific run goal and save up to 5 favorite route presets.
+- **Zeal Alert**: Pops a customizable visual alert on your screen the moment the Zeal buff activates.
 
-Hot-Key Capture: Bind a modifier key (Alt, Shift, or Ctrl) in the Misc settings, hover over a spot, and instantly open a persistent tracking toggle showing the spot's name and remaining time.
+![image](https://github.com/user-attachments/assets/96845923-49d8-438f-8f42-722e78fbeb03)
 
-Multi-Slot Memory: Keep up to 3 active toggles simultaneously without needing external notes. Attempting to track a 4th spot will trigger a quick confirmation prompt; pressing your hotkey again will automatically overwrite your oldest active tracker.
 
-### Guild Check 
+# 6. Guild Check 
 Instantly displays the guild of your current target. It creates a customizable floating box at the top of the screen and also adds the guild name directly above the target's health bar.
 
 ![image](https://github.com/user-attachments/assets/dce6edb5-43ed-445c-b38c-f70bc54318f7)
 
 ![image](https://github.com/user-attachments/assets/2d8231e5-3b85-4f69-bb90-49b2db8e46b6)
 
-#### Zeal Alert: 
-Pop an alert when zeal is active, fully customizable
 
-![image](https://github.com/user-attachments/assets/96845923-49d8-438f-8f42-722e78fbeb03)
+
+
+
