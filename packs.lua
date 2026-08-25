@@ -229,6 +229,13 @@ local function saveCurrentSessionToFile()
         currentSession["profitTotal"] = currentSession["refundTotal"] / 10000
     elseif coinTypeId == 32103 or coinTypeId == 32106 then 
         local stabilizerPrice = (AH_PRICES[coinTypeId] and AH_PRICES[coinTypeId].average) or (coinTypeId == 32103 and 1.5 or 22)
+        
+        local customData = api.File:Read("elu_commerce_prices.txt")
+        if type(customData) == "table" then
+            if coinTypeId == 32103 and customData.c ~= nil then stabilizerPrice = tonumber(customData.c) or stabilizerPrice end
+            if coinTypeId == 32106 and customData.d ~= nil then stabilizerPrice = tonumber(customData.d) or stabilizerPrice end
+        end
+        
         currentSession["profitTotal"] = stabilizerPrice * currentSession["refundTotal"]
     elseif coinTypeId == 23633 then 
         local gildaDustPrice = AH_PRICES[8000026] and AH_PRICES[8000026].average or 0

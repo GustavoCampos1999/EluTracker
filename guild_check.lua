@@ -171,13 +171,8 @@ local function refreshGuildText()
     ApplyVisuals()
 end
 
-local guildCheckTimer = 0
 function guild_check:OnUpdate(dt)
     if not settings.enabled then return end
-    
-    guildCheckTimer = guildCheckTimer + dt
-    if guildCheckTimer < 250 then return end
-    guildCheckTimer = 0
     
     local success, err = pcall(refreshGuildText)
     if not success then
