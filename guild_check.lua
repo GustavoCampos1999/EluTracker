@@ -17,7 +17,7 @@ local settingsFile = "elu_guild_check.txt"
 
 local settings = {
     enabled = false,
-    f1_enabled = true,
+    f1_enabled = false,
     f1_size = 25,
     f1_bg_alpha = 0.2,
     f1_r = 1,
@@ -25,7 +25,7 @@ local settings = {
     f1_b = 1,
     f1_x = -999,
     f1_y = -999,
-    f2_enabled = true,
+    f2_enabled = false,
     f2_size = 18,
     f2_r = 1,
     f2_g = 1,
@@ -43,7 +43,6 @@ local function SaveSettings()
         SaveEluTrackerSettings()
     end)
     if not success then
-        api.Log:Info("[Guild Check] Save ERROR: " .. tostring(err))
     end
 end
 
@@ -72,7 +71,6 @@ local function LoadSettings()
         end
     end)
     if not success then
-        api.Log:Info("[Guild Check] Load ERROR: " .. tostring(err))
     end
 end
 
@@ -176,12 +174,12 @@ function guild_check:OnUpdate(dt)
     
     local success, err = pcall(refreshGuildText)
     if not success then
-        api.Log:Info("[Guild Check Debug] ERROR in refreshGuildText: " .. tostring(err))
     end
 end
 
 function guild_check:OnLoad()
     f1Window = api.Interface:CreateEmptyWindow("eluGuildCheck_F1", "UIParent")
+    
     if settings.f1_x == -999 then
         f1Window:AddAnchor("CENTER", "UIParent", 0, -100)
     else
@@ -228,6 +226,7 @@ function guild_check:OnLoad()
     f1Label:SetHandler("OnDragStop", function() f1Window:OnDragStop() end)
 
     f2Window = api.Interface:CreateEmptyWindow("eluGuildCheck_F2", "UIParent")
+    
     if settings.f2_x == -999 then
         f2Window:AddAnchor("CENTER", "UIParent", 0, 150)
     else
@@ -284,7 +283,6 @@ function guild_check:OnUnload()
         f2Window:Show(false)
         f2Window:RemoveAllAnchors()
     end
-    api.Log:Info("[Guild Check] Unloaded successfully.")
 end
 
 function guild_check.CreateUI(container)
@@ -408,7 +406,7 @@ function guild_check.CreateUI(container)
     
     local resetContainer = panel:CreateChildWidget("emptywidget", "resetContainer", 0, true)
     resetContainer:SetExtent(250, 30)
-    resetContainer:AddAnchor("TOP", helpLbl, "BOTTOM", 15, 25)
+    resetContainer:AddAnchor("TOP", helpLbl, "BOTTOM", 0, 25)
 
     local resetBtn = resetContainer:CreateChildWidget("button", "resetBtn", 0, true)
     resetBtn:SetExtent(120, 30)
@@ -437,7 +435,6 @@ function guild_check.CreateUI(container)
         
         SaveSettings()
         ApplyVisuals()
-        api.Log:Info("[Guild Check] Defaults applied.")
     end
     resetDefBtn:SetHandler("OnClick", resetDefBtn.OnClick)
 
@@ -455,11 +452,10 @@ function guild_check.CreateUI(container)
             f2Window:RemoveAllAnchors()
             f2Window:AddAnchor("CENTER", "UIParent", 0, 150)
         end
-        api.Log:Info("[Guild Check] Frame positions reset to default.")
     end
     resetBtn:SetHandler("OnClick", resetBtn.OnClick)
 
-    local col1_x = 75
+    local col1_x = 90
     
     local f1Title = panel:CreateChildWidget("label", "f1Title", 0, true)
     f1Title:SetAutoResize(true)
@@ -506,7 +502,7 @@ function guild_check.CreateUI(container)
     end)
     f1AlphaGrp:AddAnchor("TOPLEFT", panel, col1_x, 260)
 
-    local col2_x = 305
+    local col2_x = 330
     
     local f2Title = panel:CreateChildWidget("label", "f2Title", 0, true)
     f2Title:SetAutoResize(true)
@@ -555,7 +551,6 @@ function guild_check.CreateUI(container)
 
     function enableCheck:OnCheckChanged()
         settings.enabled = self:GetChecked()
-        api.Log:Info("[Guild Check] Status: " .. (settings.enabled and "ON" or "OFF"))
         SaveSettings()
         UpdateVisibility()
         ApplyVisuals()

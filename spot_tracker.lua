@@ -91,42 +91,27 @@ end
 function spot_tracker.CreateUI(wndParent)
     LoadMiscSettings()
     if not spot_tracker.modifierKey then spot_tracker.modifierKey = "ALT" end
-    local anchorWidget = wndParent.resetBtn or wndParent
-    local yOffset = wndParent.resetBtn and 40 or 250
-
-    if wndParent.altToggle then wndParent.altToggle:Show(false) end
-    if wndParent.altLbl then wndParent.altLbl:Show(false) end
-
-    local titleSpot = wndParent:CreateChildWidget("label", "titleSpot", 0, true)
-    titleSpot:SetAutoResize(true)
-    titleSpot.style:SetFontSize(FONT_SIZE.XXLARGE)
-    ApplyTextColor(titleSpot, FONT_COLOR.TITLE)
-    titleSpot:SetText("Fishing Settings")
-    if anchorWidget == wndParent then
-        titleSpot:AddAnchor("TOP", anchorWidget, 0, yOffset)
-    else
-        titleSpot:AddAnchor("TOP", anchorWidget, "BOTTOM", 0, yOffset)
-    end
-
-    local desc = wndParent:CreateChildWidget("label", "descSpot", 0, true)
+    
+    local desc = wndParent:CreateChildWidget("textbox", "descSpot", 0, true)
+    desc:SetExtent(260, 40)
+    desc.style:SetAlign(ALIGN.CENTER)
     ApplyTextColor(desc, FONT_COLOR.DEFAULT)
-    desc:SetText("Hover over a fishing spot and press " .. spot_tracker.modifierKey .. " to track.")
-    desc:AddAnchor("TOP", titleSpot, "BOTTOM", 0, 30)
-
-    if eluAltToggleContainer then eluAltToggleContainer:Show(false) end
-    if eluAltToggleCheck then eluAltToggleCheck:Show(false) end
-    if eluAltToggleLbl then eluAltToggleLbl:Show(false) end
-
-    if altToggle then altToggle:Show(false) end
-    if altLbl then altLbl:Show(false) end
-
+    desc:SetText("Hover over a fishing spot\nand press " .. spot_tracker.modifierKey .. " to track.")
+    
+    if wndParent.eluFishTrackerToggles then
+        desc:AddAnchor("TOP", wndParent.eluFishTrackerToggles, "BOTTOM", 0, 15)
+    else
+        desc:AddAnchor("TOP", wndParent, "TOP", 0, 50)
+    end
+    
     local container = wndParent:CreateChildWidget("emptywidget", "eluAltToggleContainer", 0, true)
     container:SetExtent(300, 30)
-    container:AddAnchor("TOP", desc, "BOTTOM", 0, 10)
-
+    container:AddAnchor("TOP", desc, "BOTTOM", 0, 5)
+    wndParent.eluAltToggleContainer = container
+    
     local altToggle = container:CreateChildWidget("checkbutton", "eluAltToggleCheck", 0, true)
     altToggle:SetExtent(18, 17)
-    altToggle:AddAnchor("LEFT", container, 60, 6)
+    altToggle:AddAnchor("LEFT", container, 45, 0)
     
     local bg1 = altToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
     bg1:SetExtent(18, 17)
@@ -140,51 +125,37 @@ function spot_tracker.CreateUI(wndParent)
     bg2:SetCoords(18, 0, 18, 17)
     altToggle:SetCheckedBackground(bg2)
     
-    local bg3 = altToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
-    bg3:SetExtent(18, 17)
-    bg3:AddAnchor("CENTER", altToggle, 0, 0)
-    bg3:SetCoords(0, 0, 18, 17)
-    altToggle:SetPushedBackground(bg3)
-    
-    local bg4 = altToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
-    bg4:SetExtent(18, 17)
-    bg4:AddAnchor("CENTER", altToggle, 0, 0)
-    bg4:SetCoords(0, 0, 18, 17)
-    altToggle:SetHighlightBackground(bg4)
-    
     local altLbl = container:CreateChildWidget("label", "eluAltToggleLbl", 0, true)
     altLbl:SetAutoResize(true)
     altLbl:SetText("Enable Spot Tracking")
     altLbl:AddAnchor("LEFT", altToggle, "RIGHT", 5, 0)
     ApplyTextColor(altLbl, FONT_COLOR.DEFAULT)
-
-    local modBtn = container:CreateChildWidget("button", "eluTrackerModBtn", 0, true)
-    modBtn:SetExtent(60, 25)
-    modBtn:AddAnchor("LEFT", altLbl, "RIGHT", 10, 0)
-    ApplyButtonSkin(modBtn, BUTTON_BASIC.DEFAULT)
     
-    if not spot_tracker.modifierKey then spot_tracker.modifierKey = "ALT" end
-    modBtn:SetText(spot_tracker.modifierKey)
-    
-    function modBtn:OnClick()
-        local current = spot_tracker.modifierKey
-        if current == "ALT" then spot_tracker.modifierKey = "SHIFT"
-        elseif current == "SHIFT" then spot_tracker.modifierKey = "CTRL"
-        else spot_tracker.modifierKey = "ALT" end
-        modBtn:SetText(spot_tracker.modifierKey)
-        desc:SetText("Hover over a fishing spot and press " .. spot_tracker.modifierKey .. " to track.")
-        api.Log:Info("[Spot Tracker] Modifier Key changed to: " .. spot_tracker.modifierKey)
-        SaveMiscSettings()
-    end
-    modBtn:SetHandler("OnClick", modBtn.OnClick)
-    altToggle:SetChecked(spot_tracker.enableAltTracking, false)
-    
+    altToggle:SetChecked(spot_tracker.enableAltTracking)
     function altToggle:OnCheckChanged()
         spot_tracker.enableAltTracking = self:GetChecked()
-        api.Log:Info("[Spot Tracker] Status: " .. (spot_tracker.enableAltTracking and "ON" or "OFF"))
         SaveMiscSettings()
     end
     altToggle:SetHandler("OnCheckChanged", altToggle.OnCheckChanged)
+
+    local modifierBtn = container:CreateChildWidget("button", "modifierBtn", 0, true)
+    modifierBtn:SetText(spot_tracker.modifierKey)
+    api.Interface:ApplyButtonSkin(modifierBtn, BUTTON_BASIC.DEFAULT)
+    modifierBtn:AddAnchor("LEFT", altLbl, "RIGHT", 10, 0)
+    modifierBtn:SetExtent(60, 25)
+    function modifierBtn:OnClick()
+        if spot_tracker.modifierKey == "ALT" then
+            spot_tracker.modifierKey = "SHIFT"
+        elseif spot_tracker.modifierKey == "SHIFT" then
+            spot_tracker.modifierKey = "CTRL"
+        else
+            spot_tracker.modifierKey = "ALT"
+        end
+        self:SetText(spot_tracker.modifierKey)
+        desc:SetText("Hover over a fishing spot\nand press " .. spot_tracker.modifierKey .. " to track.")
+        SaveMiscSettings()
+    end
+    modifierBtn:SetHandler("OnClick", modifierBtn.OnClick)
 end
 
 function spot_tracker.CaptureHoveredSpot()

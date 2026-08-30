@@ -43,8 +43,8 @@ end
 
 local fish_tracker = {}
 
-fish_tracker.enableDeadFishTimers = true
-fish_tracker.enableSkillIndicators = true
+fish_tracker.enableDeadFishTimers = false
+fish_tracker.enableSkillIndicators = false
 fish_tracker.enableDebugMode = true
 fish_tracker.enableOnlyMyFishes = true
 fish_tracker.deadFishContainerPos = {0, 200} -- default position relative to center
@@ -118,12 +118,10 @@ local function LoadMiscSettings()
         if data.enableDeadFishTimers ~= nil then fish_tracker.enableDeadFishTimers = data.enableDeadFishTimers end
         if data.enableSkillIndicators ~= nil then fish_tracker.enableSkillIndicators = data.enableSkillIndicators end
         if data.deadFishContainerPos ~= nil then fish_tracker.deadFishContainerPos = data.deadFishContainerPos end
-        api.Log:Info(string.format("[Fish Tracker Debug] Settings Loaded - DeadFish:%s, SkillInd:%s", 
-            tostring(fish_tracker.enableDeadFishTimers), tostring(fish_tracker.enableSkillIndicators)))
     else
         
-        fish_tracker.enableDeadFishTimers = true
-        fish_tracker.enableSkillIndicators = true
+        fish_tracker.enableDeadFishTimers = false
+        fish_tracker.enableSkillIndicators = false
         fish_tracker.deadFishContainerPos = {0, 200}
     end
 end
@@ -139,21 +137,21 @@ end
 
 function fish_tracker.CreateUI(wndParent)
     LoadMiscSettings()
-    local anchorWidget = wndParent.eluAltToggleContainer or wndParent
-    local yOffset = anchorWidget == wndParent and 300 or 10
     
     local container = wndParent:CreateChildWidget("emptywidget", "eluFishTrackerToggles", 0, true)
-    container:SetExtent(300, 60)
-    if anchorWidget == wndParent then
-        container:AddAnchor("TOP", anchorWidget, 0, yOffset)
+    container:SetExtent(300, 70)
+    
+    if wndParent.eluAltToggleContainer then
+        container:AddAnchor("TOP", wndParent.eluAltToggleContainer, "BOTTOM", 0, 15)
     else
-        container:AddAnchor("TOP", anchorWidget, "BOTTOM", 0, yOffset)
+        container:AddAnchor("TOP", wndParent, "TOP", 0, 50)
     end
+    wndParent.eluFishTrackerToggles = container
     
     -- Dead Fish Timers Toggle
     local deadFishToggle = container:CreateChildWidget("checkbutton", "deadFishToggle", 0, true)
     deadFishToggle:SetExtent(18, 17)
-    deadFishToggle:AddAnchor("TOPLEFT", container, "TOPLEFT", 60, 0)
+    deadFishToggle:AddAnchor("TOPLEFT", container, "TOPLEFT", 45, 10)
     
     local bg1 = deadFishToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
     bg1:SetExtent(18, 17)
@@ -171,32 +169,30 @@ function fish_tracker.CreateUI(wndParent)
     dfLbl:SetAutoResize(true)
     dfLbl:SetText("Enable Dead Fish Timers")
     dfLbl:AddAnchor("LEFT", deadFishToggle, "RIGHT", 5, 0)
-    ApplyTextColor(dfLbl, FONT_COLOR.DEFAULT)
-
+    if FONT_COLOR and FONT_COLOR.DEFAULT then
+        ApplyTextColor(dfLbl, FONT_COLOR.DEFAULT)
+    end
+    
     local dfMoveBtn = container:CreateChildWidget("button", "dfMoveBtn", 0, true)
-    dfMoveBtn:SetExtent(50, 25)
-    dfMoveBtn:AddAnchor("LEFT", dfLbl, "RIGHT", 10, 0)
     dfMoveBtn:SetText("Move")
     api.Interface:ApplyButtonSkin(dfMoveBtn, BUTTON_BASIC.DEFAULT)
-
-    deadFishToggle:SetChecked(fish_tracker.enableDeadFishTimers, false)
+    dfMoveBtn:AddAnchor("LEFT", dfLbl, "RIGHT", 10, 0)
+    dfMoveBtn:SetExtent(50, 25)
+    
+    deadFishToggle:SetChecked(fish_tracker.enableDeadFishTimers)
     function deadFishToggle:OnCheckChanged()
         fish_tracker.enableDeadFishTimers = self:GetChecked()
         SaveMiscSettings()
         if not fish_tracker.enableDeadFishTimers then
-            for i = 1, 9 do
-                if markedFishUI[i] and markedFishUI[i].canvas then
-                    markedFishUI[i].canvas:Show(false)
-                end
-            end
+            if type(HideAllDeadFishTimers) == "function" then HideAllDeadFishTimers() end
         end
     end
     deadFishToggle:SetHandler("OnCheckChanged", deadFishToggle.OnCheckChanged)
-
-    -- Skill Indicators Toggle
+    
+    -- Fish Skill Indicators Toggle
     local skillIndToggle = container:CreateChildWidget("checkbutton", "skillIndToggle", 0, true)
     skillIndToggle:SetExtent(18, 17)
-    skillIndToggle:AddAnchor("TOPLEFT", deadFishToggle, "BOTTOMLEFT", 0, 10)
+    skillIndToggle:AddAnchor("TOPLEFT", deadFishToggle, "BOTTOMLEFT", 0, 15)
     
     local bg1s = skillIndToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
     bg1s:SetExtent(18, 17)
@@ -214,9 +210,11 @@ function fish_tracker.CreateUI(wndParent)
     siLbl:SetAutoResize(true)
     siLbl:SetText("Enable Fish Skill Indicators")
     siLbl:AddAnchor("LEFT", skillIndToggle, "RIGHT", 5, 0)
-    ApplyTextColor(siLbl, FONT_COLOR.DEFAULT)
-
-    skillIndToggle:SetChecked(fish_tracker.enableSkillIndicators, false)
+    if FONT_COLOR and FONT_COLOR.DEFAULT then
+        ApplyTextColor(siLbl, FONT_COLOR.DEFAULT)
+    end
+    
+    skillIndToggle:SetChecked(fish_tracker.enableSkillIndicators)
     function skillIndToggle:OnCheckChanged()
         fish_tracker.enableSkillIndicators = self:GetChecked()
         SaveMiscSettings()
@@ -225,7 +223,7 @@ function fish_tracker.CreateUI(wndParent)
         end
     end
     skillIndToggle:SetHandler("OnCheckChanged", skillIndToggle.OnCheckChanged)
-
+    
     local moveMode = false
     function dfMoveBtn:OnClick()
         moveMode = not moveMode

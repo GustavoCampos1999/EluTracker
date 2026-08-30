@@ -14,6 +14,9 @@ local raidInviteAddon = require("Elu_Tracker/raid_invite")
 local spotTrackerAddon = require("Elu_Tracker/spot_tracker")
 local zealAlertAddon = require("Elu_Tracker/zeal_alert")
 local stopwatchAddon = require("Elu_Tracker/stopwatch")
+local crashageAddon = require("Elu_Tracker/crashage")
+local lossPornAddon = require("Elu_Tracker/loss_porn")
+local rangeMeterAddon = require("Elu_Tracker/range_meter")
 eluDisplayWindow = nil
 local eluWasVisible = false
 local eluBtn
@@ -111,7 +114,10 @@ local function OnUpdate(dt)
         raidInviteAddon.OnUpdate(dt)
     end
     
+    if crashageAddon and crashageAddon.OnUpdate then crashageAddon.OnUpdate(dt) end
+    if lossPornAddon and lossPornAddon.OnUpdate then lossPornAddon.OnUpdate(dt) end
     if zealAlertAddon and zealAlertAddon.OnUpdate then
+    if rangeMeterAddon and rangeMeterAddon.OnUpdate then rangeMeterAddon.OnUpdate(dt) end
         zealAlertAddon:OnUpdate(dt)
     end
     
@@ -140,6 +146,7 @@ local function CreateCommerceWindow(wndParent)
     ApplyTextColor(title, FONT_COLOR.TITLE)
     title:SetText("Pending Pack Payments")
     title:AddAnchor("TOP", wnd, 0, 10)
+
 
     local charcoalLabel = wnd:CreateChildWidget("label", "charcoalLabel", 0, true)
     charcoalLabel.style:SetFontSize(FONT_SIZE.LARGE)
@@ -374,12 +381,38 @@ local function CreateFishingWindow(wndParent)
     
 
     
+    local settingsBtn = wnd:CreateChildWidget("button", "settingsBtn", 0, true)
+    settingsBtn:SetText("Fishing Settings")
+    api.Interface:ApplyButtonSkin(settingsBtn, BUTTON_BASIC.DEFAULT)
+    settingsBtn:AddAnchor("BOTTOMRIGHT", wnd, -25, 25)
+    
+    local settingsWnd = api.Interface:CreateWindow("eluFishingSettingsWnd_"..tostring(math.random(1000, 9999)), "Fishing Settings", 0, 0)
+    settingsWnd:SetExtent(300, 400)
+    settingsWnd:AddAnchor("CENTER", "UIParent", 0, 0)
+    settingsWnd:Show(false)
+    pcall(function() settingsWnd:SetCloseOnEscape(true) end)
+    
+    if settingsWnd.titleBar and settingsWnd.titleBar.bg then
+        settingsWnd.titleBar.bg:SetColor(ConvertColor(40), ConvertColor(44), ConvertColor(52), 1.0)
+    end
+    if settingsWnd.bg then
+        settingsWnd.bg:SetColor(ConvertColor(24), ConvertColor(26), ConvertColor(31), 0.95)
+    end
+    
+    settingsWnd.resetBtn = settingsBtn
+    
+    if fishTrackerAddon and fishTrackerAddon.CreateUI then fishTrackerAddon.CreateUI(settingsWnd) end
+    if spotTrackerAddon and spotTrackerAddon.CreateUI then spotTrackerAddon.CreateUI(settingsWnd) end
+    
+    function settingsBtn:OnClick() settingsWnd:Show(not settingsWnd:IsVisible()) end
+    settingsBtn:SetHandler("OnClick", settingsBtn.OnClick)
+
     return wnd
 end 
 
 local function CreateMiscWindow(wndParent)
     local wnd = wndParent:CreateChildWidget("emptywidget", "miscWindow", 0, true)
-    wnd:SetExtent(600, 600)
+    wnd:SetExtent(600, 750)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
 
     local bg = wnd:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
@@ -393,7 +426,7 @@ local function CreateMiscWindow(wndParent)
     title.style:SetFontSize(FONT_SIZE.XXLARGE)
     ApplyTextColor(title, FONT_COLOR.TITLE)
     title:SetText("Trip Counter")
-    title:AddAnchor("TOP", wnd, 0, 30)
+    title:AddAnchor("TOP", wnd, 0, 35)
 
     local desc = wnd:CreateChildWidget("textbox", "desc", 0, true)
     desc:SetExtent(500, 40)
@@ -404,7 +437,7 @@ local function CreateMiscWindow(wndParent)
 
     local toggleBtn = wnd:CreateChildWidget("button", "toggleBtn", 0, true)
     toggleBtn:SetText("Toggle Trip Counter")
-    toggleBtn:AddAnchor("TOP", desc, "BOTTOM", -70, 20)
+    toggleBtn:AddAnchor("TOP", desc, "BOTTOM", -70, 15)
     ApplyButtonSkin(toggleBtn, BUTTON_BASIC.DEFAULT)
     function toggleBtn:OnClick()
         if tripOverlay then
@@ -417,7 +450,7 @@ local function CreateMiscWindow(wndParent)
 
     local toggleStopwatchBtn = wnd:CreateChildWidget("button", "toggleStopwatchBtn", 0, true)
     toggleStopwatchBtn:SetText("Toggle Stopwatch")
-    toggleStopwatchBtn:AddAnchor("TOP", desc, "BOTTOM", 70, 20)
+    toggleStopwatchBtn:AddAnchor("TOP", desc, "BOTTOM", 70, 15)
     ApplyButtonSkin(toggleStopwatchBtn, BUTTON_BASIC.DEFAULT)
     function toggleStopwatchBtn:OnClick()
         if stopwatchAddon and stopwatchAddon.ToggleStopwatch then
@@ -427,18 +460,29 @@ local function CreateMiscWindow(wndParent)
     toggleStopwatchBtn:SetHandler("OnClick", toggleStopwatchBtn.OnClick)
 
 
-    if spotTrackerAddon and spotTrackerAddon.CreateUI then
-        spotTrackerAddon.CreateUI(wnd)
-    end
-
-    if fishTrackerAddon and fishTrackerAddon.CreateUI then
-        fishTrackerAddon.CreateUI(wnd)
+    if crashageAddon and crashageAddon.CreateUI then
+        crashageAddon.CreateUI(wnd)
     end
 
     if zealAlertAddon and zealAlertAddon.CreateUI then
         zealAlertAddon.CreateUI(wnd)
     end
-
+    if rangeMeterAddon and rangeMeterAddon.CreateUI then
+        rangeMeterAddon.CreateUI(wnd)
+    end
+    
+    local lpBtn = wnd:CreateChildWidget("button", "lpBtn", 0, true)
+    lpBtn:SetText("Open Regrade Log")
+    lpBtn:SetExtent(200, 30)
+    lpBtn:AddAnchor("BOTTOM", wnd, "BOTTOM", 0, -30)
+    api.Interface:ApplyButtonSkin(lpBtn, BUTTON_BASIC.DEFAULT)
+    function lpBtn:OnClick()
+        if lossPornAddon and lossPornAddon.Toggle then
+            lossPornAddon.Toggle()
+        end
+    end
+    lpBtn:SetHandler("OnClick", lpBtn.OnClick)
+    
     return wnd
 end
 
@@ -482,31 +526,13 @@ local function OnLoad()
     fishTrackerAddon = require("Elu_Tracker/fish_tracker")
     raidInviteAddon = require("Elu_Tracker/raid_invite")
     spotTrackerAddon = require("Elu_Tracker/spot_tracker")
-    lootTrackerAddon = require("Elu_Tracker/loot")
 
-    function CreateLootTrackerWindow(wndParent)
-        local wnd = wndParent:CreateChildWidget("emptywidget", "lootWindow", 0, true)
-        wnd:SetExtent(600, 600)
-        wnd:AddAnchor("TOP", wndParent, 0, 0)
-        
-        local sessionScrollList = W_CTRL.CreatePageScrollListCtrl("sessionScrollList", wnd)
-        sessionScrollList:Show(true)
-        sessionScrollList:AddAnchor("TOPLEFT", wnd, 4, 10)
-        sessionScrollList:AddAnchor("BOTTOMRIGHT", wnd, -4, -60)
-        
-        return wnd
-    end
     
     local tabInfo = {
         {
             validationCheckFunc = function() return true end,
             title = "Commerce",
             subWindowConstructor = function(parent) CreateCommerceWindow(parent) end
-        },
-        {
-            validationCheckFunc = function() return true end,
-            title = "Loot Tracker",
-            subWindowConstructor = function(parent) CreateLootTrackerWindow(parent) end
         },
         {
             validationCheckFunc = function() return true end,
@@ -665,7 +691,9 @@ local function OnLoad()
     spotTrackerAddon:OnLoad()
     zealAlertAddon:OnLoad()
     stopwatchAddon:OnLoad()
-    lootTrackerAddon:OnLoad()
+    if crashageAddon and crashageAddon.OnLoad then crashageAddon.OnLoad() end
+    if lossPornAddon and lossPornAddon.OnLoad then lossPornAddon.OnLoad() end
+    if rangeMeterAddon and rangeMeterAddon.OnLoad then rangeMeterAddon.OnLoad() end
 
     api.On("UPDATE", OnUpdate)
     
@@ -680,7 +708,9 @@ local function OnUnload()
     if spotTrackerAddon then spotTrackerAddon:OnUnload(); spotTrackerAddon = nil end
     if zealAlertAddon then zealAlertAddon:OnUnload(); zealAlertAddon = nil end
     if stopwatchAddon then stopwatchAddon:OnUnload(); stopwatchAddon = nil end
-    if lootTrackerAddon then lootTrackerAddon:OnUnload(); lootTrackerAddon = nil end
+    if crashageAddon and crashageAddon.OnUnload then crashageAddon.OnUnload(); crashageAddon = nil end
+    if lossPornAddon and lossPornAddon.OnUnload then lossPornAddon.OnUnload(); lossPornAddon = nil end
+    if rangeMeterAddon and rangeMeterAddon.OnUnload then rangeMeterAddon.OnUnload(); rangeMeterAddon = nil end
 
     if eluDisplayWindow then
         eluDisplayWindow:Show(false)

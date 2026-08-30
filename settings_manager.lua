@@ -12,7 +12,9 @@ EluTrackerSettingsManager.Settings = {
     stopwatchPos = { x = 0, y = 0 },
     zealSettings = { opacity = 50, sound = true, size = 1.0 },
     misc = { enableAltTracking = false, modifierKey = "SHIFT" },
-    activeLootSession = {}
+    activeLootSession = {},
+    lossPornSettings = { showInChat = true, sessionLogs = {} },
+    rangeMeterSettings = { enabled = false, fontSize = 16, position = "Top", useDynamicColor = false, threshold1 = 28, threshold2 = 33, c1 = {r=1, g=1, b=1}, c2 = {r=1, g=1, b=1}, c3 = {r=1, g=1, b=1} }
 }
 
 function EluTrackerSettingsManager.LoadSettings()
@@ -40,7 +42,7 @@ local function MigrateOldSettings()
     local function tryMigrate(oldFile, newKey)
         local data = api.File:Read(oldFile)
         if data and type(data) == "table" and next(data) ~= nil then
-            EluTrackerSettingsManager.Settings[newKey] = data -- Old file left intentionally untouched since Delete is forbidden
+            EluTrackerSettingsManager.Settings[newKey] = data
             pcall(function() os.remove(oldFile) end)
             api.File:Write(oldFile, {}) 
             migrated = true
@@ -56,7 +58,6 @@ local function MigrateOldSettings()
     tryMigrate("elu_zeal_settings.txt", "zealSettings")
     tryMigrate("elu_tracker_misc.txt", "misc")
     
-    -- Old price file left intentionally untouched
     pcall(function() os.remove("elu_commerce_prices.txt") end)
     api.File:Write("elu_commerce_prices.txt", {})
 

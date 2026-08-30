@@ -1,6 +1,6 @@
 local DEBUG = true
 local function DebugLog(msg)
-    if DEBUG and api.Log then api.Log:Info('[EluInvite] ' .. tostring(msg)) end
+
 end
 
 local settingsManager = require('Elu_Tracker/settings_manager')
@@ -15,9 +15,9 @@ local raid_invite = {}
 local state = {
     keyword = "",
     inviteMode = 0, -- 0: OFF, 1: ON, 2: WHITELIST
-    giveleadMode = true,
+    giveleadMode = false,
     floatingIconPos = {0, 100},
-    showFloatingIcon = true,
+    showFloatingIcon = false,
     floatingIconScale = 100,
     floatingIconAlpha = 100,
     whitelist = {},
@@ -311,18 +311,18 @@ end
 local function AddCurrentRaidToWhitelist()
     local myName = ""
     pcall(function() myName = FormatName(api.Unit:GetUnitNameById(api.Unit:GetUnitId("player"))) end)
-    
+
     local didAdd = false
     local seen = {}
     local function addName(rawName)
         if type(rawName) ~= "string" then return end
         local formatted = FormatName(rawName)
         if formatted == "" or formatted == myName then return end
-        
+
         local key = string.lower(formatted)
         if seen[key] then return end
         seen[key] = true
-        
+
         local found = false
         for _, v in ipairs(state.whitelist) do
             if string.lower(v) == key then found = true break end
@@ -333,35 +333,56 @@ local function AddCurrentRaidToWhitelist()
         end
     end
 
-    if api.Unit ~= nil and api.Unit.UnitInfo ~= nil then
-        for idx = 1, 50 do
-            local info = nil
-            pcall(function() info = api.Unit:UnitInfo("team" .. tostring(idx)) end)
-            if type(info) == "table" then addName(info.name or info.unitName or "") end
-        end
-    end
-    
-    if api.Unit ~= nil and api.Unit.GetUnitId ~= nil then
-        for idx = 1, 50 do
-            local unitToken = "team" .. tostring(idx)
-            local unitId = nil
-            pcall(function() unitId = api.Unit:GetUnitId(unitToken) end)
-            
-            if unitId ~= nil then
-                if api.Unit.GetUnitInfoById ~= nil then
-                    local infoById = nil
-                    pcall(function() infoById = api.Unit:GetUnitInfoById(unitId) end)
-                    if type(infoById) == "table" then addName(infoById.name or infoById.unitName or "") end
-                end
-                if api.Unit.GetUnitNameById ~= nil then
-                    local nameById = nil
-                    pcall(function() nameById = api.Unit:GetUnitNameById(unitId) end)
-                    addName(nameById or "")
+    -- 1. Try X2Team (Native Engine)
+    pcall(function()
+        if X2Team and X2Team.GetTeamMembers then
+            local members = X2Team:GetTeamMembers()
+            if type(members) == "table" then
+                for _, m in pairs(members) do
+                    if m.name then addName(m.name) end
                 end
             end
         end
+    end)
+
+    -- 2. Try tokens party1-party5 and team1-team50
+    local tokens = {}
+    for i=1, 50 do table.insert(tokens, "team"..i) end
+    for i=1, 5 do table.insert(tokens, "party"..i) end
+
+    if api.Unit ~= nil then
+        for _, token in ipairs(tokens) do
+            if api.Unit.UnitInfo then
+                local info = nil
+                pcall(function() info = api.Unit:UnitInfo(token) end)
+                if type(info) == "table" then addName(info.name or info.unitName or "") end
+            end
+            
+            if api.Unit.GetUnitId then
+                local unitId = nil
+                pcall(function() unitId = api.Unit:GetUnitId(token) end)
+                if unitId ~= nil then
+                    if api.Unit.GetUnitInfoById then
+                        local infoById = nil
+                        pcall(function() infoById = api.Unit:GetUnitInfoById(unitId) end)
+                        if type(infoById) == "table" then addName(infoById.name or infoById.unitName or "") end
+                    end
+                    if api.Unit.GetUnitNameById then
+                        local nameById = nil
+                        pcall(function() nameById = api.Unit:GetUnitNameById(unitId) end)
+                        addName(nameById or "")
+                    end
+                end
+            end
+
+            if api.Unit.UnitName then
+                local uName = nil
+                pcall(function() uName = api.Unit:UnitName(token) end)
+                addName(uName or "")
+            end
+        end
     end
-    
+
     if didAdd then
         SaveSettings()
         if widgets.listWindow and widgets.listWindow:IsVisible() and widgets.listWindow.isWhite then
@@ -591,6 +612,13 @@ local function BuildSidePanel(parent)
             wnd = api.Interface:CreateWindow("eluRList_" .. tostring(math.random(10000, 99999)), "Manage List", 0, 0)
             wnd:SetExtent(300, 460)
             wnd:AddAnchor("CENTER", "UIParent", 0, 0)
+
+    if wnd.titleBar and wnd.titleBar.bg then
+        wnd.titleBar.bg:SetColor(ConvertColor(40), ConvertColor(44), ConvertColor(52), 1.0)
+    end
+    if wnd.bg then
+        wnd.bg:SetColor(ConvertColor(24), ConvertColor(26), ConvertColor(31), 0.95)
+    end
                 
     
             
@@ -792,10 +820,25 @@ local function BuildSidePanel(parent)
                 
                 local closeBtn = expWnd:CreateChildWidget("button", "closeBtn", 0, true)
                 closeBtn:SetExtent(80, 30)
-                closeBtn:AddAnchor("BOTTOM", expWnd, 0, -20)
+                closeBtn:AddAnchor("BOTTOMLEFT", expWnd, "BOTTOM", 5, -20)
                 closeBtn:SetText("Close")
                 api.Interface:ApplyButtonSkin(closeBtn, BUTTON_BASIC.DEFAULT)
                 closeBtn:SetHandler("OnClick", function() expWnd:Show(false) end)
+
+                local exportFileBtn = expWnd:CreateChildWidget("button", "exportFileBtn", 0, true)
+                exportFileBtn:SetExtent(120, 30)
+                exportFileBtn:AddAnchor("BOTTOMRIGHT", expWnd, "BOTTOM", -5, -20)
+                exportFileBtn:SetText("Export to File")
+                api.Interface:ApplyButtonSkin(exportFileBtn, BUTTON_BASIC.DEFAULT)
+                exportFileBtn:SetHandler("OnClick", function()
+                    local t = (wnd.listType == 1 and state.whitelist or (wnd.listType == 2 and state.blacklist or state.fastBlacklist))
+                    local fileName = wnd.isWhite and "elu_tracker_whitelist.lua" or "elu_tracker_blacklist.lua"
+                    local clean_t = {}
+                    for _, v in pairs(t) do if type(v) == "string" and v ~= "" then table.insert(clean_t, v) end end
+                    local exportData = { type = wnd.isWhite and "whitelist" or "blacklist", list = clean_t }
+                    local ok = pcall(function() api.File:Write(fileName, exportData) end)
+                    if ok then LogInfo("List exported successfully to " .. fileName) else LogInfo("Failed to export List") end
+                end)
                 
                 expWnd.titleBar.closeButton:SetHandler("OnClick", function() expWnd:Show(false) end)
                 expWnd:Show(true)
@@ -881,9 +924,9 @@ local function BuildSidePanel(parent)
                 end)
                 
                 importFileBtn:SetHandler("OnClick", function()
-                    local fileName = wnd.isWhite and "Elu_Tracker/whitelist.txt" or "Elu_Tracker/blacklist.txt"
+                    local fileName = wnd.isWhite and "elu_tracker_whitelist.lua" or "elu_tracker_blacklist.lua"
                     local readOk, content = pcall(function() return api.File:Read(fileName) end)
-                    if readOk and type(content) == "string" then
+                    if readOk and content ~= nil then
                         ProcessImportString(content)
                     else
                         LogInfo("Could not read " .. fileName)
@@ -895,13 +938,6 @@ local function BuildSidePanel(parent)
             end
 
             exportBtn:SetHandler("OnClick", function()
-                local t = (wnd.listType == 1 and state.whitelist or (wnd.listType == 2 and state.blacklist or state.fastBlacklist))
-                local fileName = wnd.isWhite and "Elu_Tracker/whitelist.txt" or "Elu_Tracker/blacklist.txt"
-                local clean_t = {}
-for _, v in pairs(t) do if type(v) == "string" and v ~= "" then table.insert(clean_t, v) end end
-local content = table.concat(clean_t, ",")
-                local ok = pcall(function() api.File:Write(fileName, content) end)
-                if ok then LogInfo("List exported successfully to " .. fileName) else LogInfo("Failed to export List") end
                 ShowExportWindow()
             end)
             

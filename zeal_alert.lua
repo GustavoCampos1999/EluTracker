@@ -72,7 +72,7 @@ end
 function zeal_alert.CreateUI(wndParent)
     local container = wndParent:CreateChildWidget("emptywidget", "zealAlertContainer", 0, true)
     container:SetExtent(500, 150)
-    container:AddAnchor("TOP", wndParent, 0, 420)
+    container:AddAnchor("TOP", wndParent, 0, 385)
     
     local title = container:CreateChildWidget("label", "title", 0, true)
     title:SetAutoResize(true)
@@ -83,7 +83,7 @@ function zeal_alert.CreateUI(wndParent)
     
     local enableCheck = container:CreateChildWidget("checkbutton", "enableCheck", 0, true)
     enableCheck:SetExtent(18, 17)
-    enableCheck:AddAnchor("TOP", title, "BOTTOM", -90, 20)
+    enableCheck:AddAnchor("TOP", title, "BOTTOM", -65, 25)
     local bg1 = enableCheck:CreateImageDrawable("ui/button/check_button.dds", "background")
     bg1:SetExtent(18, 17)
     bg1:AddAnchor("CENTER", enableCheck, 0, 0)
@@ -116,24 +116,29 @@ function zeal_alert.CreateUI(wndParent)
     
     enableCheck:SetChecked(settings.enabled, false)
     
-    local scaleLbl = container:CreateChildWidget("label", "scaleLbl", 0, true)
+    
+    local rowZeal = container:CreateChildWidget("emptywidget", "rowZeal", 0, true)
+    rowZeal:SetExtent(375, 25)
+    rowZeal:AddAnchor("TOP", title, "BOTTOM", 0, 70)
+
+    local scaleLbl = rowZeal:CreateChildWidget("label", "scaleLbl", 0, true)
     scaleLbl:SetAutoResize(true)
     scaleLbl:SetText("Scale (0.5 to 2.0):")
-    scaleLbl:AddAnchor("TOP", enableCheck, "BOTTOM", -50, 20)
+    scaleLbl:AddAnchor("LEFT", rowZeal, 0, 0)
     ApplyTextColor(scaleLbl, FONT_COLOR.DEFAULT)
-    
-    local scaleInput = W_CTRL.CreateEdit("scaleInput", container)
+
+    local scaleInput = W_CTRL.CreateEdit("scaleInput", rowZeal)
     scaleInput:SetExtent(50, 25)
     scaleInput:AddAnchor("LEFT", scaleLbl, "RIGHT", 10, 0)
     scaleInput.style:SetAlign(ALIGN.CENTER)
     scaleInput:SetText(tostring(settings.scale))
-    
-    local applyScaleBtn = container:CreateChildWidget("button", "applyScaleBtn", 0, true)
+
+    local applyScaleBtn = rowZeal:CreateChildWidget("button", "applyScaleBtn", 0, true)
     applyScaleBtn:SetText("Apply Scale")
     applyScaleBtn:SetExtent(90, 25)
     applyScaleBtn:AddAnchor("LEFT", scaleInput, "RIGHT", 10, 0)
     ApplyButtonSkin(applyScaleBtn, BUTTON_BASIC.DEFAULT)
-    
+
     function applyScaleBtn:OnClick()
         local newScale = tonumber(scaleInput:GetText())
         if newScale and newScale >= 0.1 and newScale <= 5.0 then
@@ -145,12 +150,13 @@ function zeal_alert.CreateUI(wndParent)
         end
     end
     applyScaleBtn:SetHandler("OnClick", applyScaleBtn.OnClick)
-    
-    local moveBtn = container:CreateChildWidget("button", "moveBtn", 0, true)
-    moveBtn:SetText("Toggle Move Mode")
-    moveBtn:SetExtent(130, 25)
-    moveBtn:AddAnchor("LEFT", applyScaleBtn, "RIGHT", 10, 0)
+
+    local moveBtn = rowZeal:CreateChildWidget("button", "moveBtn", 0, true)
     ApplyButtonSkin(moveBtn, BUTTON_BASIC.DEFAULT)
+    moveBtn:SetText(isMoving and "Save UI" or "Move UI")
+    moveBtn:SetExtent(100, 25)
+    moveBtn:AddAnchor("LEFT", applyScaleBtn, "RIGHT", 10, 0)
+
     
     local function UpdateVisibility()
         local isVis = settings.enabled
@@ -163,7 +169,6 @@ function zeal_alert.CreateUI(wndParent)
     
     function enableCheck:OnCheckChanged()
         settings.enabled = self:GetChecked()
-        api.Log:Info("[Zeal Alert] Status: " .. (settings.enabled and "ON" or "OFF"))
         SaveSettings()
         UpdateVisibility()
         if not settings.enabled and zealOverlay then
@@ -176,7 +181,6 @@ function zeal_alert.CreateUI(wndParent)
     
     function moveBtn:OnClick()
         settings.moving = not settings.moving
-        api.Log:Info("[Zeal Alert] Move Mode: " .. (settings.moving and "ON" or "OFF"))
         if settings.moving then
             zealOverlay:Show(true)
             if moveModeLabel then moveModeLabel:Show(true) end

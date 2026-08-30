@@ -558,7 +558,7 @@ end
 
 local function OnLoad()
     eluFishingEventWindow = api.Interface:CreateEmptyWindow("eluFishingEventWindow", "UIParent")
-    fishingWindow = eluDisplayWindow.tab.window[3].fishingWindow
+    fishingWindow = eluDisplayWindow.tab.window[2].fishingWindow
 
     if X2Util and type(X2Util.GetMyMoneyString) == "function" then
         previousPlayerGold = tonumber(X2Util:GetMyMoneyString()) or -1
