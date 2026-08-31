@@ -31,7 +31,8 @@ local state = {
     enhancedIsActive = false,
     enhancedKeyword = "",
     eluFilterMode = 2,
-    enhancedFilterMode = 2, fastBlacklist = {}
+    enhancedFilterMode = 2, fastBlacklist = {},
+    qaiCanvasPos = nil
 }
 
 local widgets = {}
@@ -67,6 +68,7 @@ local function LoadSettings()
         if data.clearedKeywordV2 ~= nil then state.clearedKeywordV2 = data.clearedKeywordV2 end
         if data.eluFilterMode ~= nil then state.eluFilterMode = data.eluFilterMode end
         if data.enhancedFilterMode ~= nil then state.enhancedFilterMode = data.enhancedFilterMode end; if data.fastBlacklist ~= nil then state.fastBlacklist = data.fastBlacklist end
+        if data.qaiCanvasPos ~= nil then state.qaiCanvasPos = data.qaiCanvasPos end
     end
     
     local function SanitizeList(t)
@@ -107,7 +109,8 @@ local function SaveSettings()
         floatingIconAlpha = state.floatingIconAlpha,
         clearedKeywordV2 = state.clearedKeywordV2,
         eluFilterMode = state.eluFilterMode,
-        enhancedFilterMode = state.enhancedFilterMode, fastBlacklist = state.fastBlacklist
+        enhancedFilterMode = state.enhancedFilterMode, fastBlacklist = state.fastBlacklist,
+        qaiCanvasPos = state.qaiCanvasPos
     }
     EluTrackerSettings.raidInvite = data
     SaveEluTrackerSettings()
@@ -726,13 +729,13 @@ local function BuildSidePanel(parent)
             exportBtn:SetExtent(80, 30)
             exportBtn:SetText("Export")
             api.Interface:ApplyButtonSkin(exportBtn, BUTTON_BASIC.DEFAULT)
-            AddTooltip(exportBtn, "Exports this list to a text code.\n\nLarge lists are split into Pages (1, 2, 3...) due to game limits.\nCopy each page and send them to your friend.")
+            AddTooltip(exportBtn, "Share or backup your list.\n\nYou can copy the text code, or export directly to a native '.lua' file in your ArcheAge Addon folder.")
             
             local importBtn = wnd:CreateChildWidget("button", "importBtn", 0, true)
             importBtn:SetExtent(80, 30)
             importBtn:SetText("Import")
             api.Interface:ApplyButtonSkin(importBtn, BUTTON_BASIC.DEFAULT)
-            AddTooltip(importBtn, "Imports a text code sent by a friend.\n\nIf they sent multiple pages, just paste and import them one by one.\n(Import only ADDS names, it never deletes yours!)")
+            AddTooltip(importBtn, "Load a list from a friend or backup.\n\nYou can paste a text code, or import directly from a '.lua' file in your ArcheAge Addon folder.\n(Importing only ADDS names, it never deletes yours!)")
             
             local function ShowExportWindow()
                 local expWnd = api.Interface:CreateWindow("eluRExportWnd_"..tostring(math.random(1000, 9999)), "Export Code", 0, 0)
@@ -1171,11 +1174,38 @@ function raid_invite.OnLoad()
     end)
     widgets.fast_blacklist_button = fast_blacklist_button
     
-    local canvas = api.Interface:CreateEmptyWindow("enhancedRecruitWindow")
-    canvas:AddAnchor("CENTER", "UIParent", 0, 50)
+    local canvas = api.Interface:CreateEmptyWindow("enhancedRecruitWindow", "UIParent")
+    if state.qaiCanvasPos then
+        canvas:AddAnchor("TOPLEFT", "UIParent", state.qaiCanvasPos[1], state.qaiCanvasPos[2])
+    else
+        canvas:AddAnchor("CENTER", "UIParent", 0, 50)
+    end
     canvas:SetExtent(160, 70)
     canvas:Show(false)
     widgets.enhancedCanvas = canvas
+    
+    canvas:EnableDrag(true)
+    canvas:SetHandler("OnDragStart", function()
+        canvas:StartMoving()
+    end)
+    canvas:SetHandler("OnDragStop", function()
+        canvas:StopMovingOrSizing()
+        local x, y = canvas:GetOffset()
+        
+        -- Prevent going off-screen
+        local uiParent = canvas:GetParent()
+        local screenW, screenH = uiParent:GetExtent()
+        if x < 0 then x = 0 end
+        if y < 0 then y = 0 end
+        if x > screenW - 160 then x = screenW - 160 end
+        if y > screenH - 70 then y = screenH - 70 end
+        
+        canvas:RemoveAllAnchors()
+        canvas:AddAnchor("TOPLEFT", "UIParent", x, y)
+        
+        state.qaiCanvasPos = {x, y}
+        SaveSettings()
+    end)
 
     local bg = canvas:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
     bg:SetTextureInfo("bg_quest")

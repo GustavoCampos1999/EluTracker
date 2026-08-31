@@ -622,6 +622,11 @@ local function OnLoad()
     ApplyButtonSkin(rolloverBtn, BUTTON_BASIC.DEFAULT)
     rolloverBtn:SetExtent(135, 25)
 
+    local clearPinkBtn = fishingWindow:CreateChildWidget("button", "clearPinkBtn", 0, true)
+    clearPinkBtn:SetText("Clear Pink Marlins")
+    ApplyButtonSkin(clearPinkBtn, BUTTON_BASIC.DEFAULT)
+    clearPinkBtn:SetExtent(135, 25)
+
     local confirmDialog = fishingWindow:CreateChildWidget("emptywidget", "confirmDialog", 0, true)
     confirmDialog:SetExtent(260, 100)
     confirmDialog:AddAnchor("CENTER", fishingWindow, 0, 0)
@@ -651,11 +656,23 @@ local function OnLoad()
     cancelBtn:AddAnchor("BOTTOMRIGHT", confirmDialog, -20, -15)
     ApplyButtonSkin(cancelBtn, BUTTON_BASIC.DEFAULT)
 
+    local actionToPerform = ""
+
     function rolloverBtn:OnClick()
+        confirmLabel:SetText("Move today's profit to yesterday?")
+        actionToPerform = "rollover"
         confirmDialog:Show(true)
         confirmDialog:Raise()
     end
     rolloverBtn:SetHandler("OnClick", rolloverBtn.OnClick)
+
+    function clearPinkBtn:OnClick()
+        confirmLabel:SetText("Clear all Pink Marlins?")
+        actionToPerform = "clear"
+        confirmDialog:Show(true)
+        confirmDialog:Raise()
+    end
+    clearPinkBtn:SetHandler("OnClick", clearPinkBtn.OnClick)
 
     function cancelBtn:OnClick()
         confirmDialog:Show(false)
@@ -665,19 +682,32 @@ local function OnLoad()
     function yesBtn:OnClick()
         confirmDialog:Show(false)
         if pastSessions and pastSessions.sessions then
-            local nowTime = tonumber(getSafeTimestamp()) or 0
-            local dayOffset = (nowTime > 10000000000) and 86400000 or 86400
-            local nowDate = safeTimeToDate(string.format("%.0f", nowTime))
             local changed = false
-            
-           for _, sessionObject in pairs(pastSessions.sessions) do
-                local sDate = safeTimeToDate(tostring(sessionObject.localTimestamp))
-                if sDate and nowDate and tonumber(sDate.year) == tonumber(nowDate.year) and tonumber(sDate.month) == tonumber(nowDate.month) and tonumber(sDate.day) == tonumber(nowDate.day) then
-                    sessionObject.localTimestamp = string.format("%.0f", tonumber(sessionObject.localTimestamp) - dayOffset)
-                    changed = true
+
+            if actionToPerform == "rollover" then
+                local nowTime = tonumber(getSafeTimestamp()) or 0
+                local dayOffset = (nowTime > 10000000000) and 86400000 or 86400
+                local nowDate = safeTimeToDate(string.format("%.0f", nowTime))
+
+                for _, sessionObject in pairs(pastSessions.sessions) do
+                    local sDate = safeTimeToDate(tostring(sessionObject.localTimestamp))
+                    if sDate and nowDate and tonumber(sDate.year) == tonumber(nowDate.year) and tonumber(sDate.month) == tonumber(nowDate.month) and tonumber(sDate.day) == tonumber(nowDate.day) then
+                        sessionObject.localTimestamp = string.format("%.0f", tonumber(sessionObject.localTimestamp) - dayOffset)
+                        changed = true
+                    end
+                end
+            elseif actionToPerform == "clear" then
+                for i = #pastSessions.sessions, 1, -1 do
+                    local s = pastSessions.sessions[i]
+                    local fishInfo = api.Item:GetItemInfoByType(tonumber(s.packId) or 0)
+                    local fishName = fishInfo and string.lower(fishInfo.name) or ""
+                    if string.find(fishName, "pink marlin") or string.find(fishName, "marlim rosa") or string.find(fishName, "marlin rosa") or string.find(fishName, "pink pufferfish") or string.find(fishName, "gargantuan") then
+                        table.remove(pastSessions.sessions, i)
+                        changed = true
+                    end
                 end
             end
-            
+
             if changed then
                 api.File:Write(pastSessionsFilename, pastSessions)
                 refreshStatisticsLabels()
@@ -715,7 +745,10 @@ local function OnLoad()
     favouritePackStr.style:SetAlign(ALIGN.LEFT)
     ApplyTextColor(favouritePackStr, FONT_COLOR.DEFAULT)
     favouritePackStr:AddAnchor("BOTTOMLEFT", totalPacksStr, 0, 20)
+    favouritePackStr:SetAutoResize(true)
     fishingWindow.favouritePackStr = favouritePackStr
+
+    clearPinkBtn:AddAnchor("LEFT", favouritePackStr, "RIGHT", 15, 0)
 
     refreshStatisticsLabels()
     api.On("UPDATE", OnUpdate)

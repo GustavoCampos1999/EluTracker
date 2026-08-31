@@ -2,8 +2,7 @@ local elu_tracker_addon = {
 	name = "Elu Tracker",
 	author = "Eludelu",
 	version = "4.0",
-	desc = "Commerce, fishing, Auto Raids & tools.",
-	tags = {"Economy", "Fishing", "Raid", "QoL", "PvE", "PvP", "UI"} 
+	desc = "Commerce, fishing and tools."
 }
 
 local packsAddon = require("Elu_Tracker/packs")
