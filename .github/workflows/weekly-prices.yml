@@ -1,4 +1,4 @@
-name: Atualizar Precos Semanalmente
+name: Weekly Price Update
 
 on:
   schedule:
@@ -52,6 +52,6 @@ jobs:
           git push origin $NEW_TAG
 
           # Cria a Release Oficial
-          gh release create $NEW_TAG -t "Atualização de Preços ($NEW_TAG)" -n "Preços sincronizados com a planilha."
+          gh release create $NEW_TAG -t "Price Update ($NEW_TAG)" -n "Price update for the week."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
