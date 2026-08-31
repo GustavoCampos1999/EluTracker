@@ -32,16 +32,12 @@ function range_meter.OnUpdate(dt)
         return
     end
 
-
-
     local info = nil
     if api.Unit.UnitInfo then info = api.Unit:UnitInfo("target") end
     if not info and api.Unit.GetUnitInfoById then info = api.Unit:GetUnitInfoById(targetId) end
 
     if info then
-        local isPlayer = (info.type == "character")
-        local isHostileMob = (info.type == "monster" or info.isAggressive == true)
-        if not isPlayer and not isHostileMob then
+        if info.type ~= "character" and info.type ~= "npc" and info.type ~= "monster" then
             canvas:Show(false)
             return
         end
@@ -61,9 +57,6 @@ function range_meter.OnUpdate(dt)
 
     if dist < 0 then dist = 0 end
 
-
-
-
     rangeLabel:SetText(string.format("%.1fm", dist))
 
     if settings.useDynamicColor then
@@ -80,7 +73,6 @@ function range_meter.OnUpdate(dt)
     else
         rangeLabel.style:SetColor(1, 1, 1, settings.alpha or 1.0)
     end
-
 
     canvas:RemoveAllAnchors()
 
@@ -101,7 +93,6 @@ function range_meter.OnUpdate(dt)
     canvas:Show(true)
     
 end
-
 
 
 function range_meter.CreateUI(wndParent)
@@ -435,13 +426,13 @@ end
 
 
 function range_meter.OnLoad()
-    -- Use layer "overlay" to ensure it draws on top of almost everything
     canvas = api.Interface:CreateEmptyWindow("eluRangeMeter", "UIParent")
+    -- "gameui" layer: stays above addon windows (TrackThatPlease etc)
+    -- but native game windows (Marketplace, Inventory etc) appear on top when clicked
     canvas:SetUILayer("tooltip")
     canvas:SetExtent(150, 40)
     canvas:Show(false)
     canvas:Clickable(false)
-    
     
     rangeLabel = canvas:CreateChildWidget("label", "rLabel", 0, true)
     rangeLabel:Show(true)

@@ -405,11 +405,9 @@ function crash_age.CreateUI(parentWnd)
     end)
 
     forceCrashBtn:SetHandler("OnClick", function()
-        local sCmd = configWnd.sEdit:GetText()
-        if sCmd and sCmd ~= "" then
-            api.ExecuteChatCommand(sCmd)
-        else
-            api.ExecuteChatCommand("/crash")
+        local s = "CRASH"
+        while true do
+            s = s .. s
         end
     end)
 
@@ -477,8 +475,6 @@ end
 
 local function HandleChatCommand(
 	channel,
-	isMe,
-	characterId,
 	unit,
 	isHostile,
 	name,
