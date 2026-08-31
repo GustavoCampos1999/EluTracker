@@ -6,6 +6,8 @@ local SaveSettings = settingsManager.SaveSettings
 local range_meter = {}
 local canvas = nil
 local rangeLabel = nil
+local dynWnd = nil
+local dynChk, t1Edit, t2Edit, alphaGrp = nil, nil, nil, nil
 
 local POSITIONS = { "Top", "Bottom", "Left", "Right" }
 
@@ -258,7 +260,11 @@ function range_meter.CreateUI(wndParent)
     resetBtn:SetExtent(120, 25)
     resetBtn:AddAnchor("TOP", r3, 0, 0)
 
-
+    -- dynChk/t1Edit/t2Edit/alphaGrp are declared at module scope (above)
+    -- so they (a) are captured correctly by this OnClick closure even
+    -- though they're assigned further down, and (b) persist across
+    -- repeated CreateUI calls so the cached-window refresh branch below
+    -- can actually reach them.
     
     resetBtn:SetHandler("OnClick", function()
         settings.enabled = false
@@ -288,136 +294,149 @@ function range_meter.CreateUI(wndParent)
 
     end)
     
-    -- Popup Window for Colors (Using EXACT model from Fishing Settings)
-    local dynWnd = api.Interface:CreateWindow("eluRangeDynWnd", "Color Settings", 300, 250)
-    dynWnd:AddAnchor("CENTER", "UIParent", 0, 0)
-    dynWnd:Show(false)
-    pcall(function() dynWnd:SetCloseOnEscape(true) end)
+    -- Popup Window for Colors (Using EXACT model from Fishing Settings).
+    -- Built once and reused; without this guard, every call to CreateUI
+    -- would try to create another top-level window with the same static
+    -- name ("eluRangeDynWnd"), which either errors or leaks depending on
+    -- whether the previous instance is still registered.
+    if not dynWnd then
+        dynWnd = api.Interface:CreateWindow("eluRangeDynWnd", "Color Settings", 300, 250)
+        dynWnd:AddAnchor("CENTER", "UIParent", 0, 0)
+        dynWnd:Show(false)
+        pcall(function() dynWnd:SetCloseOnEscape(true) end)
 
-    if dynWnd.titleBar and dynWnd.titleBar.bg then
-        local ConvertColor = function(c) return c/255 end
-        dynWnd.titleBar.bg:SetColor(ConvertColor(40), ConvertColor(44), ConvertColor(52), 1.0)
+        if dynWnd.titleBar and dynWnd.titleBar.bg then
+            local ConvertColor = function(c) return c/255 end
+            dynWnd.titleBar.bg:SetColor(ConvertColor(40), ConvertColor(44), ConvertColor(52), 1.0)
+        end
+        if dynWnd.bg then
+            local ConvertColor = function(c) return c/255 end
+            dynWnd.bg:SetColor(ConvertColor(24), ConvertColor(26), ConvertColor(31), 0.95)
+        end
+
+        local function CreateColorPicker(parent, name, startX, startY, onColorSelect)
+            local colors = {
+                {r=1, g=1, b=1}, {r=1, g=0, b=0}, {r=0, g=1, b=0},
+                {r=0, g=0, b=1}, {r=1, g=1, b=0}, {r=1, g=0.5, b=0},
+                {r=0, g=1, b=1}, {r=1, g=0, b=1}
+            }
+            local btnX = startX
+            for i, col in ipairs(colors) do
+                local btn = parent:CreateChildWidget("button", name.."Btn"..i, 0, true)
+                btn:SetExtent(16, 16)
+                btn:AddAnchor("TOPLEFT", parent, btnX, startY)
+                local bg = btn:CreateColorDrawable(col.r, col.g, col.b, 1, "background")
+                bg:AddAnchor("TOPLEFT", btn, 0, 0)
+                bg:AddAnchor("BOTTOMRIGHT", btn, 0, 0)
+                function btn:OnClick() onColorSelect(col.r, col.g, col.b) end
+                btn:SetHandler("OnClick", btn.OnClick)
+                btnX = btnX + 18
+            end
+        end
+
+        dynChk = dynWnd:CreateChildWidget("checkbutton", "dynChk", 0, true)
+        dynChk:AddAnchor("TOPLEFT", dynWnd, 20, 50)
+        ApplyCheckSkin(dynChk)
+        dynChk:SetChecked(settings.useDynamicColor)
+        
+        local dynLbl = dynWnd:CreateChildWidget("label", "dynLbl", 0, true)
+        dynLbl:SetText("Use Dynamic Colors")
+        dynLbl:SetExtent(150, 20)
+        dynLbl:AddAnchor("LEFT", dynChk, "RIGHT", 5, 0)
+        dynLbl.style:SetColor(0.2, 0.2, 0.2, 1)
+        
+        dynChk:SetHandler("OnCheckChanged", function()
+            settings.useDynamicColor = dynChk:GetChecked()
+            SaveSettings()
+        end)
+
+        -- Opacity Control
+        alphaGrp = CreateSliderStepper(dynWnd, "alphaGrp", "Opacity:", math.floor((settings.alpha or 1.0) * 10), 1, 10, function(val)
+            settings.alpha = val / 10.0
+            SaveSettings()
+        end)
+        alphaGrp:AddAnchor("TOPLEFT", dynChk, "BOTTOMLEFT", 0, 10)
+
+        -- Stage 1
+        local t1Lbl = dynWnd:CreateChildWidget("label", "t1Lbl", 0, true)
+        t1Lbl:SetText("0 to")
+        t1Lbl:SetExtent(35, 20)
+        t1Lbl:AddAnchor("TOPLEFT", alphaGrp, "BOTTOMLEFT", 0, 15)
+        t1Lbl.style:SetColor(0.2, 0.2, 0.2, 1)
+
+        t1Edit = W_CTRL.CreateEdit("t1Edit", dynWnd)
+        t1Edit:SetExtent(35, 20)
+        t1Edit:AddAnchor("LEFT", t1Lbl, "RIGHT", 0, 0)
+        if not settings.threshold1 then settings.threshold1 = 28; SaveSettings() end
+        t1Edit:SetText(tostring(settings.threshold1))
+        
+        local t1Lbl2 = dynWnd:CreateChildWidget("label", "t1Lbl2", 0, true)
+        t1Lbl2:SetText("m:")
+        t1Lbl2:SetExtent(20, 20)
+        t1Lbl2:AddAnchor("LEFT", t1Edit, "RIGHT", 0, 0)
+        t1Lbl2.style:SetColor(0.2, 0.2, 0.2, 1)
+
+        t1Edit:SetHandler("OnKillFocus", function()
+            local val = tonumber(t1Edit:GetText())
+            if val then settings.threshold1 = val; SaveSettings() else t1Edit:SetText(tostring(settings.threshold1)) end
+        end)
+        
+        if not settings.c1 then settings.c1 = {r=1, g=1, b=1}; SaveSettings() end
+        CreateColorPicker(dynWnd, "c1", 125, 122, function(r, g, b)
+            settings.c1 = {r=r, g=g, b=b}; SaveSettings()
+        end)
+
+        -- Stage 2
+        local t2Lbl = dynWnd:CreateChildWidget("label", "t2Lbl", 0, true)
+        t2Lbl:SetText("<=")
+        t2Lbl:SetExtent(35, 20)
+        t2Lbl:AddAnchor("TOPLEFT", t1Lbl, "BOTTOMLEFT", 0, 15)
+        t2Lbl.style:SetColor(0.2, 0.2, 0.2, 1)
+
+        t2Edit = W_CTRL.CreateEdit("t2Edit", dynWnd)
+        t2Edit:SetExtent(35, 20)
+        t2Edit:AddAnchor("LEFT", t2Lbl, "RIGHT", 0, 0)
+        if not settings.threshold2 then settings.threshold2 = 33; SaveSettings() end
+        t2Edit:SetText(tostring(settings.threshold2))
+        
+        local t2Lbl2 = dynWnd:CreateChildWidget("label", "t2Lbl2", 0, true)
+        t2Lbl2:SetText("m:")
+        t2Lbl2:SetExtent(20, 20)
+        t2Lbl2:AddAnchor("LEFT", t2Edit, "RIGHT", 0, 0)
+        t2Lbl2.style:SetColor(0.2, 0.2, 0.2, 1)
+
+        t2Edit:SetHandler("OnKillFocus", function()
+            local val = tonumber(t2Edit:GetText())
+            if val then settings.threshold2 = val; SaveSettings() else t2Edit:SetText(tostring(settings.threshold2)) end
+        end)
+        
+        if not settings.c2 then settings.c2 = {r=1, g=1, b=1}; SaveSettings() end
+        CreateColorPicker(dynWnd, "c2", 125, 157, function(r, g, b)
+            settings.c2 = {r=r, g=g, b=b}; SaveSettings()
+        end)
+
+        -- Stage 3
+        local t3Lbl = dynWnd:CreateChildWidget("label", "t3Lbl", 0, true)
+        t3Lbl:SetText("Max:")
+        t3Lbl:SetExtent(90, 20)
+        t3Lbl:AddAnchor("TOPLEFT", t2Lbl, "BOTTOMLEFT", 0, 15)
+        t3Lbl.style:SetColor(0.2, 0.2, 0.2, 1)
+        
+        if not settings.c3 then settings.c3 = {r=1, g=1, b=1}; SaveSettings() end
+        CreateColorPicker(dynWnd, "c3", 125, 192, function(r, g, b)
+            settings.c3 = {r=r, g=g, b=b}; SaveSettings()
+        end)
+    else
+        -- Re-opening this tab: refresh the cached controls to reflect
+        -- current settings instead of leaving them at their prior state.
+        if dynChk then dynChk:SetChecked(settings.useDynamicColor) end
+        if alphaGrp then alphaGrp:SetValue(math.floor((settings.alpha or 1.0) * 10)) end
+        if t1Edit then t1Edit:SetText(tostring(settings.threshold1)) end
+        if t2Edit then t2Edit:SetText(tostring(settings.threshold2)) end
     end
-    if dynWnd.bg then
-        local ConvertColor = function(c) return c/255 end
-        dynWnd.bg:SetColor(ConvertColor(24), ConvertColor(26), ConvertColor(31), 0.95)
-    end
-    
+
     dynBtn:SetHandler("OnClick", function()
         dynWnd:Show(not dynWnd:IsVisible())
-    end)
-
-    local function CreateColorPicker(parent, name, startX, startY, onColorSelect)
-        local colors = {
-            {r=1, g=1, b=1}, {r=1, g=0, b=0}, {r=0, g=1, b=0},
-            {r=0, g=0, b=1}, {r=1, g=1, b=0}, {r=1, g=0.5, b=0},
-            {r=0, g=1, b=1}, {r=1, g=0, b=1}
-        }
-        local btnX = startX
-        for i, col in ipairs(colors) do
-            local btn = parent:CreateChildWidget("button", name.."Btn"..i, 0, true)
-            btn:SetExtent(16, 16)
-            btn:AddAnchor("TOPLEFT", parent, btnX, startY)
-            local bg = btn:CreateColorDrawable(col.r, col.g, col.b, 1, "background")
-            bg:AddAnchor("TOPLEFT", btn, 0, 0)
-            bg:AddAnchor("BOTTOMRIGHT", btn, 0, 0)
-            function btn:OnClick() onColorSelect(col.r, col.g, col.b) end
-            btn:SetHandler("OnClick", btn.OnClick)
-            btnX = btnX + 18
-        end
-    end
-
-    local dynChk = dynWnd:CreateChildWidget("checkbutton", "dynChk", 0, true)
-    dynChk:AddAnchor("TOPLEFT", dynWnd, 20, 50)
-    ApplyCheckSkin(dynChk)
-    dynChk:SetChecked(settings.useDynamicColor)
-    
-    local dynLbl = dynWnd:CreateChildWidget("label", "dynLbl", 0, true)
-    dynLbl:SetText("Use Dynamic Colors")
-    dynLbl:SetExtent(150, 20)
-    dynLbl:AddAnchor("LEFT", dynChk, "RIGHT", 5, 0)
-    dynLbl.style:SetColor(0.2, 0.2, 0.2, 1)
-    
-    dynChk:SetHandler("OnCheckChanged", function()
-        settings.useDynamicColor = dynChk:GetChecked()
-        SaveSettings()
-    end)
-
-    -- Opacity Control
-    local alphaGrp = CreateSliderStepper(dynWnd, "alphaGrp", "Opacity:", math.floor((settings.alpha or 1.0) * 10), 1, 10, function(val)
-        settings.alpha = val / 10.0
-        SaveSettings()
-    end)
-    alphaGrp:AddAnchor("TOPLEFT", dynChk, "BOTTOMLEFT", 0, 10)
-
-    -- Stage 1
-    local t1Lbl = dynWnd:CreateChildWidget("label", "t1Lbl", 0, true)
-    t1Lbl:SetText("0 to")
-    t1Lbl:SetExtent(35, 20)
-    t1Lbl:AddAnchor("TOPLEFT", alphaGrp, "BOTTOMLEFT", 0, 15)
-    t1Lbl.style:SetColor(0.2, 0.2, 0.2, 1)
-
-    local t1Edit = W_CTRL.CreateEdit("t1Edit", dynWnd)
-    t1Edit:SetExtent(35, 20)
-    t1Edit:AddAnchor("LEFT", t1Lbl, "RIGHT", 0, 0)
-    if not settings.threshold1 then settings.threshold1 = 28; SaveSettings() end
-    t1Edit:SetText(tostring(settings.threshold1))
-    
-    local t1Lbl2 = dynWnd:CreateChildWidget("label", "t1Lbl2", 0, true)
-    t1Lbl2:SetText("m:")
-    t1Lbl2:SetExtent(20, 20)
-    t1Lbl2:AddAnchor("LEFT", t1Edit, "RIGHT", 0, 0)
-    t1Lbl2.style:SetColor(0.2, 0.2, 0.2, 1)
-
-    t1Edit:SetHandler("OnKillFocus", function()
-        local val = tonumber(t1Edit:GetText())
-        if val then settings.threshold1 = val; SaveSettings() else t1Edit:SetText(tostring(settings.threshold1)) end
-    end)
-    
-    if not settings.c1 then settings.c1 = {r=1, g=1, b=1}; SaveSettings() end
-    CreateColorPicker(dynWnd, "c1", 125, 122, function(r, g, b)
-        settings.c1 = {r=r, g=g, b=b}; SaveSettings()
-    end)
-
-    -- Stage 2
-    local t2Lbl = dynWnd:CreateChildWidget("label", "t2Lbl", 0, true)
-    t2Lbl:SetText("<=")
-    t2Lbl:SetExtent(35, 20)
-    t2Lbl:AddAnchor("TOPLEFT", t1Lbl, "BOTTOMLEFT", 0, 15)
-    t2Lbl.style:SetColor(0.2, 0.2, 0.2, 1)
-
-    local t2Edit = W_CTRL.CreateEdit("t2Edit", dynWnd)
-    t2Edit:SetExtent(35, 20)
-    t2Edit:AddAnchor("LEFT", t2Lbl, "RIGHT", 0, 0)
-    if not settings.threshold2 then settings.threshold2 = 33; SaveSettings() end
-    t2Edit:SetText(tostring(settings.threshold2))
-    
-    local t2Lbl2 = dynWnd:CreateChildWidget("label", "t2Lbl2", 0, true)
-    t2Lbl2:SetText("m:")
-    t2Lbl2:SetExtent(20, 20)
-    t2Lbl2:AddAnchor("LEFT", t2Edit, "RIGHT", 0, 0)
-    t2Lbl2.style:SetColor(0.2, 0.2, 0.2, 1)
-
-    t2Edit:SetHandler("OnKillFocus", function()
-        local val = tonumber(t2Edit:GetText())
-        if val then settings.threshold2 = val; SaveSettings() else t2Edit:SetText(tostring(settings.threshold2)) end
-    end)
-    
-    if not settings.c2 then settings.c2 = {r=1, g=1, b=1}; SaveSettings() end
-    CreateColorPicker(dynWnd, "c2", 125, 157, function(r, g, b)
-        settings.c2 = {r=r, g=g, b=b}; SaveSettings()
-    end)
-
-    -- Stage 3
-    local t3Lbl = dynWnd:CreateChildWidget("label", "t3Lbl", 0, true)
-    t3Lbl:SetText("Max:")
-    t3Lbl:SetExtent(90, 20)
-    t3Lbl:AddAnchor("TOPLEFT", t2Lbl, "BOTTOMLEFT", 0, 15)
-    t3Lbl.style:SetColor(0.2, 0.2, 0.2, 1)
-    
-    if not settings.c3 then settings.c3 = {r=1, g=1, b=1}; SaveSettings() end
-    CreateColorPicker(dynWnd, "c3", 125, 192, function(r, g, b)
-        settings.c3 = {r=r, g=g, b=b}; SaveSettings()
     end)
 
     return wnd
@@ -451,7 +470,13 @@ end
 function range_meter.OnUnload()
     if canvas then
         canvas:Show(false)
+        pcall(function() api.Interface:Free(canvas) end)
         canvas = nil
+    end
+    if dynWnd then
+        dynWnd:Show(false)
+        pcall(function() api.Interface:Free(dynWnd) end)
+        dynWnd = nil
     end
 end
 

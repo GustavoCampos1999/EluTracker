@@ -464,23 +464,25 @@ end
 function spot_tracker:OnUnload()
     if spot_tracker.masterOverlay then
         spot_tracker.masterOverlay:Show(false)
+        pcall(function() api.Interface:Free(spot_tracker.masterOverlay) end)
         spot_tracker.masterOverlay = nil
     end
     if doodadListener then
         doodadListener:Show(false)
+        pcall(function() api.Interface:Free(doodadListener) end)
         doodadListener = nil
     end
 
     if replaceWarning then
         replaceWarning:Show(false)
+        pcall(function() api.Interface:Free(replaceWarning) end)
         replaceWarning = nil
     end
 
+    -- spotOverlays[i] are children of masterOverlay, freed above; just drop
+    -- our references so they aren't reused after teardown.
     for i = 1, MAX_TIMERS do
-        if spotOverlays[i] then
-            spotOverlays[i]:Show(false)
-            spotOverlays[i] = nil
-        end
+        spotOverlays[i] = nil
     end
 end
 

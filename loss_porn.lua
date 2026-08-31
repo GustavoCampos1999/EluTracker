@@ -213,12 +213,14 @@ local function OnLoad()
         end
     end)
 
-    api.On("UPDATE", OnUpdate)
 end
 
 local function OnUnload()
     if lossPornWindow then
         lossPornWindow:ReleaseHandler("OnEvent")
+        lossPornWindow:Show(false)
+        pcall(function() api.Interface:Free(lossPornWindow) end)
+        lossPornWindow = nil
     end
 
     ui.Destroy()
@@ -233,11 +235,12 @@ local function OnUnload()
         end
     end)
 
-	api.On("UPDATE", function() return end)
+	-- CHAT_MESSAGE/UPDATE are dispatched centrally; nothing to unregister here.
 end
 
 loss_porn_addon.OnLoad = OnLoad
 loss_porn_addon.OnUnload = OnUnload
+loss_porn_addon.OnUpdate = OnUpdate
 loss_porn_addon.Toggle = function() if ui and ui.Toggle then ui.Toggle() end end
 
 

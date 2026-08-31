@@ -278,10 +278,14 @@ function guild_check:OnUnload()
     if f1Window then
         f1Window:Show(false)
         f1Window:RemoveAllAnchors()
+        pcall(function() api.Interface:Free(f1Window) end)
+        f1Window = nil
     end
     if f2Window then
         f2Window:Show(false)
         f2Window:RemoveAllAnchors()
+        pcall(function() api.Interface:Free(f2Window) end)
+        f2Window = nil
     end
 end
 

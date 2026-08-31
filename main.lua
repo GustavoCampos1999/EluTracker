@@ -85,6 +85,9 @@ local function OnUpdate(dt)
         fishTrackerAddon:OnUpdate(dt)
     end
     
+    if packsAddon and packsAddon.OnUpdate then packsAddon.OnUpdate(dt) end
+    if fishingAddon and fishingAddon.OnUpdate then fishingAddon.OnUpdate(dt) end
+    
     if not bagFrameFixed then
         local bagFrame = ADDON:GetContent(UIC.BAG)
         if bagFrame and bagFrame.paystubBtn then
@@ -116,9 +119,9 @@ local function OnUpdate(dt)
     if crashAlertAddon and crashAlertAddon.OnUpdate then crashAlertAddon.OnUpdate(dt) end
     if lossPornAddon and lossPornAddon.OnUpdate then lossPornAddon.OnUpdate(dt) end
     if zealAlertAddon and zealAlertAddon.OnUpdate then
-    if rangeMeterAddon and rangeMeterAddon.OnUpdate then rangeMeterAddon.OnUpdate(dt) end
         zealAlertAddon:OnUpdate(dt)
     end
+    if rangeMeterAddon and rangeMeterAddon.OnUpdate then rangeMeterAddon.OnUpdate(dt) end
     
     if eluDisplayWindow then
         local isVis = eluDisplayWindow:IsVisible()
@@ -360,6 +363,8 @@ local function CreateGuildCheckWindow(wndParent)
     return wnd
 end 
 
+local _fishingSettingsWnd = nil
+
 local function CreateFishingWindow(wndParent)
     local wnd = wndParent:CreateChildWidget("emptywidget", "fishingWindow", 0, true)
     wnd:SetExtent(600, 600)
@@ -385,23 +390,30 @@ local function CreateFishingWindow(wndParent)
     api.Interface:ApplyButtonSkin(settingsBtn, BUTTON_BASIC.DEFAULT)
     settingsBtn:AddAnchor("BOTTOMRIGHT", wnd, -25, 25)
     
-    local settingsWnd = api.Interface:CreateWindow("eluFishingSettingsWnd_"..tostring(math.random(1000, 9999)), "Fishing Settings", 0, 0)
-    settingsWnd:SetExtent(300, 400)
-    settingsWnd:AddAnchor("CENTER", "UIParent", 0, 0)
-    settingsWnd:Show(false)
-    pcall(function() settingsWnd:SetCloseOnEscape(true) end)
-    
-    if settingsWnd.titleBar and settingsWnd.titleBar.bg then
-        settingsWnd.titleBar.bg:SetColor(ConvertColor(40), ConvertColor(44), ConvertColor(52), 1.0)
+    -- Reuse a single settings window instead of creating (and leaking) a new
+    -- one every time this tab is opened.
+    if not _fishingSettingsWnd then
+        local settingsWnd = api.Interface:CreateWindow("eluFishingSettingsWnd", "Fishing Settings", 0, 0)
+        settingsWnd:SetExtent(300, 400)
+        settingsWnd:AddAnchor("CENTER", "UIParent", 0, 0)
+        settingsWnd:Show(false)
+        pcall(function() settingsWnd:SetCloseOnEscape(true) end)
+        
+        if settingsWnd.titleBar and settingsWnd.titleBar.bg then
+            settingsWnd.titleBar.bg:SetColor(ConvertColor(40), ConvertColor(44), ConvertColor(52), 1.0)
+        end
+        if settingsWnd.bg then
+            settingsWnd.bg:SetColor(ConvertColor(24), ConvertColor(26), ConvertColor(31), 0.95)
+        end
+        
+        if fishTrackerAddon and fishTrackerAddon.CreateUI then fishTrackerAddon.CreateUI(settingsWnd) end
+        if spotTrackerAddon and spotTrackerAddon.CreateUI then spotTrackerAddon.CreateUI(settingsWnd) end
+        
+        _fishingSettingsWnd = settingsWnd
     end
-    if settingsWnd.bg then
-        settingsWnd.bg:SetColor(ConvertColor(24), ConvertColor(26), ConvertColor(31), 0.95)
-    end
     
+    local settingsWnd = _fishingSettingsWnd
     settingsWnd.resetBtn = settingsBtn
-    
-    if fishTrackerAddon and fishTrackerAddon.CreateUI then fishTrackerAddon.CreateUI(settingsWnd) end
-    if spotTrackerAddon and spotTrackerAddon.CreateUI then spotTrackerAddon.CreateUI(settingsWnd) end
     
     function settingsBtn:OnClick() settingsWnd:Show(not settingsWnd:IsVisible()) end
     settingsBtn:SetHandler("OnClick", settingsBtn.OnClick)
@@ -485,6 +497,20 @@ local function CreateMiscWindow(wndParent)
     return wnd
 end
 
+local function OnChatMessage(...)
+    -- Single owner of the CHAT_MESSAGE event for the whole addon. Each
+    -- sub-handler used to call api.On("CHAT_MESSAGE", ...) independently,
+    -- which meant whichever module loaded last silently took over the
+    -- event for everyone else (e.g. crash_alert's registration could
+    -- replace raid_invite's, breaking keyword auto-invite / "x givelead").
+    if raidInviteAddon and raidInviteAddon.OnChatMessage then
+        pcall(raidInviteAddon.OnChatMessage, ...)
+    end
+    if crashAlertAddon and crashAlertAddon.HandleChatCommand then
+        pcall(crashAlertAddon.HandleChatCommand, ...)
+    end
+end
+
 local function OnLoad()
     local migrationFiles = {
         "elu_commerce_prices.txt",
@@ -525,6 +551,11 @@ local function OnLoad()
     fishTrackerAddon = require("Elu_Tracker/fish_tracker")
     raidInviteAddon = require("Elu_Tracker/raid_invite")
     spotTrackerAddon = require("Elu_Tracker/spot_tracker")
+    zealAlertAddon = require("Elu_Tracker/zeal_alert")
+    stopwatchAddon = require("Elu_Tracker/stopwatch")
+    crashAlertAddon = require("Elu_Tracker/crash_alert")
+    lossPornAddon = require("Elu_Tracker/loss_porn")
+    rangeMeterAddon = require("Elu_Tracker/range_meter")
 
     
     local tabInfo = {
@@ -695,6 +726,7 @@ local function OnLoad()
     if rangeMeterAddon and rangeMeterAddon.OnLoad then rangeMeterAddon.OnLoad() end
 
     api.On("UPDATE", OnUpdate)
+    api.On("CHAT_MESSAGE", OnChatMessage)
     
 end
 
@@ -713,23 +745,24 @@ local function OnUnload()
 
     if eluDisplayWindow then
         eluDisplayWindow:Show(false)
-        eluDisplayWindow:Show(false)
+        pcall(function() api.Interface:Free(eluDisplayWindow) end)
         eluDisplayWindow = nil
     end
     
     if tripOverlay then
         tripOverlay:Show(false)
-        tripOverlay:Show(false)
+        pcall(function() api.Interface:Free(tripOverlay) end)
         tripOverlay = nil
     end
     
     if eluBtn then
         eluBtn:Show(false)
-        eluBtn:Show(false)
+        pcall(function() api.Interface:Free(eluBtn) end)
         eluBtn = nil
     end
     
     api.On("UPDATE", function() return end)
+    api.On("CHAT_MESSAGE", function() return end)
 end
 
 

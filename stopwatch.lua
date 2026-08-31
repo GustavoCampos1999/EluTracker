@@ -176,7 +176,7 @@ end
 function stopwatch_addon:OnUnload()
     if swOverlay then
         swOverlay:Show(false)
-        swOverlay:Show(false)
+        pcall(function() api.Interface:Free(swOverlay) end)
         swOverlay = nil
     end
 end

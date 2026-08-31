@@ -737,207 +737,227 @@ local function BuildSidePanel(parent)
             api.Interface:ApplyButtonSkin(importBtn, BUTTON_BASIC.DEFAULT)
             AddTooltip(importBtn, "Load a list from a friend or backup.\n\nYou can paste a text code, or import directly from a '.lua' file in your ArcheAge Addon folder.\n(Importing only ADDS names, it never deletes yours!)")
             
+            local exportWnd = nil
+            local exportWidgets = nil
+
             local function ShowExportWindow()
-                local expWnd = api.Interface:CreateWindow("eluRExportWnd_"..tostring(math.random(1000, 9999)), "Export Code", 0, 0)
-                expWnd:SetExtent(300, 400)
-                expWnd:AddAnchor("CENTER", "UIParent", 0, 0)
-                
-                local inst = expWnd:CreateChildWidget("textbox", "inst", 0, true)
-                inst:SetExtent(260, 40)
-                inst:AddAnchor("TOP", expWnd, 0, 50)
-                inst.style:SetAlign(ALIGN.CENTER)
-                ApplyTextColor(inst, FONT_COLOR.DEFAULT)
-                inst:SetText("To share: Copy (Ctrl+A -> Ctrl+C) and send to a friend.\nUse < > to copy other pages if the list is large.")
-                
                 local t = (wnd.listType == 1 and state.whitelist or (wnd.listType == 2 and state.blacklist or state.fastBlacklist))
                 local prefix = wnd.isWhite and "WL:" or "BL:"
-                
-                local input = W_CTRL.CreateMultiLineEdit("exportInput", expWnd)
-                input:SetExtent(260, 200)
-                input:AddAnchor("TOP", inst, "BOTTOM", 0, 10)
-                input:SetMaxTextLength(65535)
-                
+
                 local clean_t = {}
                 for i = 1, #t do
                     if t[i] ~= nil and tostring(t[i]) ~= "" then
                         table.insert(clean_t, tostring(t[i]))
                     end
                 end
-                
-                expWnd.page = 1
+
                 local namesPerPage = 30
                 local maxPage = math.max(1, math.ceil(#clean_t / namesPerPage))
-                
-                local pageLbl = expWnd:CreateChildWidget("label", "pageLbl", 0, true)
-                pageLbl:SetExtent(100, 25)
-                pageLbl:AddAnchor("TOP", input, "BOTTOM", 0, 10)
-                pageLbl.style:SetAlign(ALIGN.CENTER)
-                ApplyTextColor(pageLbl, FONT_COLOR.DEFAULT)
-                
-                local prevBtn = expWnd:CreateChildWidget("button", "prevBtn", 0, true)
-                prevBtn:SetExtent(30, 25)
-                prevBtn:AddAnchor("RIGHT", pageLbl, "LEFT", -10, 0)
-                prevBtn:SetText("<")
-                api.Interface:ApplyButtonSkin(prevBtn, BUTTON_BASIC.DEFAULT)
-                
-                local nextBtn = expWnd:CreateChildWidget("button", "nextBtn", 0, true)
-                nextBtn:SetExtent(30, 25)
-                nextBtn:AddAnchor("LEFT", pageLbl, "RIGHT", 10, 0)
-                nextBtn:SetText(">")
-                api.Interface:ApplyButtonSkin(nextBtn, BUTTON_BASIC.DEFAULT)
-                
+
+                -- Build the window and its widgets once; reuse them on every
+                -- subsequent Export click instead of leaking a new top-level
+                -- window each time.
+                if not exportWnd then
+                    exportWnd = api.Interface:CreateWindow("eluRExportWnd", "Export Code", 0, 0)
+                    exportWnd:SetExtent(300, 400)
+                    exportWnd:AddAnchor("CENTER", "UIParent", 0, 0)
+
+                    local inst = exportWnd:CreateChildWidget("textbox", "inst", 0, true)
+                    inst:SetExtent(260, 40)
+                    inst:AddAnchor("TOP", exportWnd, 0, 50)
+                    inst.style:SetAlign(ALIGN.CENTER)
+                    ApplyTextColor(inst, FONT_COLOR.DEFAULT)
+                    inst:SetText("To share: Copy (Ctrl+A -> Ctrl+C) and send to a friend.\nUse < > to copy other pages if the list is large.")
+
+                    local input = W_CTRL.CreateMultiLineEdit("exportInput", exportWnd)
+                    input:SetExtent(260, 200)
+                    input:AddAnchor("TOP", inst, "BOTTOM", 0, 10)
+                    input:SetMaxTextLength(65535)
+
+                    local pageLbl = exportWnd:CreateChildWidget("label", "pageLbl", 0, true)
+                    pageLbl:SetExtent(100, 25)
+                    pageLbl:AddAnchor("TOP", input, "BOTTOM", 0, 10)
+                    pageLbl.style:SetAlign(ALIGN.CENTER)
+                    ApplyTextColor(pageLbl, FONT_COLOR.DEFAULT)
+
+                    local prevBtn = exportWnd:CreateChildWidget("button", "prevBtn", 0, true)
+                    prevBtn:SetExtent(30, 25)
+                    prevBtn:AddAnchor("RIGHT", pageLbl, "LEFT", -10, 0)
+                    prevBtn:SetText("<")
+                    api.Interface:ApplyButtonSkin(prevBtn, BUTTON_BASIC.DEFAULT)
+
+                    local nextBtn = exportWnd:CreateChildWidget("button", "nextBtn", 0, true)
+                    nextBtn:SetExtent(30, 25)
+                    nextBtn:AddAnchor("LEFT", pageLbl, "RIGHT", 10, 0)
+                    nextBtn:SetText(">")
+                    api.Interface:ApplyButtonSkin(nextBtn, BUTTON_BASIC.DEFAULT)
+
+                    local closeBtn = exportWnd:CreateChildWidget("button", "closeBtn", 0, true)
+                    closeBtn:SetExtent(80, 30)
+                    closeBtn:AddAnchor("BOTTOMLEFT", exportWnd, "BOTTOM", 5, -20)
+                    closeBtn:SetText("Close")
+                    api.Interface:ApplyButtonSkin(closeBtn, BUTTON_BASIC.DEFAULT)
+                    closeBtn:SetHandler("OnClick", function() exportWnd:Show(false) end)
+
+                    local exportFileBtn = exportWnd:CreateChildWidget("button", "exportFileBtn", 0, true)
+                    exportFileBtn:SetExtent(120, 30)
+                    exportFileBtn:AddAnchor("BOTTOMRIGHT", exportWnd, "BOTTOM", -5, -20)
+                    exportFileBtn:SetText("Export to File")
+                    api.Interface:ApplyButtonSkin(exportFileBtn, BUTTON_BASIC.DEFAULT)
+
+                    exportWnd.titleBar.closeButton:SetHandler("OnClick", function() exportWnd:Show(false) end)
+
+                    exportWidgets = { input = input, pageLbl = pageLbl, prevBtn = prevBtn, nextBtn = nextBtn, exportFileBtn = exportFileBtn }
+                    widgets.exportWnd = exportWnd
+                end
+
+                exportWnd.page = 1
+
                 local function UpdatePage()
-                    pageLbl:SetText("Page " .. expWnd.page .. " / " .. maxPage)
-                    
-                    local startIdx = (expWnd.page - 1) * namesPerPage + 1
+                    exportWidgets.pageLbl:SetText("Page " .. exportWnd.page .. " / " .. maxPage)
+
+                    local startIdx = (exportWnd.page - 1) * namesPerPage + 1
                     local endIdx = math.min(startIdx + namesPerPage - 1, #clean_t)
-                    
+
                     local chunk = {}
                     for i = startIdx, endIdx do
                         table.insert(chunk, clean_t[i])
                     end
-                    
+
                     if #chunk > 0 then
                         local export_str = prefix .. table.concat(chunk, ",")
-                        input:SetText(export_str)
+                        exportWidgets.input:SetText(export_str)
                     else
-                        input:SetText(prefix)
+                        exportWidgets.input:SetText(prefix)
                     end
                 end
-                
-                prevBtn:SetHandler("OnClick", function()
-                    if expWnd.page > 1 then
-                        expWnd.page = expWnd.page - 1
-                        UpdatePage()
-                    end
-                end)
-                
-                nextBtn:SetHandler("OnClick", function()
-                    if expWnd.page < maxPage then
-                        expWnd.page = expWnd.page + 1
-                        UpdatePage()
-                    end
-                end)
-                
-                UpdatePage()
-                
-                local closeBtn = expWnd:CreateChildWidget("button", "closeBtn", 0, true)
-                closeBtn:SetExtent(80, 30)
-                closeBtn:AddAnchor("BOTTOMLEFT", expWnd, "BOTTOM", 5, -20)
-                closeBtn:SetText("Close")
-                api.Interface:ApplyButtonSkin(closeBtn, BUTTON_BASIC.DEFAULT)
-                closeBtn:SetHandler("OnClick", function() expWnd:Show(false) end)
 
-                local exportFileBtn = expWnd:CreateChildWidget("button", "exportFileBtn", 0, true)
-                exportFileBtn:SetExtent(120, 30)
-                exportFileBtn:AddAnchor("BOTTOMRIGHT", expWnd, "BOTTOM", -5, -20)
-                exportFileBtn:SetText("Export to File")
-                api.Interface:ApplyButtonSkin(exportFileBtn, BUTTON_BASIC.DEFAULT)
-                exportFileBtn:SetHandler("OnClick", function()
-                    local t = (wnd.listType == 1 and state.whitelist or (wnd.listType == 2 and state.blacklist or state.fastBlacklist))
+                exportWidgets.prevBtn:SetHandler("OnClick", function()
+                    if exportWnd.page > 1 then
+                        exportWnd.page = exportWnd.page - 1
+                        UpdatePage()
+                    end
+                end)
+
+                exportWidgets.nextBtn:SetHandler("OnClick", function()
+                    if exportWnd.page < maxPage then
+                        exportWnd.page = exportWnd.page + 1
+                        UpdatePage()
+                    end
+                end)
+
+                exportWidgets.exportFileBtn:SetHandler("OnClick", function()
+                    local fileT = (wnd.listType == 1 and state.whitelist or (wnd.listType == 2 and state.blacklist or state.fastBlacklist))
                     local fileName = wnd.isWhite and "elu_tracker_whitelist.lua" or "elu_tracker_blacklist.lua"
-                    local clean_t = {}
-                    for _, v in pairs(t) do if type(v) == "string" and v ~= "" then table.insert(clean_t, v) end end
-                    local exportData = { type = wnd.isWhite and "whitelist" or "blacklist", list = clean_t }
+                    local fileClean = {}
+                    for _, v in pairs(fileT) do if type(v) == "string" and v ~= "" then table.insert(fileClean, v) end end
+                    local exportData = { type = wnd.isWhite and "whitelist" or "blacklist", list = fileClean }
                     local ok = pcall(function() api.File:Write(fileName, exportData) end)
                     if ok then LogInfo("List exported successfully to " .. fileName) else LogInfo("Failed to export List") end
                 end)
-                
-                expWnd.titleBar.closeButton:SetHandler("OnClick", function() expWnd:Show(false) end)
-                expWnd:Show(true)
+
+                UpdatePage()
+                exportWnd:Show(true)
+            end
+
+            local importWnd = nil
+            local importWidgets = nil
+
+            local function ProcessImportString(content)
+                if type(content) == "string" and content ~= "" then
+                    if wnd.isWhite and string.sub(content, 1, 3) == "BL:" then
+                        api.Log:Err("[Elu Auto Invite] Error: You are trying to import a Blacklist into the Whitelist!")
+                        return
+                    elseif not wnd.isWhite and string.sub(content, 1, 3) == "WL:" then
+                        api.Log:Err("[Elu Auto Invite] Error: You are trying to import a Whitelist into the Blacklist!")
+                        return
+                    end
+
+                    if string.sub(content, 1, 3) == "WL:" or string.sub(content, 1, 3) == "BL:" then
+                        content = string.sub(content, 4)
+                    end
+
+                    local t = (wnd.listType == 1 and state.whitelist or (wnd.listType == 2 and state.blacklist or state.fastBlacklist))
+                    local count = 0
+                    for name in string.gmatch(content, '([^,]+)') do
+                        local n = name:gsub("^%s*(.-)%s*$", "%1")
+                        if n ~= "" then
+                            local found = false
+                            for _, v in ipairs(t) do
+                                if string.lower(v) == string.lower(n) then found = true break end
+                            end
+                            if not found and #t < 100 then
+                                table.insert(t, n)
+                                count = count + 1
+                            end
+                        end
+                    end
+                    SaveSettings()
+                    if wnd and wnd.RefreshList then wnd.RefreshList() end
+                    LogInfo("Imported " .. tostring(count) .. " new names.")
+                    if importWnd then importWnd:Show(false) end
+                end
             end
 
             local function ShowImportWindow()
-                local impWnd = api.Interface:CreateWindow("eluRImportWnd_"..tostring(math.random(1000, 9999)), "Import Code", 0, 0)
-                impWnd:SetExtent(300, 420)
-                impWnd:AddAnchor("CENTER", "UIParent", 0, 0)
-                
-    
-                
-                
-                local inst = impWnd:CreateChildWidget("textbox", "inst", 0, true)
-                inst:SetExtent(260, 40)
-                inst:AddAnchor("TOP", impWnd, 0, 50)
-                inst.style:SetAlign(ALIGN.CENTER)
-                ApplyTextColor(inst, FONT_COLOR.DEFAULT)
-                inst:SetText("Paste (Ctrl+V) the code you received from your friend in the box below:")
-                
-                local input = W_CTRL.CreateMultiLineEdit("importInput", impWnd)
-                input:SetExtent(260, 200)
-                input:AddAnchor("TOP", inst, "BOTTOM", 0, 10)
-                input:SetMaxTextLength(65535)
-                
-                local importTxtBtn = impWnd:CreateChildWidget("button", "importTxtBtn", 0, true)
-                importTxtBtn:SetExtent(120, 30)
-                importTxtBtn:AddAnchor("TOP", input, "BOTTOM", 0, 10)
-                importTxtBtn:SetText("Import Text")
-                api.Interface:ApplyButtonSkin(importTxtBtn, BUTTON_BASIC.DEFAULT)
-                
-                local orLbl = impWnd:CreateChildWidget("label", "orLbl", 0, true)
-                orLbl:SetExtent(100, 20)
-                orLbl:AddAnchor("TOP", importTxtBtn, "BOTTOM", 0, 5)
-                orLbl.style:SetAlign(ALIGN.CENTER)
-                ApplyTextColor(orLbl, FONT_COLOR.DEFAULT)
-                orLbl:SetText("- OR -")
-                
-                local importFileBtn = impWnd:CreateChildWidget("button", "importFileBtn", 0, true)
-                importFileBtn:SetExtent(150, 30)
-                importFileBtn:AddAnchor("TOP", orLbl, "BOTTOM", 0, 5)
-                importFileBtn:SetText("Import from File")
-                api.Interface:ApplyButtonSkin(importFileBtn, BUTTON_BASIC.DEFAULT)
-                
-                local function ProcessImportString(content)
-                    if type(content) == "string" and content ~= "" then
-                        if wnd.isWhite and string.sub(content, 1, 3) == "BL:" then
-                            api.Log:Err("[Elu Auto Invite] Error: You are trying to import a Blacklist into the Whitelist!")
-                            return
-                        elseif not wnd.isWhite and string.sub(content, 1, 3) == "WL:" then
-                            api.Log:Err("[Elu Auto Invite] Error: You are trying to import a Whitelist into the Blacklist!")
-                            return
+                -- Build once; reuse on every subsequent Import click instead
+                -- of leaking a new top-level window each time.
+                if not importWnd then
+                    importWnd = api.Interface:CreateWindow("eluRImportWnd", "Import Code", 0, 0)
+                    importWnd:SetExtent(300, 420)
+                    importWnd:AddAnchor("CENTER", "UIParent", 0, 0)
+
+                    local inst = importWnd:CreateChildWidget("textbox", "inst", 0, true)
+                    inst:SetExtent(260, 40)
+                    inst:AddAnchor("TOP", importWnd, 0, 50)
+                    inst.style:SetAlign(ALIGN.CENTER)
+                    ApplyTextColor(inst, FONT_COLOR.DEFAULT)
+                    inst:SetText("Paste (Ctrl+V) the code you received from your friend in the box below:")
+
+                    local input = W_CTRL.CreateMultiLineEdit("importInput", importWnd)
+                    input:SetExtent(260, 200)
+                    input:AddAnchor("TOP", inst, "BOTTOM", 0, 10)
+                    input:SetMaxTextLength(65535)
+
+                    local importTxtBtn = importWnd:CreateChildWidget("button", "importTxtBtn", 0, true)
+                    importTxtBtn:SetExtent(120, 30)
+                    importTxtBtn:AddAnchor("TOP", input, "BOTTOM", 0, 10)
+                    importTxtBtn:SetText("Import Text")
+                    api.Interface:ApplyButtonSkin(importTxtBtn, BUTTON_BASIC.DEFAULT)
+                    importTxtBtn:SetHandler("OnClick", function()
+                        ProcessImportString(input:GetText())
+                    end)
+
+                    local orLbl = importWnd:CreateChildWidget("label", "orLbl", 0, true)
+                    orLbl:SetExtent(100, 20)
+                    orLbl:AddAnchor("TOP", importTxtBtn, "BOTTOM", 0, 5)
+                    orLbl.style:SetAlign(ALIGN.CENTER)
+                    ApplyTextColor(orLbl, FONT_COLOR.DEFAULT)
+                    orLbl:SetText("- OR -")
+
+                    local importFileBtn = importWnd:CreateChildWidget("button", "importFileBtn", 0, true)
+                    importFileBtn:SetExtent(150, 30)
+                    importFileBtn:AddAnchor("TOP", orLbl, "BOTTOM", 0, 5)
+                    importFileBtn:SetText("Import from File")
+                    api.Interface:ApplyButtonSkin(importFileBtn, BUTTON_BASIC.DEFAULT)
+                    importFileBtn:SetHandler("OnClick", function()
+                        local fileName = wnd.isWhite and "elu_tracker_whitelist.lua" or "elu_tracker_blacklist.lua"
+                        local readOk, content = pcall(function() return api.File:Read(fileName) end)
+                        if readOk and content ~= nil then
+                            ProcessImportString(content)
+                        else
+                            LogInfo("Could not read " .. fileName)
                         end
-                        
-                        if string.sub(content, 1, 3) == "WL:" or string.sub(content, 1, 3) == "BL:" then
-                            content = string.sub(content, 4)
-                        end
-                        
-                        local t = (wnd.listType == 1 and state.whitelist or (wnd.listType == 2 and state.blacklist or state.fastBlacklist))
-                        local count = 0
-                        for name in string.gmatch(content, '([^,]+)') do
-                            local n = name:gsub("^%s*(.-)%s*$", "%1")
-                            if n ~= "" then
-                                local found = false
-                                for _, v in ipairs(t) do
-                                    if string.lower(v) == string.lower(n) then found = true break end
-                                end
-                                if not found and #t < 100 then
-                                    table.insert(t, n)
-                                    count = count + 1
-                                end
-                            end
-                        end
-                        SaveSettings()
-                        if wnd and wnd.RefreshList then wnd.RefreshList() end
-                        LogInfo("Imported " .. tostring(count) .. " new names.")
-                        impWnd:Show(false)
-                    end
+                    end)
+
+                    importWnd.titleBar.closeButton:SetHandler("OnClick", function() importWnd:Show(false) end)
+
+                    importWidgets = { input = input }
+                    widgets.importWnd = importWnd
                 end
-                
-                importTxtBtn:SetHandler("OnClick", function()
-                    ProcessImportString(input:GetText())
-                end)
-                
-                importFileBtn:SetHandler("OnClick", function()
-                    local fileName = wnd.isWhite and "elu_tracker_whitelist.lua" or "elu_tracker_blacklist.lua"
-                    local readOk, content = pcall(function() return api.File:Read(fileName) end)
-                    if readOk and content ~= nil then
-                        ProcessImportString(content)
-                    else
-                        LogInfo("Could not read " .. fileName)
-                    end
-                end)
-                
-                impWnd.titleBar.closeButton:SetHandler("OnClick", function() impWnd:Show(false) end)
-                impWnd:Show(true)
+
+                importWidgets.input:SetText("")
+                importWnd:Show(true)
             end
 
             exportBtn:SetHandler("OnClick", function()
@@ -1277,7 +1297,6 @@ function raid_invite.OnLoad()
     end)
     
     if not raid_invite.isLoaded then
-        api.On("CHAT_MESSAGE", OnChatMessage)
         raid_invite.isLoaded = true
     end
 end
@@ -1310,19 +1329,65 @@ function raid_invite.OnUpdate(dt)
 end
 
 function raid_invite.OnUnload()
-    if widgets.raid_manager and state.canvas_width and state.canvas_width > 0 then widgets.raid_manager:SetExtent(state.canvas_width, 395) end
-    if widgets.qai_label then widgets.qai_label:Show(false) end
-    if widgets.enhancedRecruitBtn then widgets.enhancedRecruitBtn:Show(false) end
-    if widgets.enhancedTextfield then widgets.enhancedTextfield:Show(false) end
-    if widgets.enhancedFilterCombo then widgets.enhancedFilterCombo:Show(false) end
-    if widgets.fast_blacklist_button then widgets.fast_blacklist_button:Show(false) end
-    if widgets.enhancedCanvas then widgets.enhancedCanvas:Show(false) end
+    if widgets.raid_manager and state.canvas_width and state.canvas_width > 0 then
+        widgets.raid_manager:SetExtent(state.canvas_width, 395)
+    end
+    -- These are all injected as children of the native Raid Manager window,
+    -- which this addon does not own and must never Free(). But our own
+    -- children need to be freed and un-referenced here, or a later OnLoad
+    -- (addon reload without a full client restart) will either try to
+    -- create duplicate widgets with the same name on that native window,
+    -- or reuse a dangling reference to a widget we already freed elsewhere.
+    if widgets.qai_label then pcall(function() api.Interface:Free(widgets.qai_label) end) end
+    if widgets.enhancedRecruitBtn then pcall(function() api.Interface:Free(widgets.enhancedRecruitBtn) end) end
+    if widgets.enhancedTextfield then pcall(function() api.Interface:Free(widgets.enhancedTextfield) end) end
+    if widgets.enhancedFilterCombo then pcall(function() api.Interface:Free(widgets.enhancedFilterCombo) end) end
+    if widgets.fast_blacklist_button then pcall(function() api.Interface:Free(widgets.fast_blacklist_button) end) end
+    if widgets.toggleSideBtn then pcall(function() api.Interface:Free(widgets.toggleSideBtn) end) end
+    if widgets.sidePanel then pcall(function() api.Interface:Free(widgets.sidePanel) end) end
+
+    -- These are our own top-level windows, so hide + free them.
+    if widgets.enhancedCanvas then
+        widgets.enhancedCanvas:Show(false)
+        pcall(function() api.Interface:Free(widgets.enhancedCanvas) end)
+    end
+    if widgets.listWindow then
+        widgets.listWindow:Show(false)
+        pcall(function() api.Interface:Free(widgets.listWindow) end)
+    end
+    if widgets.exportWnd then
+        widgets.exportWnd:Show(false)
+        pcall(function() api.Interface:Free(widgets.exportWnd) end)
+    end
+    if widgets.importWnd then
+        widgets.importWnd:Show(false)
+        pcall(function() api.Interface:Free(widgets.importWnd) end)
+    end
+    if widgets.floatingIcon then
+        widgets.floatingIcon:Show(false)
+        pcall(function() api.Interface:Free(widgets.floatingIcon) end)
+    end
+
     state.inviteMode = 0
-    if widgets.toggleSideBtn then widgets.toggleSideBtn:Show(false) end
-    if widgets.sidePanel then widgets.sidePanel:Show(false) end
-    if widgets.listWindow then widgets.listWindow:Show(false) end
-    if widgets.floatingIcon then widgets.floatingIcon:Show(false) end
+
+    widgets.qai_label = nil
+    widgets.enhancedRecruitBtn = nil
+    widgets.enhancedTextfield = nil
+    widgets.enhancedFilterCombo = nil
+    widgets.fast_blacklist_button = nil
+    widgets.toggleSideBtn = nil
+    widgets.sidePanel = nil
+    widgets.enhancedCanvas = nil
+    widgets.listWindow = nil
+    widgets.exportWnd = nil
+    widgets.importWnd = nil
+    widgets.floatingIcon = nil
+    widgets.fKeywordLbl = nil
+    widgets.ToggleListWindow = nil
+    widgets.raid_manager = nil
 end
+
+raid_invite.OnChatMessage = OnChatMessage
 
 return raid_invite
 

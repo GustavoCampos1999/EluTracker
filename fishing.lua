@@ -751,18 +751,18 @@ local function OnLoad()
     clearPinkBtn:AddAnchor("LEFT", favouritePackStr, "RIGHT", 15, 0)
 
     refreshStatisticsLabels()
-    api.On("UPDATE", OnUpdate)
 end
 
 local function OnUnload()
     if eluFishingEventWindow then
         eluFishingEventWindow:Show(false)
+        pcall(function() api.Interface:Free(eluFishingEventWindow) end)
         eluFishingEventWindow = nil
     end
-    api.On("UPDATE", function() return end)
 end
 
 elu_fishing_addon.OnLoad = OnLoad
 elu_fishing_addon.OnUnload = OnUnload
+elu_fishing_addon.OnUpdate = OnUpdate
 
 return elu_fishing_addon

@@ -690,22 +690,28 @@ function fish_tracker:OnUpdate(dt)
 end
 
 function fish_tracker:OnUnload()
+    -- fish_tracker.masterCanvas is never assigned anywhere else in this
+    -- file; kept here only in case older data still references it.
     if fish_tracker.masterCanvas then
         fish_tracker.masterCanvas:Show(false)
+        pcall(function() api.Interface:Free(fish_tracker.masterCanvas) end)
         fish_tracker.masterCanvas = nil
     end
     if fishTrackerCanvas ~= nil then
         fishTrackerCanvas:Show(false)
+        pcall(function() api.Interface:Free(fishTrackerCanvas) end)
         fishTrackerCanvas = nil
     end
     for i = 1, 9 do
         if markedFishUI[i] and markedFishUI[i].canvas then
             markedFishUI[i].canvas:Show(false)
-            markedFishUI[i] = nil
+            pcall(function() api.Interface:Free(markedFishUI[i].canvas) end)
         end
+        markedFishUI[i] = nil
     end
     if fish_tracker.deadFishDragBox ~= nil then
         fish_tracker.deadFishDragBox:Show(false)
+        pcall(function() api.Interface:Free(fish_tracker.deadFishDragBox) end)
         fish_tracker.deadFishDragBox = nil
     end
     markedFishUI = {}

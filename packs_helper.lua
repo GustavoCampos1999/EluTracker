@@ -1,4 +1,4 @@
-packs_helper = {}
+local packs_helper = {}
 
 local zonesInfo = {
     [1] = "Gweonid",
@@ -66,7 +66,7 @@ local zoneIds = {
 }
 
 function packs_helper:GetZoneIdByName(zoneName)
-    if zoneName[zoneName] ~= nil then
+    if zoneIds[zoneName] ~= nil then
         return zoneIds[zoneName]
     else
         return nil

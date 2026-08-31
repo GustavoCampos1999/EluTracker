@@ -502,7 +502,7 @@ local function OnLoad()
 	-- LoadConfig() moved to CreateUI
 	
 	-- api.On("UPDATE" removed for monolithic integration
-	api.On("CHAT_MESSAGE", HandleChatCommand)
+	-- CHAT_MESSAGE is now dispatched centrally from main.lua (see HandleChatCommand export below)
 
 
 
@@ -517,7 +517,7 @@ end
 
 local function OnUnload()
 	-- api.On("UPDATE" removed for monolithic integration end)
-	api.On("CHAT_MESSAGE", function() end)
+	-- CHAT_MESSAGE is owned centrally by main.lua now; nothing to unregister here.
 
 	if configWnd then
 		
@@ -546,6 +546,7 @@ end
 
 crash_age.OnLoad = OnLoad
 crash_age.OnUnload = OnUnload
+crash_age.HandleChatCommand = HandleChatCommand
 
 
 crash_age.OnUpdate = OnUpdate

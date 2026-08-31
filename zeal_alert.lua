@@ -289,7 +289,7 @@ end
 function zeal_alert:OnUnload()
     if zealOverlay then
         zealOverlay:Show(false)
-        zealOverlay:Show(false)
+        pcall(function() api.Interface:Free(zealOverlay) end)
         zealOverlay = nil
     end
 end

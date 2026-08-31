@@ -803,13 +803,14 @@ local function OnLoad()
     favouritePackStr:SetText("Favourite Pack: " .. favouritePackName)
     favouritePackStr:AddAnchor("BOTTOMLEFT", totalPacksStr, 0, 20)
     
-    api.On("UPDATE", OnUpdate)
 
 end
 
 local function OnUnload()
-    if eluTrackerEventWindow then eluTrackerEventWindow:Show(false) end
-    api.On("UPDATE", function() return end)
+    if eluTrackerEventWindow then
+        eluTrackerEventWindow:Show(false)
+        pcall(function() api.Interface:Free(eluTrackerEventWindow) end)
+    end
     eluTrackerEventWindow = nil
 end
 
@@ -822,6 +823,7 @@ end
 
 your_packs_addon.OnLoad = OnLoad
 your_packs_addon.OnUnload = OnUnload
+your_packs_addon.OnUpdate = OnUpdate
 your_packs_addon.RefreshUI = RefreshUI
 
 return your_packs_addon
