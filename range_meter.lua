@@ -39,7 +39,9 @@ function range_meter.OnUpdate(dt)
     if not info and api.Unit.GetUnitInfoById then info = api.Unit:GetUnitInfoById(targetId) end
 
     if info then
-        if info.type ~= "character" and info.type ~= "npc" and info.type ~= "monster" then
+        local isPlayer = (info.type == "character")
+        local isHostileMob = (info.type == "monster" or info.isAggressive == true)
+        if not isPlayer and not isHostileMob then
             canvas:Show(false)
             return
         end

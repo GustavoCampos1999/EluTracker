@@ -1,9 +1,9 @@
 local elu_tracker_addon = {
 	name = "Elu Tracker",
 	author = "Eludelu",
-	version = "3.0",
-	desc = "Commerce & Fishing tools.",
-	tags = {"Economy", "Fishing", "QoL"}
+	version = "4.0",
+	desc = "Commerce, fishing, Auto Raids & tools.",
+	tags = {"Economy", "Fishing", "Raid", "QoL", "PvE", "PvP", "UI"} 
 }
 
 local packsAddon = require("Elu_Tracker/packs")
@@ -14,7 +14,7 @@ local raidInviteAddon = require("Elu_Tracker/raid_invite")
 local spotTrackerAddon = require("Elu_Tracker/spot_tracker")
 local zealAlertAddon = require("Elu_Tracker/zeal_alert")
 local stopwatchAddon = require("Elu_Tracker/stopwatch")
-local crashageAddon = require("Elu_Tracker/crashage")
+local crashAlertAddon = require("Elu_Tracker/crash_alert")
 local lossPornAddon = require("Elu_Tracker/loss_porn")
 local rangeMeterAddon = require("Elu_Tracker/range_meter")
 eluDisplayWindow = nil
@@ -114,7 +114,7 @@ local function OnUpdate(dt)
         raidInviteAddon.OnUpdate(dt)
     end
     
-    if crashageAddon and crashageAddon.OnUpdate then crashageAddon.OnUpdate(dt) end
+    if crashAlertAddon and crashAlertAddon.OnUpdate then crashAlertAddon.OnUpdate(dt) end
     if lossPornAddon and lossPornAddon.OnUpdate then lossPornAddon.OnUpdate(dt) end
     if zealAlertAddon and zealAlertAddon.OnUpdate then
     if rangeMeterAddon and rangeMeterAddon.OnUpdate then rangeMeterAddon.OnUpdate(dt) end
@@ -460,8 +460,8 @@ local function CreateMiscWindow(wndParent)
     toggleStopwatchBtn:SetHandler("OnClick", toggleStopwatchBtn.OnClick)
 
 
-    if crashageAddon and crashageAddon.CreateUI then
-        crashageAddon.CreateUI(wnd)
+    if crashAlertAddon and crashAlertAddon.CreateUI then
+        crashAlertAddon.CreateUI(wnd)
     end
 
     if zealAlertAddon and zealAlertAddon.CreateUI then
@@ -691,7 +691,7 @@ local function OnLoad()
     spotTrackerAddon:OnLoad()
     zealAlertAddon:OnLoad()
     stopwatchAddon:OnLoad()
-    if crashageAddon and crashageAddon.OnLoad then crashageAddon.OnLoad() end
+    if crashAlertAddon and crashAlertAddon.OnLoad then crashAlertAddon.OnLoad() end
     if lossPornAddon and lossPornAddon.OnLoad then lossPornAddon.OnLoad() end
     if rangeMeterAddon and rangeMeterAddon.OnLoad then rangeMeterAddon.OnLoad() end
 
@@ -708,7 +708,7 @@ local function OnUnload()
     if spotTrackerAddon then spotTrackerAddon:OnUnload(); spotTrackerAddon = nil end
     if zealAlertAddon then zealAlertAddon:OnUnload(); zealAlertAddon = nil end
     if stopwatchAddon then stopwatchAddon:OnUnload(); stopwatchAddon = nil end
-    if crashageAddon and crashageAddon.OnUnload then crashageAddon.OnUnload(); crashageAddon = nil end
+    if crashAlertAddon and crashAlertAddon.OnUnload then crashAlertAddon.OnUnload(); crashAlertAddon = nil end
     if lossPornAddon and lossPornAddon.OnUnload then lossPornAddon.OnUnload(); lossPornAddon = nil end
     if rangeMeterAddon and rangeMeterAddon.OnUnload then rangeMeterAddon.OnUnload(); rangeMeterAddon = nil end
 

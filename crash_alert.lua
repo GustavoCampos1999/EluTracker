@@ -1,7 +1,7 @@
 local api = require("api")
 
 local crash_age = {
-	name = "CrashAge",
+	name = "Crash Alert",
 	author = "Eludelu",
 	version = "1.1.0",
 	desc = "Memory tracker and crash warning system",
@@ -39,7 +39,7 @@ pcall(function()
 if api.File and api.File.Read and api.File.Write then
     local data = api.File:Read(configPath)
     if type(data) ~= "table" then data = {} end
-    data.crashage = config
+    data.crash_alert = config
     api.File:Write(configPath, data)
 end
 end)
@@ -51,7 +51,7 @@ local function LoadConfig()
 			local fileData = nil
         if api.File and api.File.Read then fileData = api.File:Read(configPath) end
         local data = nil
-        if type(fileData) == "table" then data = fileData.crashage end
+        if type(fileData) == "table" then data = fileData.crash_alert end
 			if data then
 				if data.thresholds then
 					config.thresholds = data.thresholds
@@ -247,7 +247,7 @@ function crash_age.CreateUI(parentWnd)
     else
         title.style:SetColor(1, 1, 1, 1)
     end
-    title:SetText("Crashage Settings")
+    title:SetText("Crash Alert Settings")
     title:AddAnchor("TOP", configWnd, "TOP", 0, 10)
 
     
