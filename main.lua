@@ -512,6 +512,21 @@ local function OnChatMessage(...)
 end
 
 local function OnLoad()
+    -- Guard against a duplicate OnLoad call. Observed in the wild: the
+    -- game client's own scripts/x2ui/addons/addons.lua occasionally hits
+    -- "attempt to call field 'callback' (a nil value)" and, as a side
+    -- effect, re-fires addon load hooks without unloading first. Every
+    -- OnLoad in this addon used to create a brand new eluDisplayWindow,
+    -- tripOverlay, eluBtn, and re-run every sub-module's OnLoad on top of
+    -- what already existed -- doubling this addon's window count in one
+    -- shot (confirmed via the client's own "[ADDONS] High memory usage"
+    -- diagnostic: Elu_Tracker windows went 30 -> 60 in about 5 seconds,
+    -- immediately followed by a failed memory allocation and a crash).
+    -- This guard makes OnLoad a no-op if it's already loaded.
+    if eluDisplayWindow then
+        return
+    end
+
     local migrationFiles = {
         "elu_commerce_prices.txt",
         "elu_trip_pos.txt",

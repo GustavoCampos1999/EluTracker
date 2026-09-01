@@ -239,10 +239,9 @@ local function UpdateFloatingIcon()
         widgets.floatingIcon:Show(state.showFloatingIcon)
         widgets.floatingIcon:SetExtent(55, 40)
         
-        if widgets.fBgOn and widgets.fBgOff and widgets.fBgWhite then
+        if widgets.fBgOn and widgets.fBgOff then
             widgets.fBgOn:SetExtent(55, 40)
             widgets.fBgOff:SetExtent(55, 40)
-            widgets.fBgWhite:SetExtent(55, 40)
             widgets.fBgOn:SetVisible(state.inviteMode == 1)
             widgets.fBgOff:SetVisible(state.inviteMode == 0)
         end
@@ -1086,12 +1085,6 @@ function raid_invite.OnLoad()
     fBgOn:SetColor(1, 1, 1, 0.7)
     fBgOn:SetVisible(state.inviteMode == 1)
     
-    local fBgWhite = fIcon:CreateImageDrawable("Addon/Elu_Tracker/auto_whitelist_on.png", "background")
-    fBgWhite:SetExtent(55, 40)
-    fBgWhite:AddAnchor("CENTER", fIcon, 0, 0)
-    fBgWhite:SetColor(1, 1, 1, 0.7)
-    fBgWhite:SetVisible(state.inviteMode == 2)
-    
     local fBgOff = fIcon:CreateImageDrawable("Addon/Elu_Tracker/auto_off.png", "background")
     fBgOff:SetExtent(55, 40)
     fBgOff:AddAnchor("CENTER", fIcon, 0, 0)
@@ -1099,7 +1092,6 @@ function raid_invite.OnLoad()
     fBgOff:SetVisible(state.inviteMode == 0)
 
     widgets.fBgOn = fBgOn
-    widgets.fBgWhite = fBgWhite
     widgets.fBgOff = fBgOff
     
     fIcon:EnableDrag(true)
