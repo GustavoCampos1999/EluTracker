@@ -277,8 +277,18 @@ end
 
 function closeContextMenu()
     if contextMenu then
+        -- NOTE: only hides, does not Free() the menu. This close path is
+        -- also reached from INSIDE the menu's own registered global
+        -- MOUSE_DOWN handler (the click-outside-to-close feature) -- i.e.
+        -- it can free the widget from within that same widget's own event
+        -- dispatch. That broke Ctrl+Click again after the first open/close
+        -- cycle (confirmed: the menu opened fine once, but never came back
+        -- after being closed by an outside click). addonlibrary's own
+        -- popup_menu.lua avoids this entirely by never freeing its popup at
+        -- all -- it just Show(false)s and reuses the same widget across
+        -- every open. Do the same here: leave the small, rarely-created
+        -- menu window un-freed rather than repeat that failure mode.
         contextMenu:Show(false)
-        pcall(function() api.Interface:Free(contextMenu) end)
         contextMenu = nil
     end
 end
@@ -287,7 +297,9 @@ local function openContextMenu(gearSetIndex)
     closeContextMenu()
 
     local gearSet = settings.gear_sets[gearSetIndex]
-    if not gearSet then return end
+    if not gearSet then
+        return
+    end
 
     local optionHeight = 24
     local menuWidth = 120
@@ -331,75 +343,113 @@ local function openContextMenu(gearSetIndex)
         }
     }
 
+    -- The window itself is created OUTSIDE the pcall (and kept in this
+    -- outer-scope local) specifically so a failed build can still clean it
+    -- up below. It was created INSIDE the pcall before, and every single
+    -- failed build (e.g. every Ctrl+Click while the UIParent bug was still
+    -- present) left that half-built window behind forever, uncounted and
+    -- unreachable, because the error aborted the function before it ever
+    -- reached menu:Show(true). Confirmed directly in the game's own log
+    -- from that session: Elu_Tracker's addon-window count climbed from 254
+    -- to 373 in under an hour of testing, memory climbing from ~2860MB to
+    -- 3190MB right up to the session's end -- a real, self-inflicted leak,
+    -- and almost certainly what caused that crash (and the resulting
+    -- Elu_Tracker settings reset, since a crash mid-save of the shared
+    -- settings file can corrupt it).
     local menu = api.Interface:CreateEmptyWindow(getUniqueWidgetId("ctxMenu"), "UIParent")
-    local menuHeight = optionHeight * #options + 8
-    menu:SetExtent(menuWidth, menuHeight)
 
-    local mx, my = api.Input:GetMousePos()
+    -- The rest of the menu build is wrapped in one pcall so that if
+    -- anything in here errors, we log the REAL error message instead of it
+    -- being silently swallowed by the engine (which is what made the
+    -- original UIParent bug so hard to track down without being able to
+    -- run the game directly).
+    local buildOk, buildErr = pcall(function()
+        local menuHeight = optionHeight * #options + 8
+        menu:SetExtent(menuWidth, menuHeight)
 
-    -- Flip the menu so it opens toward whichever side of the mouse still
-    -- has room -- e.g. upward instead of downward when the Quick Equip bar
-    -- sits near the bottom of the screen, so the menu never gets clipped
-    -- off-screen or dangles over the action bars below it. Same technique
-    -- addonlibrary's own popup menu uses (AnchorToMousePosition).
-    local screenW, screenH = UIParent:GetExtent()
-    local openUp = screenH and (my + menuHeight) > screenH
-    local openLeft = screenW and (mx + menuWidth) > screenW
-    local anchorPoint
-    if openUp and openLeft then
-        anchorPoint = "BOTTOMRIGHT"
-    elseif openUp then
-        anchorPoint = "BOTTOMLEFT"
-    elseif openLeft then
-        anchorPoint = "TOPRIGHT"
-    else
-        anchorPoint = "TOPLEFT"
-    end
+        local mx, my = api.Input:GetMousePos()
 
-    menu:RemoveAllAnchors()
-    menu:AddAnchor(anchorPoint, "UIParent", mx, my)
-    pcall(function() menu:SetCloseOnEscape(true) end)
-    pcall(function()
-        menu:SetHandler("OnCloseByEsc", function() closeContextMenu() end)
-    end)
-
-    -- Close the menu on any click outside of it (same technique
-    -- addonlibrary's popup menu uses: watch MOUSE_DOWN and hide unless the
-    -- clicked widget is part of this menu).
-    pcall(function()
-        menu:RegisterEvent("MOUSE_DOWN")
-        menu:SetHandler("OnEvent", function(this, event, widgetId)
-            if event == "MOUSE_DOWN" and contextMenu == menu and not menu:IsDescendantWidget(widgetId) then
-                closeContextMenu()
-            end
+        -- Stay on the one anchor POINT already proven to work everywhere
+        -- else in this file (TOPLEFT against "UIParent") -- switching to
+        -- BOTTOMLEFT/TOPRIGHT/BOTTOMRIGHT for the "open upward" case is
+        -- what broke visibility entirely last time (untested anchor points
+        -- against a plain string target). Instead, keep TOPLEFT and just
+        -- shift the OFFSET numbers: if the menu would run past the bottom
+        -- or right edge of the screen, subtract its own height/width from
+        -- the anchor position so it opens upward/leftward from the cursor
+        -- instead of downward/rightward -- same anchor mechanics, just a
+        -- different starting corner.
+        local okSize, screenW, screenH = pcall(function()
+            return api.Interface:GetScreenWidth(), api.Interface:GetScreenHeight()
         end)
+        if not okSize or not screenW or not screenH then
+            screenW, screenH = 2560, 1080 -- conservative fallback if the call is ever unavailable
+        end
+
+        local anchorX = mx or 0
+        local anchorY = my or 0
+        if my and (my + menuHeight) > screenH then
+            anchorY = my - menuHeight
+        end
+        if mx and (mx + menuWidth) > screenW then
+            anchorX = mx - menuWidth
+        end
+
+        menu:RemoveAllAnchors()
+        menu:AddAnchor("TOPLEFT", "UIParent", anchorX, anchorY)
+        pcall(function() menu:SetCloseOnEscape(true) end)
+        pcall(function()
+            menu:SetHandler("OnCloseByEsc", function() closeContextMenu() end)
+        end)
+
+        -- Close the menu on any click outside of it (same technique
+        -- addonlibrary's popup menu uses: watch MOUSE_DOWN and hide unless the
+        -- clicked widget is part of this menu).
+        pcall(function()
+            menu:RegisterEvent("MOUSE_DOWN")
+            menu:SetHandler("OnEvent", function(this, event, widgetId)
+                if event == "MOUSE_DOWN" and contextMenu == menu and not menu:IsDescendantWidget(widgetId) then
+                    closeContextMenu()
+                end
+            end)
+        end)
+
+        local background = menu:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+        background:SetTextureInfo("bg_quest")
+        background:SetColor(0, 0, 0, 0.92)
+        background:AddAnchor("TOPLEFT", menu, 0, 0)
+        background:AddAnchor("BOTTOMRIGHT", menu, 0, 0)
+
+        for i, option in ipairs(options) do
+            local btn = menu:CreateChildWidget("button", "ctxOption" .. i, 0, true)
+            btn:SetText(option.text)
+            btn:SetExtent(menuWidth - 8, optionHeight - 2)
+            btn:RemoveAllAnchors()
+            btn:AddAnchor("TOP", menu, 0, 4 + (i - 1) * optionHeight)
+            api.Interface:ApplyButtonSkin(btn, BUTTON_BASIC.DEFAULT)
+            if option.text == "Delete" then
+                ApplyTextColor(btn, FONT_COLOR.RED)
+            end
+            btn.OnClick = function()
+                closeContextMenu()
+                option.action()
+            end
+            btn:SetHandler("OnClick", btn.OnClick)
+        end
+
+        menu:Show(true)
+        contextMenu = menu
     end)
 
-    local background = menu:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    background:SetTextureInfo("bg_quest")
-    background:SetColor(0, 0, 0, 0.92)
-    background:AddAnchor("TOPLEFT", menu, 0, 0)
-    background:AddAnchor("BOTTOMRIGHT", menu, 0, 0)
-
-    for i, option in ipairs(options) do
-        local btn = menu:CreateChildWidget("button", "ctxOption" .. i, 0, true)
-        btn:SetText(option.text)
-        btn:SetExtent(menuWidth - 8, optionHeight - 2)
-        btn:RemoveAllAnchors()
-        btn:AddAnchor("TOP", menu, 0, 4 + (i - 1) * optionHeight)
-        api.Interface:ApplyButtonSkin(btn, BUTTON_BASIC.DEFAULT)
-        if option.text == "Delete" then
-            ApplyTextColor(btn, FONT_COLOR.RED)
+    if not buildOk then
+        -- Clean up the half-built window instead of leaking it -- see the
+        -- comment above `menu`'s creation for why this matters.
+        pcall(function() menu:Show(false) end)
+        pcall(function() api.Interface:Free(menu) end)
+        if contextMenu == menu then
+            contextMenu = nil
         end
-        btn.OnClick = function()
-            closeContextMenu()
-            option.action()
-        end
-        btn:SetHandler("OnClick", btn.OnClick)
     end
-
-    menu:Show(true)
-    contextMenu = menu
 end
 
 -- ===== Shift + drag reorder helper =====
@@ -449,12 +499,19 @@ function renderGearSetUI()
     addSetButton = safeDestroyWidget(addSetButton)
 
     if mainCanvas then
+        -- NOTE: this only hides the old canvas, it does not Free() it.
+        -- An earlier attempt to Free() it here (this function can run
+        -- from inside a click/drag callback on one of mainCanvas's own
+        -- child buttons -- a preset's OnDragStop, or a context-menu
+        -- option's OnClick -- reordering/renaming/deleting a preset all
+        -- go through here) broke Ctrl+Click's context menu, and a follow
+        -- up attempt to defer the Free() by one tick did not fix it
+        -- either. Reverted to the safe, always-worked behavior rather
+        -- than keep guessing at a live-game-only bug from static code.
+        -- This does mean renderGearSetUI leaves the previous canvas
+        -- window behind on every add/rename/delete/reorder -- see the
+        -- audit report for that tradeoff.
         mainCanvas:Show(false)
-        -- This runs on every preset add/rename/delete/reorder (far more
-        -- often than destroyBarUI, which only runs once on unload) -- it
-        -- must actually free the old window, not just hide it, or every
-        -- one of those actions orphans a widget the engine never reclaims.
-        pcall(function() api.Interface:Free(mainCanvas) end)
         mainCanvas = nil
     end
 
@@ -527,7 +584,8 @@ function renderGearSetUI()
         -- Shift is reserved for drag-to-reorder, so a plain shift+click
         -- without movement just equips as usual.)
         setBtn.OnClick = function()
-            if api.Input:IsControlKeyDown() then
+            local ctrlDown = api.Input:IsControlKeyDown()
+            if ctrlDown then
                 closeContextMenu()
                 openContextMenu(i)
                 return

@@ -7,9 +7,31 @@ local crash_age = {
 	desc = "Memory tracker and crash warning system",
 }
 
-local configPath = "elu_tracker_settings.lua"
+local settingsManager = require("Elu_Tracker/settings_manager")
+local EluTrackerSettings = settingsManager.Settings
+local SaveEluTrackerSettings = settingsManager.SaveSettings
+
 local MAX_MEMORY = 3234
 
+-- NOTE: this module used to keep its own private copy of these settings and
+-- save/load them by directly reading and rewriting elu_tracker_settings.lua
+-- itself (see the old SaveConfig/LoadConfig, since replaced below). That
+-- was a real bug: this file and settings_manager.lua were BOTH
+-- independently reading and fully rewriting the SAME shared settings file,
+-- with no coordination between them. Every time ANY other Elu Tracker
+-- module (Range Meter, Quick Equip, Guild Check, etc.) saved its own
+-- settings via settingsManager.SaveSettings(), that call rewrites the
+-- *entire* file from settingsManager's own in-memory table -- which only
+-- ever held a stale snapshot of this module's config (captured once,
+-- whenever this module's own LoadConfig() last ran), since this module
+-- never wrote its changes into that shared table. So any Crash Alert
+-- change was silently discarded the next time literally anything else in
+-- the addon saved -- which is essentially "every time you touch the game",
+-- given how often the other modules call SaveSettings(). Fixed by storing
+-- this module's config the same way every other Elu Tracker module does
+-- (see quick_equip.lua/range_meter.lua): as a key inside the ONE shared
+-- settings table, saved through the shared SaveSettings() so there is only
+-- ever a single writer for the whole file.
 local config = {
     enabled = false,
 	thresholds = { 2900, 3100 },
@@ -35,24 +57,17 @@ local liveUsageWnd = nil
 local cornerWarningHideTime = 0
 
 local function SaveConfig()
-pcall(function()
-if api.File and api.File.Read and api.File.Write then
-    local data = api.File:Read(configPath)
-    if type(data) ~= "table" then data = {} end
-    data.crash_alert = config
-    api.File:Write(configPath, data)
-end
-end)
+    -- Single writer now: stash our config under the shared settings table
+    -- and let settings_manager.lua do the one-and-only file write, exactly
+    -- like every other Elu Tracker module.
+    EluTrackerSettings.crash_alert = config
+    SaveEluTrackerSettings()
 end
 
 local function LoadConfig()
 	pcall(function()
-		if api.File and api.File.Read then
-			local fileData = nil
-        if api.File and api.File.Read then fileData = api.File:Read(configPath) end
-        local data = nil
-        if type(fileData) == "table" then data = fileData.crash_alert end
-			if data then
+		local data = EluTrackerSettings.crash_alert
+			if type(data) == "table" then
 				if data.thresholds then
 					config.thresholds = data.thresholds
 				end
@@ -81,10 +96,16 @@ local function LoadConfig()
 					config.liveOffsetY = data.liveOffsetY
 				end
 			end
-		end
 	end)
 	table.sort(config.thresholds)
 end
+
+-- Load immediately at require-time (not only from CreateUI/OnLoad). Other
+-- modules' OnUpdate/HandleChatCommand can run before the Misc tab UI is
+-- ever built, and used to see the hardcoded defaults (e.g. enabled=false)
+-- until CreateUI() happened to run -- same class of desync bug that
+-- quick_equip.lua's LoadQuickEquipSettings() comment explains in detail.
+LoadConfig()
 
 local function GetMemoryString(mb)
 	local pct = math.floor((mb / MAX_MEMORY) * 100)
@@ -388,9 +409,17 @@ function crash_age.CreateUI(parentWnd)
     end)
 
     resetPosBtn:SetHandler("OnClick", function()
-        config.warnOffsetX = UIParent:GetExtent() / 2
+        -- NOTE: this used to call UIParent:GetExtent(), but "UIParent" is
+        -- only valid as the anchor-target STRING elsewhere in this addon --
+        -- it is not a real Lua global here, so this line always threw
+        -- "attempt to index global 'UIParent' (a nil value)" and the whole
+        -- handler aborted before ever reaching SaveConfig() below. Same bug,
+        -- same fix, as quick_equip.lua's context menu positioning.
+        local okSize, screenW = pcall(function() return api.Interface:GetScreenWidth() end)
+        if not okSize or not screenW then screenW = 2560 end
+        config.warnOffsetX = screenW / 2
         config.warnOffsetY = 100
-        config.liveOffsetX = UIParent:GetExtent() / 2
+        config.liveOffsetX = screenW / 2
         config.liveOffsetY = 50
         
         if cornerWarningWnd then
@@ -499,8 +528,9 @@ local function HandleChatCommand(
 end
 
 local function OnLoad()
-	-- LoadConfig() moved to CreateUI
-	
+	-- LoadConfig() now runs at require-time (see bottom of the config
+	-- section above), so config is already correct by the time OnLoad runs.
+
 	-- api.On("UPDATE" removed for monolithic integration
 	-- CHAT_MESSAGE is now dispatched centrally from main.lua (see HandleChatCommand export below)
 
