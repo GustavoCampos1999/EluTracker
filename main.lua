@@ -123,7 +123,8 @@ local function OnUpdate(dt)
         zealAlertAddon:OnUpdate(dt)
     end
     if rangeMeterAddon and rangeMeterAddon.OnUpdate then rangeMeterAddon.OnUpdate(dt) end
-    
+    if quickEquipAddon and quickEquipAddon.OnUpdate then quickEquipAddon:OnUpdate(dt) end
+
     if eluDisplayWindow then
         local isVis = eluDisplayWindow:IsVisible()
         if eluWasVisible and not isVis then
@@ -136,7 +137,17 @@ local function OnUpdate(dt)
 end
 
 
+local _commerceWnd = nil
+
 local function CreateCommerceWindow(wndParent)
+    -- Same fix as Misc./Guild Check below: subWindowConstructor fires on
+    -- every tab activation, not just the first, so without this guard every
+    -- visit to Commerce rebuilt (and leaked) a whole new copy of this tab's
+    -- inputs, buttons and session list on top of the previous one.
+    if _commerceWnd then
+        return _commerceWnd
+    end
+
     local wnd = wndParent:CreateChildWidget("emptywidget", "commerceWindow", 0, true)
     wnd:SetExtent(600, 600)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
@@ -349,24 +360,55 @@ local function CreateCommerceWindow(wndParent)
     sessionScrollList:Show(true)
     sessionScrollList:AddAnchor("TOPLEFT", wnd, 4, 40)
     sessionScrollList:AddAnchor("BOTTOMRIGHT", wnd, -4, -4)
+
+    _commerceWnd = wnd
     return wnd
 end
 
+local _guildCheckWnd = nil
+
 local function CreateGuildCheckWindow(wndParent)
+    -- Reuse a single built tab instead of rebuilding (and leaking) a whole
+    -- new one every time this tab is opened. subWindowConstructor fires on
+    -- every tab activation, not just the first -- without this guard,
+    -- guildCheckAddon.CreateUI(wnd) ran again on every visit and stacked a
+    -- brand new "Font Size" stepper (and everything else in the tab) on top
+    -- of every previous one at the exact same position, which is why those
+    -- buttons appeared to randomly change size (you were actually looking
+    -- at several overlapping copies of the same button). Same fix already
+    -- used for the Fishing Settings popup and Range Meter's color popup
+    -- below.
+    if _guildCheckWnd then
+        return _guildCheckWnd
+    end
+
     local wnd = wndParent:CreateChildWidget("emptywidget", "guildCheckWindow", 0, true)
     wnd:SetExtent(600, 600)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
-    
+
     if guildCheckAddon and guildCheckAddon.CreateUI then
         guildCheckAddon.CreateUI(wnd)
     end
-    
+
+    _guildCheckWnd = wnd
     return wnd
-end 
+end
 
 local _fishingSettingsWnd = nil
 
+local _fishingWnd = nil
+
 local function CreateFishingWindow(wndParent)
+    -- Same fix as Misc./Guild Check/Commerce above: subWindowConstructor
+    -- fires on every tab activation, not just the first, so without this
+    -- guard every visit to Fishing rebuilt (and leaked) a whole new copy of
+    -- this tab on top of the previous one. Note this is a SEPARATE guard
+    -- from _fishingSettingsWnd below, which only covers the "Fishing
+    -- Settings" popup opened from a button inside this tab.
+    if _fishingWnd then
+        return _fishingWnd
+    end
+
     local wnd = wndParent:CreateChildWidget("emptywidget", "fishingWindow", 0, true)
     wnd:SetExtent(600, 600)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
@@ -419,12 +461,40 @@ local function CreateFishingWindow(wndParent)
     function settingsBtn:OnClick() settingsWnd:Show(not settingsWnd:IsVisible()) end
     settingsBtn:SetHandler("OnClick", settingsBtn.OnClick)
 
+    _fishingWnd = wnd
     return wnd
-end 
+end
+
+local _miscWnd = nil
 
 local function CreateMiscWindow(wndParent)
+    -- Reuse a single built tab instead of rebuilding (and leaking) a whole
+    -- new one every time this tab is opened. subWindowConstructor fires on
+    -- every tab activation, not just the first -- without this guard, every
+    -- visit to Misc. re-created the semi-transparent background drawable
+    -- (bg, ~50% opaque light gray) on top of every previous one, so after a
+    -- few visits the stacked transparency compounded into that white
+    -- blur/smudge over the tab. It also re-ran every settings section's own
+    -- CreateUI() (Quick Equip/Crash Alert/Zeal Alert/Range Meter) each time,
+    -- which is the same root cause behind Range Meter's font-size buttons
+    -- appearing to randomly change size (overlapping duplicate copies of
+    -- the same button stacked at the same spot). Same fix already used for
+    -- the Fishing Settings popup and Range Meter's own color popup below.
+    if _miscWnd then
+        return _miscWnd
+    end
+
     local wnd = wndParent:CreateChildWidget("emptywidget", "miscWindow", 0, true)
-    wnd:SetExtent(600, 820)
+    -- 820 used to be declared here, but the real content chain below (title
+    -- + toolsRow + Quick Equip[30] + Crash Alert[220] + Zeal Alert[135] +
+    -- Range Meter[145] + the gaps between them + the final button) only
+    -- adds up to ~765px. The semi-transparent "bg" drawable right below
+    -- always fills this widget's FULL declared height, not just however
+    -- much real content exists -- so those extra ~55px of dead space were
+    -- being rendered too, past the bottom of the tab's actual visible
+    -- frame, showing up as a white smudge bleeding out past the panel's own
+    -- border. 780 covers the real content with a small margin instead.
+    wnd:SetExtent(600, 780)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
 
     local bg = wnd:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
@@ -538,7 +608,8 @@ local function CreateMiscWindow(wndParent)
         end
     end
     lpBtn:SetHandler("OnClick", lpBtn.OnClick)
-    
+
+    _miscWnd = wnd
     return wnd
 end
 
@@ -556,7 +627,27 @@ local function OnChatMessage(...)
     end
 end
 
-local function OnLoad()
+local _onLoadStarted = false
+
+-- Set once an automatic self-reload has fired (see the bottom of OnLoad
+-- below). Deliberately NOT reset in OnUnload -- only a genuine full addon
+-- reload (which re-executes this whole file from scratch, resetting every
+-- module-level local including this one back to false) should allow
+-- another auto-reload to be scheduled. This is what stops the self-reload
+-- from ever looping: after it fires once, OnLoad's own re-entry (via the
+-- OnUnload+OnLoad call inside the scheduled callback below) sees this
+-- already true and does not schedule a second one.
+local _autoRebuildDone = false
+
+-- Forward-declared (rather than "local function OnLoad()" / "local function
+-- OnUnload()") so each can reference the other by name from inside its own
+-- body -- needed below, where OnLoad schedules a callback that calls both
+-- OnUnload() and OnLoad() again, and OnUnload is defined further down in
+-- this file (a plain "local function" wouldn't see a sibling declared later
+-- in the same chunk).
+local OnLoad, OnUnload
+
+function OnLoad()
     -- Guard against a duplicate OnLoad call. Observed in the wild: the
     -- game client's own scripts/x2ui/addons/addons.lua occasionally hits
     -- "attempt to call field 'callback' (a nil value)" and, as a side
@@ -567,10 +658,14 @@ local function OnLoad()
     -- shot (confirmed via the client's own "[ADDONS] High memory usage"
     -- diagnostic: Elu_Tracker windows went 30 -> 60 in about 5 seconds,
     -- immediately followed by a failed memory allocation and a crash).
-    -- This guard makes OnLoad a no-op if it's already loaded.
-    if eluDisplayWindow then
+    -- This guard makes OnLoad a no-op if it's already loaded. It also
+    -- checks _onLoadStarted (set right below) rather than just
+    -- eluDisplayWindow, so a duplicate OnLoad landing before eluDisplayWindow
+    -- is actually assigned a few lines down is caught too.
+    if eluDisplayWindow or _onLoadStarted then
         return
     end
+    _onLoadStarted = true
 
     local migrationFiles = {
         "elu_commerce_prices.txt",
@@ -789,10 +884,39 @@ local function OnLoad()
 
     api.On("UPDATE", OnUpdate)
     api.On("CHAT_MESSAGE", OnChatMessage)
-    
+
+    -- Buttons/skins built the instant the client starts loading (a fresh
+    -- game launch) have been reported rendering oversized -- some
+    -- engine-side sizing/scale state apparently isn't right yet at that
+    -- exact moment. A mid-session manual reload always fixes it, but
+    -- simply waiting before the first build (tried at 500ms, then 3s) did
+    -- not -- so whatever's wrong isn't fixed by time passing on its own,
+    -- it specifically takes tearing the addon down and building it again.
+    -- Since a manual /reloadui reliably works, this reproduces that
+    -- automatically: once, a few seconds after this first load, silently
+    -- run the exact same OnUnload() + OnLoad() a user would trigger by
+    -- hand. _autoRebuildDone (declared above, never reset by OnUnload)
+    -- ensures this can only ever fire once per genuine fresh load of this
+    -- file -- OnLoad's own re-entry from inside this callback sees it
+    -- already true and skips scheduling another one, so this can't loop.
+    if not _autoRebuildDone then
+        api:DoIn(3000, function()
+            if _autoRebuildDone or not eluDisplayWindow then
+                return
+            end
+            _autoRebuildDone = true
+            OnUnload()
+            OnLoad()
+        end)
+    end
 end
 
-local function OnUnload()
+function OnUnload()
+    -- Reset so a future OnLoad (relog, or a fresh addon load) isn't
+    -- permanently blocked by this guard. Deliberately does NOT reset
+    -- _autoRebuildDone -- see its declaration above.
+    _onLoadStarted = false
+
     if packsAddon then packsAddon:OnUnload(); packsAddon = nil end
     if guildCheckAddon then guildCheckAddon:OnUnload(); guildCheckAddon = nil end
     if fishingAddon then fishingAddon:OnUnload(); fishingAddon = nil end
@@ -811,7 +935,30 @@ local function OnUnload()
         pcall(function() api.Interface:Free(eluDisplayWindow) end)
         eluDisplayWindow = nil
     end
-    
+
+    -- Freeing eluDisplayWindow above also frees every tab's cached content
+    -- (children are freed along with their parent), but these four
+    -- module-level locals would otherwise keep pointing at those now-freed
+    -- widgets. Without resetting them here, the next OnLoad's first tab
+    -- open would hand back a dangling reference instead of building fresh.
+    _commerceWnd = nil
+    _fishingWnd = nil
+    _miscWnd = nil
+    _guildCheckWnd = nil
+
+    -- This one is a separate top-level window (not a child of
+    -- eluDisplayWindow, so freeing that above doesn't reach it) -- previously
+    -- never freed here because OnUnload only ever ran right before a true
+    -- /reloadui, which resets this local along with everything else by
+    -- re-executing the whole file. The auto-reload below is the first
+    -- caller that runs OnUnload+OnLoad within the same session, so this
+    -- needs its own explicit cleanup now too.
+    if _fishingSettingsWnd then
+        _fishingSettingsWnd:Show(false)
+        pcall(function() api.Interface:Free(_fishingSettingsWnd) end)
+        _fishingSettingsWnd = nil
+    end
+
     if tripOverlay then
         tripOverlay:Show(false)
         pcall(function() api.Interface:Free(tripOverlay) end)

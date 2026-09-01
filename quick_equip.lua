@@ -72,6 +72,11 @@ local retryDelay = 50        -- Delay before checking whether an equip attempt l
 local maxRetries = 1         -- Maximum number of retries for an item
 
 local dragState = nil -- { index = n } while a shift-drag reorder is in progress
+local buttonLocalX = {} -- canvas-relative x1/x2 per button, parallel to buttonRects; used to
+                         -- position the live drop-target highlight without depending on the
+                         -- bar's absolute screen position
+local dragIndicator = nil -- highlight widget shown over the slot a dragged preset would land in
+local BAR_HEIGHT = 40 -- shared with renderGearSetUI's mainCanvas height, so the highlight always matches the bar
 
 local processNextEquip     -- forward declaration
 local renderGearSetUI      -- forward declaration
@@ -469,15 +474,48 @@ local function findClosestButtonIndex(mx)
     return closestIndex
 end
 
+-- Live "drop here" highlight shown while a shift+drag reorder is in
+-- progress (driven by quick_equip_addon:OnUpdate, wired into main.lua's
+-- central UPDATE dispatcher). It always uses the same findClosestButtonIndex
+-- the actual drop (setBtn:OnDragStop) uses, so the highlighted slot always
+-- matches where the preset will really land -- this is purely visual
+-- feedback, it does not change the reorder logic itself.
+local function updateDragIndicator()
+    if not dragState or not mainCanvas or not dragIndicator then
+        if dragIndicator then dragIndicator:Show(false) end
+        return
+    end
+    local mx = api.Input:GetMousePos()
+    local targetIndex = mx and findClosestButtonIndex(mx)
+    local rect = targetIndex and buttonLocalX[targetIndex]
+    if not rect then
+        dragIndicator:Show(false)
+        return
+    end
+    dragIndicator:RemoveAllAnchors()
+    dragIndicator:AddAnchor("TOPLEFT", mainCanvas, rect.x1 - 2, 2)
+    dragIndicator:SetExtent((rect.x2 - rect.x1) + 4, BAR_HEIGHT - 4)
+    dragIndicator:Show(true)
+end
+
 local function moveGearSet(fromIndex, targetIndex)
     if not settings.gear_sets[fromIndex] or fromIndex == targetIndex then
         return
     end
     local moved = table.remove(settings.gear_sets, fromIndex)
+    -- The dragged preset should land exactly on the slot it was dropped on
+    -- (targetIndex, in the ORIGINAL numbering), with whatever was between
+    -- fromIndex and targetIndex sliding over by one to make room. Because
+    -- targetIndex is expressed in the original numbering and we already
+    -- removed fromIndex above, no extra "-1" adjustment is needed here for
+    -- forward moves (targetIndex > fromIndex): the list is one shorter now,
+    -- so inserting at targetIndex already lands the moved item on the slot
+    -- that used to be targetIndex.
+    -- (A previous version subtracted 1 for forward moves, which meant
+    -- "insert before the target" instead of "take the target's slot" -- for
+    -- a 2-item list that made dragging item 1 onto item 2 a visible no-op,
+    -- since "before the only remaining item" is that item's own position.)
     local insertAt = targetIndex
-    if insertAt > fromIndex then
-        insertAt = insertAt - 1
-    end
     if insertAt < 1 then insertAt = 1 end
     if insertAt > #settings.gear_sets + 1 then insertAt = #settings.gear_sets + 1 end
     table.insert(settings.gear_sets, insertAt, moved)
@@ -495,6 +533,7 @@ function renderGearSetUI()
     end
     gearSetButtons = {}
     buttonRects = {}
+    buttonLocalX = {}
 
     addSetButton = safeDestroyWidget(addSetButton)
 
@@ -514,6 +553,10 @@ function renderGearSetUI()
         mainCanvas:Show(false)
         mainCanvas = nil
     end
+    -- dragIndicator is a child of mainCanvas above, so it was just hidden
+    -- along with it; drop the stale Lua-side reference too (it will be
+    -- recreated below along with the rest of the bar).
+    dragIndicator = nil
 
     local canvas_x = settings.x or 200
     local canvas_y = settings.y or 40
@@ -549,7 +592,7 @@ function renderGearSetUI()
     end
     mainCanvas:SetHandler("OnDragStop", mainCanvas.OnDragStop)
 
-    local baseCanvasHeight = 40
+    local baseCanvasHeight = BAR_HEIGHT
     local buttonBaseWidth = 70
     local buttonGap = 5
     local leftPadding = 9
@@ -576,6 +619,7 @@ function renderGearSetUI()
 
         local actualButtonWidth = setBtn:GetWidth()
         buttonRects[i] = { x1 = canvas_x + buttonX, x2 = canvas_x + buttonX + actualButtonWidth }
+        buttonLocalX[i] = { x1 = buttonX, x2 = buttonX + actualButtonWidth }
         dynamicButtonsWidth = dynamicButtonsWidth + actualButtonWidth + buttonGap
 
         -- Left-click: equip. Ctrl + click: Replace / Rename / Delete menu.
@@ -686,6 +730,21 @@ function renderGearSetUI()
     local totalRequiredWidth = leftPadding + dynamicButtonsWidth + addButtonWidth + rightPadding + useExtraGap
     mainCanvas:SetExtent(totalRequiredWidth, baseCanvasHeight)
 
+    -- Live "drop here" highlight for shift+drag reordering. Created hidden;
+    -- quick_equip_addon:OnUpdate shows and repositions it (via
+    -- updateDragIndicator) over whichever slot the dragged preset would
+    -- land in, so reordering has visual feedback instead of being blind
+    -- until release.
+    local indicatorId = getUniqueWidgetId("dragIndicator")
+    dragIndicator = mainCanvas:CreateChildWidget("emptywidget", indicatorId, 0, true)
+    dragIndicator.bg = dragIndicator:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+    dragIndicator.bg:SetTextureInfo("bg_quest")
+    dragIndicator.bg:SetColor(1, 0.82, 0.15, 0.55)
+    dragIndicator.bg:AddAnchor("TOPLEFT", dragIndicator, 0, 0)
+    dragIndicator.bg:AddAnchor("BOTTOMRIGHT", dragIndicator, 0, 0)
+    dragIndicator:SetExtent(buttonBaseWidth, baseCanvasHeight - 4)
+    dragIndicator:Show(false)
+
     local function saveNewSet(setNameInput)
         local setName = ""
         if setNameInput and setNameInput ~= "" then
@@ -750,6 +809,10 @@ local function destroyBarUI()
         pcall(function() api.Interface:Free(mainCanvas) end)
         mainCanvas = nil
     end
+    -- dragIndicator is a child of mainCanvas, freed along with it above;
+    -- drop the now-stale Lua-side reference and cancel any in-progress drag.
+    dragIndicator = nil
+    dragState = nil
 end
 
 local function setEnabled(enabled)
@@ -835,6 +898,15 @@ end
 
 function quick_equip_addon:OnUnload()
     destroyBarUI()
+end
+
+-- Called every tick from main.lua's central UPDATE dispatcher (see the
+-- module-level comment at the top of main.lua's own OnUpdate about why
+-- every sub-module funnels through there instead of registering its own
+-- api.On("UPDATE", ...)). Only does anything while a shift+drag reorder is
+-- in progress; see updateDragIndicator above.
+function quick_equip_addon:OnUpdate(dt)
+    updateDragIndicator()
 end
 
 return quick_equip_addon
