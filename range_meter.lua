@@ -176,8 +176,8 @@ function range_meter.CreateUI(wndParent)
     end
 
     local wnd = wndParent:CreateChildWidget("emptywidget", "rangeMeterSettingsWnd", 0, true)
-    wnd:SetExtent(350, 160)
-    wnd:AddAnchor("TOP", wndParent, 0, 480)
+    wnd:SetExtent(350, 145)
+    wnd:AddAnchor("TOP", wndParent, 0, 480) -- fallback position; main.lua re-anchors this under the previous Misc section
 
     -- Header
     local title = wnd:CreateChildWidget("label", "title", 0, true)

@@ -231,12 +231,12 @@ end
 function crash_age.CreateUI(parentWnd)
     LoadConfig()
     if configWnd then
-        return
+        return configWnd
     end
-    
+
     configWnd = parentWnd:CreateChildWidget("emptywidget", "crashAgeSettingsWnd", 0, true)
-    configWnd:SetExtent(500, 250)
-    configWnd:AddAnchor("TOP", parentWnd, "TOP", 0, 175)
+    configWnd:SetExtent(500, 220)
+    configWnd:AddAnchor("TOP", parentWnd, "TOP", 0, 175) -- fallback position; main.lua re-anchors this under the previous Misc section
     configWnd:Show(true)
     
     local title = configWnd:CreateChildWidget("label", "title", 0, true)

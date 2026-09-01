@@ -317,8 +317,8 @@ function guild_check.CreateUI(container)
         lbl:SetText(lblText)
         lbl:AddAnchor("LEFT", chk, "RIGHT", 5, 0)
         ApplyTextColor(lbl, FONT_COLOR.DEFAULT)
-        
-        return chk
+
+        return chk, lbl
     end
 
     local function CreateSliderStepper(parent, name, lblText, initVal, minVal, maxVal, onChange)
@@ -395,22 +395,38 @@ function guild_check.CreateUI(container)
     end
 
 
-    local enableCheck = CreateFancyCheck(container, "enableCheck", "Enable Guild Check")
-    enableCheck:AddAnchor("TOP", title, "BOTTOM", -50, 20)
-    
+    -- The checkbox+label pair lives in its own row, sized to fit its actual
+    -- rendered content and then centered under the title as a whole --
+    -- rather than guessing a fixed offset for the checkbox alone -- so the
+    -- panel below (anchored off this row) stays perfectly centered
+    -- regardless of the label's rendered width.
+    local enableRow = container:CreateChildWidget("emptywidget", "enableRow", 0, true)
+    enableRow:SetExtent(250, 20)
+    enableRow:AddAnchor("TOP", title, "BOTTOM", 0, 20)
+
+    local enableCheck, enableCheckLbl = CreateFancyCheck(enableRow, "enableCheck", "Enable Guild Check")
+    enableCheck:AddAnchor("TOPLEFT", enableRow, 0, 0)
+
+    local checkboxGap = 5
+    local labelWidth = (enableCheckLbl and enableCheckLbl:GetWidth()) or 140
+    local totalWidth = 18 + checkboxGap + labelWidth
+    enableRow:SetExtent(totalWidth, 20)
+    enableRow:RemoveAllAnchors()
+    enableRow:AddAnchor("TOP", title, "BOTTOM", 0, 20)
+
     local panel = container:CreateChildWidget("emptywidget", "panel", 0, true)
     panel:SetExtent(500, 300)
-    panel:AddAnchor("TOP", enableCheck, "BOTTOM", 0, 15)
-    
+    panel:AddAnchor("TOP", enableRow, "BOTTOM", 0, 20)
+
     local helpLbl = panel:CreateChildWidget("label", "helpLbl", 0, true)
     helpLbl:SetAutoResize(true)
-    helpLbl:AddAnchor("TOP", panel, "TOP", 0, 10)
+    helpLbl:AddAnchor("TOP", panel, "TOP", 0, 15)
     helpLbl:SetText("To move frames: Target a player, hold SHIFT, and drag the text.")
     ApplyTextColor(helpLbl, {0.3, 0.8, 1, 1})
-    
+
     local resetContainer = panel:CreateChildWidget("emptywidget", "resetContainer", 0, true)
-    resetContainer:SetExtent(250, 30)
-    resetContainer:AddAnchor("TOP", helpLbl, "BOTTOM", 0, 25)
+    resetContainer:SetExtent(260, 30)
+    resetContainer:AddAnchor("TOP", helpLbl, "BOTTOM", 0, 20)
 
     local resetBtn = resetContainer:CreateChildWidget("button", "resetBtn", 0, true)
     resetBtn:SetExtent(120, 30)
@@ -459,7 +475,11 @@ function guild_check.CreateUI(container)
     end
     resetBtn:SetHandler("OnClick", resetBtn.OnClick)
 
-    local col1_x = 90
+    -- Symmetric margins around the panel's own center (panel is 500 wide),
+    -- assuming a max column content width of ~180px (the widest row is the
+    -- 160-wide Font Size stepper) with a 40px gap between columns:
+    -- leftMargin = (500 - 2*180 - 40) / 2 = 50, so col2_x = 50 + 180 + 40.
+    local col1_x = 50
     
     local f1Title = panel:CreateChildWidget("label", "f1Title", 0, true)
     f1Title:SetAutoResize(true)
@@ -506,7 +526,7 @@ function guild_check.CreateUI(container)
     end)
     f1AlphaGrp:AddAnchor("TOPLEFT", panel, col1_x, 260)
 
-    local col2_x = 330
+    local col2_x = 270
     
     local f2Title = panel:CreateChildWidget("label", "f2Title", 0, true)
     f2Title:SetAutoResize(true)

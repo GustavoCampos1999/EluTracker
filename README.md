@@ -13,6 +13,7 @@ A highly comprehensive and self-sufficient productivity, utility, and recruitmen
 - **Regrade Log** to track server success and failure regrades.
 - **Customizable Zeal Alert** that allows you to move and change size.
 - **Everyday Tools** including a built-in Stopwatch and Trip Counter.
+- **Quick Equip** gear-set swapper, letting you save and instantly re-equip full loadouts with one click.
 
 ## Acknowledgments & Credits
 Elu Tracker is a standalone project heavily expanded from its original scope. While the overall addon has evolved independently, the Packs and Loss Regrade algorithms were originally inspired by and adapted from *Your Paystub* and *LossPorn*, created by **Michaelqt**. 
@@ -55,7 +56,7 @@ The regrade log can be opened in two different ways: by navigating to the **Misc
 
 ### 4. System Stability & Anti-Crash
 - **Live RAM Monitor:** Displays a live memory tracker on-screen to monitor ArcheAge's RAM consumption.
-- **Auto-Crash Preventer:** Analyzes memory leaks and automatically forces a safe client restart when RAM hits a critical threshold (e.g., 3200 MB or 96% of the 32-bit limit) to prevent fatal mid-combat crashes.
+- **Crash Preventer Warning:** Monitors RAM usage and pops an on-screen warning when it hits a critical threshold (e.g., 3200 MB or 96% of the 32-bit limit), so you know it's time to relog before a fatal crash happens. The actual client restart is manual — click the warning's "Crash NOW" button, or use the Crash Command below — it is never triggered automatically.
 - **Crash Command:** Features a customizable chat command (default is `/crash`) that forcefully and instantly restarts the client.
 
 ### 5. Regrade Log 
@@ -69,3 +70,10 @@ The regrade log can be opened in two different ways: by navigating to the **Misc
 ### 7. Misc & Utility
 - **Integrated Chronometer (Stopwatch):** A highly accurate, low-overhead live timer mapped into the user interface.
 - **Trip Counter:** A persistent counter for your trade runs featuring anti-DC protection (your progress is safely cached and only resets if you click it). 
+
+### 8. Quick Equip
+*A gear-set swapper: save your currently equipped gear as a named preset, then re-equip the whole set with a single click. Disabled by default on a fresh install; enable it from the **Misc** tab's Tools section, and your choice is saved across reload/relog like every other Elu Tracker setting.*
+- **One-Click Loadouts:** Save your current gear as a named preset and re-equip the entire set instantly, without dragging items one by one.
+- **Ctrl + Click a Preset:** Opens a context menu with **Replace** (overwrite the preset with your currently equipped gear, same name), **Rename**, and **Delete**.
+- **Shift + Drag to Reorder:** Hold Shift and drag a preset to change its position among the others.
+- **Shift + Drag the Bar:** Hold Shift and drag empty space on the bar itself to reposition the whole Quick Equip window.

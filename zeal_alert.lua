@@ -71,8 +71,8 @@ end
 
 function zeal_alert.CreateUI(wndParent)
     local container = wndParent:CreateChildWidget("emptywidget", "zealAlertContainer", 0, true)
-    container:SetExtent(500, 150)
-    container:AddAnchor("TOP", wndParent, 0, 385)
+    container:SetExtent(500, 135)
+    container:AddAnchor("TOP", wndParent, 0, 385) -- fallback position; main.lua re-anchors this under the previous Misc section
     
     local title = container:CreateChildWidget("label", "title", 0, true)
     title:SetAutoResize(true)
@@ -83,7 +83,7 @@ function zeal_alert.CreateUI(wndParent)
     
     local enableCheck = container:CreateChildWidget("checkbutton", "enableCheck", 0, true)
     enableCheck:SetExtent(18, 17)
-    enableCheck:AddAnchor("TOP", title, "BOTTOM", -65, 25)
+    enableCheck:AddAnchor("TOP", title, "BOTTOM", 0, 25) -- temporary; recentered below once the label's width is known
     local bg1 = enableCheck:CreateImageDrawable("ui/button/check_button.dds", "background")
     bg1:SetExtent(18, 17)
     bg1:AddAnchor("CENTER", enableCheck, 0, 0)
@@ -113,7 +113,18 @@ function zeal_alert.CreateUI(wndParent)
     enableLbl:SetText("Enable Zeal Alert")
     enableLbl:AddAnchor("LEFT", enableCheck, "RIGHT", 5, 0)
     ApplyTextColor(enableLbl, FONT_COLOR.DEFAULT)
-    
+
+    -- Center the checkbox+label pair under the title based on the label's
+    -- actual rendered width, instead of a fixed guessed offset.
+    do
+        local checkboxGap = 5
+        local labelWidth = enableLbl:GetWidth() or 150
+        local totalWidth = 18 + checkboxGap + labelWidth
+        local offsetX = math.floor(9 - (totalWidth / 2))
+        enableCheck:RemoveAllAnchors()
+        enableCheck:AddAnchor("TOP", title, "BOTTOM", offsetX, 25)
+    end
+
     enableCheck:SetChecked(settings.enabled, false)
     
     
@@ -198,6 +209,7 @@ function zeal_alert.CreateUI(wndParent)
     moveBtn:SetHandler("OnClick", moveBtn.OnClick)
 
     container:Show(true)
+    return container
 end
 
 function zeal_alert:OnLoad()

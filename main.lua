@@ -16,6 +16,7 @@ local stopwatchAddon = require("Elu_Tracker/stopwatch")
 local crashAlertAddon = require("Elu_Tracker/crash_alert")
 local lossPornAddon = require("Elu_Tracker/loss_porn")
 local rangeMeterAddon = require("Elu_Tracker/range_meter")
+local quickEquipAddon = require("Elu_Tracker/quick_equip")
 eluDisplayWindow = nil
 local eluWasVisible = false
 local eluBtn
@@ -423,7 +424,7 @@ end
 
 local function CreateMiscWindow(wndParent)
     local wnd = wndParent:CreateChildWidget("emptywidget", "miscWindow", 0, true)
-    wnd:SetExtent(600, 750)
+    wnd:SetExtent(600, 820)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
 
     local bg = wnd:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
@@ -436,19 +437,23 @@ local function CreateMiscWindow(wndParent)
     title:SetAutoResize(true)
     title.style:SetFontSize(FONT_SIZE.XXLARGE)
     ApplyTextColor(title, FONT_COLOR.TITLE)
-    title:SetText("Trip Counter")
+    title:SetText("Tools")
     title:AddAnchor("TOP", wnd, 0, 35)
 
-    local desc = wnd:CreateChildWidget("textbox", "desc", 0, true)
-    desc:SetExtent(500, 40)
-    desc.style:SetAlign(ALIGN.CENTER)
-    ApplyTextColor(desc, FONT_COLOR.DEFAULT)
-    desc:SetText("Use the overlay to count trips sequentially.")
-    desc:AddAnchor("TOP", title, "BOTTOM", 0, 10)
+    -- Both buttons live in a small fixed-width row that is itself centered
+    -- under the title, with each button filled flush to the row's own
+    -- left/right edge (the same technique Crash Alert's button row below
+    -- uses) -- so the pair stays visually centered regardless of each
+    -- button's own text-dependent rendered width, and everything chained
+    -- below inherits a properly centered starting point instead of the
+    -- old guessed -70/+70 offsets.
+    local toolsRow = wnd:CreateChildWidget("emptywidget", "toolsRow", 0, true)
+    toolsRow:SetExtent(300, 30)
+    toolsRow:AddAnchor("TOP", title, "BOTTOM", 0, 20)
 
-    local toggleBtn = wnd:CreateChildWidget("button", "toggleBtn", 0, true)
+    local toggleBtn = toolsRow:CreateChildWidget("button", "toggleBtn", 0, true)
     toggleBtn:SetText("Toggle Trip Counter")
-    toggleBtn:AddAnchor("TOP", desc, "BOTTOM", -70, 15)
+    toggleBtn:AddAnchor("LEFT", toolsRow, 0, 0)
     ApplyButtonSkin(toggleBtn, BUTTON_BASIC.DEFAULT)
     function toggleBtn:OnClick()
         if tripOverlay then
@@ -459,9 +464,9 @@ local function CreateMiscWindow(wndParent)
     end
     toggleBtn:SetHandler("OnClick", toggleBtn.OnClick)
 
-    local toggleStopwatchBtn = wnd:CreateChildWidget("button", "toggleStopwatchBtn", 0, true)
+    local toggleStopwatchBtn = toolsRow:CreateChildWidget("button", "toggleStopwatchBtn", 0, true)
     toggleStopwatchBtn:SetText("Toggle Stopwatch")
-    toggleStopwatchBtn:AddAnchor("TOP", desc, "BOTTOM", 70, 15)
+    toggleStopwatchBtn:AddAnchor("RIGHT", toolsRow, 0, 0)
     ApplyButtonSkin(toggleStopwatchBtn, BUTTON_BASIC.DEFAULT)
     function toggleStopwatchBtn:OnClick()
         if stopwatchAddon and stopwatchAddon.ToggleStopwatch then
@@ -471,21 +476,61 @@ local function CreateMiscWindow(wndParent)
     toggleStopwatchBtn:SetHandler("OnClick", toggleStopwatchBtn.OnClick)
 
 
-    if crashAlertAddon and crashAlertAddon.CreateUI then
-        crashAlertAddon.CreateUI(wnd)
+    -- Each settings section below is chained to the actual bottom edge of
+    -- the previous one (rather than an independently-guessed absolute Y
+    -- offset), so they can never overlap regardless of how tall any one of
+    -- them turns out to be. Previously crash_alert/zeal_alert/range_meter
+    -- all used fixed offsets that overlapped each other. Chaining from
+    -- toolsRow (centered, x=0) rather than from toggleBtn (off-center by
+    -- design, as half of the button pair) keeps every section below
+    -- properly centered instead of drifting left.
+    local sectionGap = 15
+    local lastSection = toolsRow
+
+    local quickEquipSection
+    if quickEquipAddon and quickEquipAddon.CreateUI then
+        quickEquipSection = quickEquipAddon.CreateUI(wnd)
+    end
+    if quickEquipSection then
+        quickEquipSection:RemoveAllAnchors()
+        quickEquipSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, sectionGap)
+        lastSection = quickEquipSection
     end
 
+    local crashSection
+    if crashAlertAddon and crashAlertAddon.CreateUI then
+        crashSection = crashAlertAddon.CreateUI(wnd)
+    end
+    if crashSection then
+        crashSection:RemoveAllAnchors()
+        crashSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, sectionGap)
+        lastSection = crashSection
+    end
+
+    local zealSection
     if zealAlertAddon and zealAlertAddon.CreateUI then
-        zealAlertAddon.CreateUI(wnd)
+        zealSection = zealAlertAddon.CreateUI(wnd)
     end
+    if zealSection then
+        zealSection:RemoveAllAnchors()
+        zealSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, sectionGap)
+        lastSection = zealSection
+    end
+
+    local rangeSection
     if rangeMeterAddon and rangeMeterAddon.CreateUI then
-        rangeMeterAddon.CreateUI(wnd)
+        rangeSection = rangeMeterAddon.CreateUI(wnd)
     end
-    
+    if rangeSection then
+        rangeSection:RemoveAllAnchors()
+        rangeSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, sectionGap)
+        lastSection = rangeSection
+    end
+
     local lpBtn = wnd:CreateChildWidget("button", "lpBtn", 0, true)
     lpBtn:SetText("Open Regrade Log")
     lpBtn:SetExtent(200, 30)
-    lpBtn:AddAnchor("BOTTOM", wnd, "BOTTOM", 0, -30)
+    lpBtn:AddAnchor("TOP", lastSection, "BOTTOM", 0, sectionGap + 5)
     api.Interface:ApplyButtonSkin(lpBtn, BUTTON_BASIC.DEFAULT)
     function lpBtn:OnClick()
         if lossPornAddon and lossPornAddon.Toggle then
@@ -571,8 +616,9 @@ local function OnLoad()
     crashAlertAddon = require("Elu_Tracker/crash_alert")
     lossPornAddon = require("Elu_Tracker/loss_porn")
     rangeMeterAddon = require("Elu_Tracker/range_meter")
+    quickEquipAddon = require("Elu_Tracker/quick_equip")
 
-    
+
     local tabInfo = {
         {
             validationCheckFunc = function() return true end,
@@ -739,6 +785,7 @@ local function OnLoad()
     if crashAlertAddon and crashAlertAddon.OnLoad then crashAlertAddon.OnLoad() end
     if lossPornAddon and lossPornAddon.OnLoad then lossPornAddon.OnLoad() end
     if rangeMeterAddon and rangeMeterAddon.OnLoad then rangeMeterAddon.OnLoad() end
+    if quickEquipAddon and quickEquipAddon.OnLoad then quickEquipAddon:OnLoad() end
 
     api.On("UPDATE", OnUpdate)
     api.On("CHAT_MESSAGE", OnChatMessage)
@@ -757,6 +804,7 @@ local function OnUnload()
     if crashAlertAddon and crashAlertAddon.OnUnload then crashAlertAddon.OnUnload(); crashAlertAddon = nil end
     if lossPornAddon and lossPornAddon.OnUnload then lossPornAddon.OnUnload(); lossPornAddon = nil end
     if rangeMeterAddon and rangeMeterAddon.OnUnload then rangeMeterAddon.OnUnload(); rangeMeterAddon = nil end
+    if quickEquipAddon and quickEquipAddon.OnUnload then quickEquipAddon:OnUnload(); quickEquipAddon = nil end
 
     if eluDisplayWindow then
         eluDisplayWindow:Show(false)
