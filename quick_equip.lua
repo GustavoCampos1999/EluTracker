@@ -95,6 +95,39 @@ local function safeDestroyWidget(widget)
     return nil
 end
 
+-- Hover tooltips: flip near a screen edge, same idea as the ctrl+click
+-- context menu (openContextMenu) -- try to show the tooltip below the
+-- button, and flip it above when there isn't room below.
+--
+-- Quirks of api.Interface:SetTooltipOnPos with this widget/anchor combo
+-- (mainCanvas as target, self:GetOffset() as the base position), found by
+-- live debug logging:
+--   * self:GetOffset() on these buttons returns the button's ABSOLUTE
+--     screen Y, not a parent-relative offset.
+--   * the tooltip box anchors from its own BOTTOM edge and grows upward
+--     from the Y coordinate given -- it is not a normal top-left anchor.
+-- So "show below the button" means anchoring the Y coordinate *further
+-- down* than the button (bottom edge + gap + box height), and "show
+-- above" means anchoring it *just above* the button (top edge - gap);
+-- the box then grows upward from that point in both cases.
+local TOOLTIP_GAP = 15
+-- Extra safety margin used only for the flip DECISION (not for the actual
+-- anchor offset). The real rendered tooltip box is a bit taller than our
+-- estHeight guess, so without this the below-branch was still getting
+-- picked (and clipped) when the button was close to, but not exactly at,
+-- the bottom edge. Padding the decision makes it flip a little earlier,
+-- before the real box has a chance to run off the bottom of the screen.
+local TOOLTIP_SAFETY = 40
+
+local function getTooltipOffsetY(PosY, estHeight)
+    local screenH = api.Interface:GetScreenHeight()
+    if PosY + TOOLTIP_GAP + estHeight + TOOLTIP_SAFETY > screenH then
+        -- not enough room below: flip above the button
+        return -TOOLTIP_GAP
+    end
+    return TOOLTIP_GAP + estHeight
+end
+
 -- ===== Equip queue (unchanged logic from the original addon) =====
 
 local function equipBagItem(slot, equipmentSlot)
@@ -583,12 +616,28 @@ function renderGearSetUI()
     mainCanvas:SetHandler("OnDragStart", mainCanvas.OnDragStart)
 
     function mainCanvas:OnDragStop()
-        local current_x, current_y = mainCanvas:GetOffset()
+        -- Use self (bound to this exact widget instance) rather than the
+        -- outer mainCanvas variable for every call below: renderGearSetUI()
+        -- at the end reassigns mainCanvas to a brand new widget, so a bare
+        -- `mainCanvas:...` reference here would risk operating on the wrong
+        -- (newly created, never-dragged) widget once that happens.
+        local current_x, current_y = self:GetOffset()
         settings.x = current_x
         settings.y = current_y
         SaveQuickEquipSettings()
-        mainCanvas:StopMovingOrSizing()
+        self:StopMovingOrSizing()
         api.Cursor:ClearCursor()
+
+        -- Re-render so buttonRects/buttonLocalX (both snapshotted from
+        -- canvas_x/canvas_y at render time) get rebuilt against the bar's
+        -- new position. Without this, findClosestButtonIndex kept comparing
+        -- the live mouse position against stale pre-move coordinates on the
+        -- very next preset drag-reorder -- wrong drop target, and the live
+        -- "drop here" indicator pointing at the wrong slot too. Safe to call
+        -- from here for the same reason it's already safe from a child
+        -- button's own OnDragStop (see moveGearSet above): it never Free()s
+        -- the old canvas, only hides it.
+        renderGearSetUI()
     end
     mainCanvas:SetHandler("OnDragStop", mainCanvas.OnDragStop)
 
@@ -685,11 +734,11 @@ function renderGearSetUI()
                 .. "\nLeft-click: equip this gear set."
                 .. "\nCtrl + click: replace / rename / delete."
                 .. "\nShift + drag: reorder."
-            api.Interface:SetTooltipOnPos(description, mainCanvas, PosX + 50, PosY + 20)
+            api.Interface:SetTooltipOnPos(description, mainCanvas, PosX + 50, PosY + getTooltipOffsetY(PosY, 110))
         end
         function setBtn:OnLeave()
             local PosX, PosY = self:GetOffset()
-            api.Interface:SetTooltipOnPos(nil, mainCanvas, PosX + 50, PosY + 20)
+            api.Interface:SetTooltipOnPos(nil, mainCanvas, PosX + 50, PosY + getTooltipOffsetY(PosY, 110))
         end
         setBtn:SetHandler("OnEnter", setBtn.OnEnter)
         setBtn:SetHandler("OnLeave", setBtn.OnLeave)
@@ -712,16 +761,11 @@ function renderGearSetUI()
 
     function addSetButton:OnEnter()
         local PosX, PosY = self:GetOffset()
-        api.Interface:SetTooltipOnPos(
-            "Quick Equip\n\nClick to save your current gear as a new loadout.\n" ..
-            "Ctrl + click a preset for Replace / Rename / Delete.\n" ..
-            "Shift + drag a preset to reorder it.\n" ..
-            "Shift + drag the bar itself to move this window.",
-            mainCanvas, PosX + 50, PosY + 20)
+        api.Interface:SetTooltipOnPos("Quick Equip\nAdd Preset", mainCanvas, PosX + 15, PosY + getTooltipOffsetY(PosY, 60))
     end
     function addSetButton:OnLeave()
         local PosX, PosY = self:GetOffset()
-        api.Interface:SetTooltipOnPos(nil, mainCanvas, PosX + 50, PosY + 20)
+        api.Interface:SetTooltipOnPos(nil, mainCanvas, PosX + 15, PosY + getTooltipOffsetY(PosY, 60))
     end
     addSetButton:SetHandler("OnEnter", addSetButton.OnEnter)
     addSetButton:SetHandler("OnLeave", addSetButton.OnLeave)
