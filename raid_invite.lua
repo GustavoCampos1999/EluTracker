@@ -42,6 +42,35 @@ local MSG_PREFIX = "[Elu Auto Invite] "
 local function LogInfo(msg) api.Log:Info(MSG_PREFIX .. msg) end
 local function LogErr(msg) api.Log:Err(MSG_PREFIX .. msg) end
 
+-- Anti-double-invite cooldown. Both invite paths below (Quick Auto Invite
+-- and normal Elu Auto Invite) only ever checked "is this person already a
+-- raid MEMBER" before calling InviteToTeam -- neither checked "does this
+-- person already have one of OUR invites pending". If the same trigger
+-- chat line ever reaches OnChatMessage more than once (a duplicate/second
+-- delivery of the same message -- e.g. from a chat relay/broadcast quirk),
+-- both passes see "not a member yet" and both call InviteToTeam, and the
+-- second one fails with the game's own "Can't invite a player considering
+-- other invitations" -- which is exactly the symptom reported. This is a
+-- simple, root-cause-agnostic guard: remember who we invited and skip
+-- re-inviting the same name again within a short window, regardless of
+-- why the trigger fired twice.
+local INVITE_COOLDOWN_MS = 8000
+local recentInvites = {}
+
+local function RecentlyInvited(name)
+    local key = string.lower(name or "")
+    if key == "" then return false end
+    local last = recentInvites[key]
+    if not last then return false end
+    return (api.Time:GetUiMsec() - last) < INVITE_COOLDOWN_MS
+end
+
+local function MarkInvited(name)
+    local key = string.lower(name or "")
+    if key == "" then return end
+    recentInvites[key] = api.Time:GetUiMsec()
+end
+
 -- Forward-declared so LoadSettings (below) can call it: SaveSettings is
 -- defined further down this file, and without this forward declaration
 -- the `SaveSettings()` call inside LoadSettings' one-time keyword-migration
@@ -191,9 +220,10 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
         if match then
             if not IsBlacklisted(speakerName) then
                 local existingMemberIndex = api.Team:GetMemberIndexByName(speakerName)
-                if not existingMemberIndex then
+                if not existingMemberIndex and not RecentlyInvited(speakerName) then
                     LogInfo("Inviting " .. speakerName .. " (Enhanced)")
                     api.Team:InviteToTeam(speakerName, false)
+                    MarkInvited(speakerName)
                 end
             end
         end
@@ -235,10 +265,11 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
     
     -- Check if already in raid
     local existingMemberIndex = api.Team:GetMemberIndexByName(speakerName)
-    if not existingMemberIndex then
+    if not existingMemberIndex and not RecentlyInvited(speakerName) then
         LogInfo("Inviting " .. speakerName)
         DebugLog("Inviting player: " .. tostring(speakerName))
         api.Team:InviteToTeam(speakerName, false)
+        MarkInvited(speakerName)
     end
 end
 
@@ -1226,10 +1257,18 @@ function raid_invite.OnLoad()
     canvas:SetHandler("OnDragStop", function()
         canvas:StopMovingOrSizing()
         local x, y = canvas:GetOffset()
-        
-        -- Prevent going off-screen
-        local uiParent = canvas:GetParent()
-        local screenW, screenH = uiParent:GetExtent()
+
+        -- Prevent going off-screen. Was reading canvas:GetParent():GetExtent()
+        -- for the screen size -- unreliable on this widget (GetParent() on a
+        -- window created against the "UIParent" string doesn't reliably hand
+        -- back a widget whose GetExtent() reports real screen dimensions),
+        -- which made this clamp collapse to a near-fixed small screenW/screenH
+        -- every time, snapping the box to the same corner on every drag no
+        -- matter where it was dropped. api.Interface:GetScreenWidth/Height()
+        -- is the proven-reliable way to get real screen dimensions elsewhere
+        -- in this addon (see quick_equip.lua's tooltip flip logic).
+        local screenW = api.Interface:GetScreenWidth()
+        local screenH = api.Interface:GetScreenHeight()
         if x < 0 then x = 0 end
         if y < 0 then y = 0 end
         if x > screenW - 160 then x = screenW - 160 end
