@@ -13,7 +13,10 @@ EluTrackerSettingsManager.Settings = {
     zealSettings = { opacity = 50, sound = true, size = 1.0 },
     misc = { enableAltTracking = false, modifierKey = "SHIFT" },
     activeLootSession = {},
-    lossPornSettings = { showInChat = true, sessionLogs = {} },
+    -- chatMode: 1 = Off, 2 = System Chat, 3 = Alert Chat (see loss_porn.lua).
+    -- Replaces the old boolean `showInChat` (still migrated from on first
+    -- load for existing players, in loss_porn.lua's OnLoad).
+    lossPornSettings = { chatMode = 2, sessionLogs = {} },
     rangeMeterSettings = { enabled = false, fontSize = 16, position = "Top", useDynamicColor = false, threshold1 = 28, threshold2 = 33, c1 = {r=1, g=1, b=1}, c2 = {r=1, g=1, b=1}, c3 = {r=1, g=1, b=1} },
     quickEquip = { enabled = false, x = 200, y = 400, gear_sets = {} }
 }

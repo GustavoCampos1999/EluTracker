@@ -42,6 +42,15 @@ local MSG_PREFIX = "[Elu Auto Invite] "
 local function LogInfo(msg) api.Log:Info(MSG_PREFIX .. msg) end
 local function LogErr(msg) api.Log:Err(MSG_PREFIX .. msg) end
 
+-- Forward-declared so LoadSettings (below) can call it: SaveSettings is
+-- defined further down this file, and without this forward declaration
+-- the `SaveSettings()` call inside LoadSettings' one-time keyword-migration
+-- block resolved to a nonexistent GLOBAL (Lua only makes a `local`
+-- visible to code written after its own declaration), which errored and
+-- was silently swallowed by the pcall around it -- so that migration flag
+-- flip never actually got written to disk on its own.
+local SaveSettings
+
 local function LoadSettings()
     local data = EluTrackerSettings.raidInvite
     if type(data) == "table" then
@@ -93,7 +102,7 @@ local function LoadSettings()
     
 end
 
-local function SaveSettings()
+function SaveSettings()
     local data = {
         keyword = state.keyword,
         inviteMode = state.inviteMode,
@@ -538,11 +547,18 @@ local function BuildSidePanel(parent)
     eluFilterCombo.dropdownItem = {"Equals", "Contains"}
     eluFilterCombo:Select(state.eluFilterMode or 2)
     eluFilterCombo:Show(true)
-    
-    eluFilterCombo:SetHandler("OnSelect", function()
-        state.eluFilterMode = eluFilterCombo:GetSelectedIndex()
+
+    -- NOTE: this widget's selection callback is :SelectedProc(index), not
+    -- SetHandler("OnSelect", ...) -- that event name never fires on this
+    -- ComboBox type (confirmed against range_meter.lua's/loss_porn_ui.lua's
+    -- working combo boxes, and against the saved settings file showing this
+    -- value stuck at its default). Using the wrong handler meant a chosen
+    -- Equals/Contains filter was never written to state, so it silently
+    -- reverted to the default every reload/relog.
+    function eluFilterCombo:SelectedProc(index)
+        state.eluFilterMode = index
         SaveSettings()
-    end)
+    end
     widgets.eluFilterCombo = eluFilterCombo
     
     local giveleadLabel = panel:CreateChildWidget("label", "giveleadLabel", 0, true)
@@ -565,10 +581,15 @@ local function BuildSidePanel(parent)
     end
     giveleadCombo:Select(giveIdx)
     giveleadCombo:Show(true)
-    giveleadCombo:SetHandler("OnSelect", function()
-        state.giveleadMode = giveleadCombo:GetSelectedIndex()
+
+    -- See the note above eluFilterCombo -- same bug: SetHandler("OnSelect",
+    -- ...) never fires on this widget, so the chosen Off/On/Whitelist Only
+    -- option was never actually saved (confirmed by the saved settings
+    -- file still holding the boolean default `false`, not a picked index).
+    function giveleadCombo:SelectedProc(index)
+        state.giveleadMode = index
         SaveSettings()
-    end)
+    end
     widgets.giveleadCombo = giveleadCombo
 
     CreateCheckbox("cbWhiteBypass", "Disable whitelist in private chat", 250, "whitelistBypassPrivate", 36)
@@ -1165,10 +1186,12 @@ function raid_invite.OnLoad()
     enhancedFilterCombo.dropdownItem = {"Equals", "Contains"}
     enhancedFilterCombo:Select(state.enhancedFilterMode or 2)
     enhancedFilterCombo:Show(true)
-    enhancedFilterCombo:SetHandler("OnSelect", function()
-        state.enhancedFilterMode = enhancedFilterCombo:GetSelectedIndex()
+
+    -- Same combo box bug as eluFilterCombo/giveleadCombo above.
+    function enhancedFilterCombo:SelectedProc(index)
+        state.enhancedFilterMode = index
         SaveSettings()
-    end)
+    end
     widgets.enhancedFilterCombo = enhancedFilterCombo
 
     local fast_blacklist_button = raid_manager:CreateChildWidget("button", "fast_blacklist_button", 0, true)
@@ -1198,7 +1221,7 @@ function raid_invite.OnLoad()
     
     canvas:EnableDrag(true)
     canvas:SetHandler("OnDragStart", function()
-        canvas:StartMoving()
+        if api.Input:IsShiftKeyDown() then canvas:StartMoving() end
     end)
     canvas:SetHandler("OnDragStop", function()
         canvas:StopMovingOrSizing()
@@ -1275,19 +1298,16 @@ function raid_invite.OnLoad()
         end
     end
     recruit_button:SetHandler("OnClick", ToggleEnhancedRecruiting)
-    cancel_button:SetHandler("OnClick", function() 
+    cancel_button:SetHandler("OnClick", function()
         raid_invite.StopEnhancedRecruiting()
         LogInfo("Stopped recruiting.")
     end)
-    
-    canvas:EnableDrag(true)
-    canvas:SetHandler("OnDragStart", function(self)
-        if api.Input:IsShiftKeyDown() then self:StartMoving() end
-    end)
-    canvas:SetHandler("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-    end)
-    
+
+    -- (Drag handlers for `canvas` are registered once, above, right after
+    -- it's created -- a second SetHandler("OnDragStart"/"OnDragStop", ...)
+    -- registration used to sit here and silently replace those, which
+    -- dropped the position save and the off-screen clamp on every drag.)
+
     if not raid_invite.isLoaded then
         raid_invite.isLoaded = true
     end

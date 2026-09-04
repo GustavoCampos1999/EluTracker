@@ -77,10 +77,15 @@ local function LoadMiscSettings()
     local data = EluTrackerSettings.misc
     if type(data) == "table" then
         if data.enableAltTracking ~= nil then spot_tracker.enableAltTracking = data.enableAltTracking end
+        -- Was hardcoded to "SHIFT" here unconditionally, discarding
+        -- data.modifierKey every single load -- so cycling the button to
+        -- ALT/CTRL always saved correctly (SaveMiscSettings below writes
+        -- it fine) but silently reverted to SHIFT on the very next
+        -- /reload or relog. Now it actually reads the saved choice back.
+        if data.modifierKey ~= nil then spot_tracker.modifierKey = data.modifierKey end
     else
         spot_tracker.enableAltTracking = false
     end
-    spot_tracker.modifierKey = "SHIFT"
 end
 
 local function SaveMiscSettings()

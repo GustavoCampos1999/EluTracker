@@ -149,9 +149,15 @@ local function handleRegradeEvent(characterName, resultCode, itemLink, oldGrade,
     end 
     
     if msg ~= "" then
-        
-        if settings.showInChat == true then
+        -- chatMode: 1 = Off, 2 = System Chat (yellow, api.Log:Info), 3 =
+        -- Alert Chat (red, api.Log:Err) -- these two are the only chat
+        -- output functions the addon API actually exposes, so they're
+        -- used as the closest match to the game's own System/Alert
+        -- channel colors.
+        if settings.chatMode == 2 then
             api.Log:Info(msg)
+        elseif settings.chatMode == 3 then
+            api.Log:Err(msg)
         end
     end
     
@@ -179,8 +185,16 @@ local function handleRegradeEvent(characterName, resultCode, itemLink, oldGrade,
 end
 
 local function OnLoad()
-	
-    
+    -- One-time migration from the old boolean "Show Fails in Chat"
+    -- checkbox to the new 3-way Off/System Chat/Alert Chat field: preserve
+    -- whatever the player had (on -> System Chat, off -> Off) instead of
+    -- silently resetting everyone to the new default.
+    if settings.chatMode == nil and settings.showInChat ~= nil then
+        settings.chatMode = settings.showInChat and 2 or 1
+        settings.showInChat = nil
+        SaveSettings()
+    end
+
     if not LossPornSessionWiped then
         settings.sessionLogs = {}
         SaveSettings()

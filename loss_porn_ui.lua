@@ -99,51 +99,44 @@ function ui.Initialize()
         end
     end
 
-    -- Add Checkbox
-    local showInChatCheckbox = logWindow:CreateChildWidget("checkbutton", "showInChatCheckbox", 0, true)
-    showInChatCheckbox:SetExtent(18, 17)
-    showInChatCheckbox:AddAnchor("TOP", logWindow, "TOP", 70, 10)
-    
-    local bg1 = showInChatCheckbox:CreateImageDrawable("ui/button/check_button.dds", "background")
-    bg1:SetExtent(18, 17)
-    bg1:AddAnchor("CENTER", showInChatCheckbox, 0, 0)
-    bg1:SetCoords(0, 0, 18, 17)
-    showInChatCheckbox:SetNormalBackground(bg1)
-    
-    local bg2 = showInChatCheckbox:CreateImageDrawable("ui/button/check_button.dds", "background")
-    bg2:SetExtent(18, 17)
-    bg2:AddAnchor("CENTER", showInChatCheckbox, 0, 0)
-    bg2:SetCoords(18, 0, 18, 17)
-    showInChatCheckbox:SetCheckedBackground(bg2)
+    -- Fails-in-chat mode: Off / System Chat / Alert Chat
+    -- Centered as a unit across the window's width, and vertically
+    -- centered inside the darker header stripe (that strip spans y=1..35,
+    -- see topBar above -- center is y=18).
+    local chatModeLabel = logWindow:CreateChildWidget("label", "chatModeLabel", 0, true)
+    chatModeLabel:SetAutoResize(true)
+    chatModeLabel:SetHeight(20)
+    chatModeLabel:SetText("Fails in Chat:")
+    chatModeLabel.style:SetColor(0.2, 0.2, 0.2, 1)
+    chatModeLabel.style:SetAlign(ALIGN.LEFT)
+    chatModeLabel:AddAnchor("TOPLEFT", logWindow, 0, 8) -- placeholder, recentered below
 
-    local bg3 = showInChatCheckbox:CreateImageDrawable("ui/button/check_button.dds", "background")
-    bg3:SetExtent(18, 17)
-    bg3:AddAnchor("CENTER", showInChatCheckbox, 0, 0)
-    bg3:SetCoords(0, 0, 18, 17)
-    showInChatCheckbox:SetPushedBackground(bg3)
+    local comboWidth = 115
+    local chatModeCombo = W_CTRL.CreateComboBox(logWindow)
+    chatModeCombo:SetWidth(comboWidth)
+    chatModeCombo:AddAnchor("LEFT", chatModeLabel, "RIGHT", 6, 0)
+    chatModeCombo.dropdownItem = { "Off", "System Chat", "Alert Chat" }
+    chatModeCombo:Select(settings.chatMode or 1)
 
-    local bg4 = showInChatCheckbox:CreateImageDrawable("ui/button/check_button.dds", "background")
-    bg4:SetExtent(18, 17)
-    bg4:AddAnchor("CENTER", showInChatCheckbox, 0, 0)
-    bg4:SetCoords(0, 0, 18, 17)
-    showInChatCheckbox:SetHighlightBackground(bg4)
-
-    local showInChatLabel = logWindow:CreateChildWidget("label", "showInChatLabel", 0, true)
-    showInChatLabel:SetText("Show Fails in Chat")
-    showInChatLabel.style:SetColor(0.2, 0.2, 0.2, 1)
-    showInChatLabel.style:SetAlign(ALIGN.LEFT)
-    showInChatLabel:SetAutoResize(true)
-    showInChatLabel:AddAnchor("RIGHT", showInChatCheckbox, "LEFT", -5, 0)
-    
-    
-    showInChatCheckbox:SetChecked(settings.showInChat == true)
-    
-    function showInChatCheckbox:OnCheckChanged()
-        
-        settings.showInChat = self:GetChecked()
+    -- NOTE: the correct selection callback for this widget is
+    -- :SelectedProc(index) -- SetHandler("OnSelect", ...) never fires on
+    -- this ComboBox type (a bug found and fixed elsewhere in this addon).
+    function chatModeCombo:SelectedProc(index)
+        settings.chatMode = index
         SaveSettings()
     end
-    showInChatCheckbox:SetHandler("OnCheckChanged", showInChatCheckbox.OnCheckChanged)
+
+    -- Now that the label has its real text, measure it and re-anchor the
+    -- label+combo pair centered as a whole (the combo, anchored relative
+    -- to the label, follows automatically). Same centering technique used
+    -- elsewhere in this addon (see quick_equip.lua's enable checkbox row).
+    local labelWidth = chatModeLabel:GetWidth() or 90
+    local gap = 6
+    local totalWidth = labelWidth + gap + comboWidth
+    local windowWidth = logWindow:GetWidth() or 750
+    local startX = math.floor((windowWidth - totalWidth) / 2)
+    chatModeLabel:RemoveAllAnchors()
+    chatModeLabel:AddAnchor("TOPLEFT", logWindow, startX, 8)
 
 
     -- Close Button
