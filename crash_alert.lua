@@ -340,16 +340,20 @@ local function ShowCornerWarning(text, isCritical)
 
     cornerWarningWnd.warnLabel:SetText(text)
 
-    -- Same orange used by the normal (non-critical) warning popup -- critical
-    -- no longer gets its own red styling. It now also auto-hides just like
-    -- the orange one, just with a longer window (20s instead of 10s) since
-    -- it's the more urgent message. Note: this is a one-shot popup per
+    -- Critical gets its own red styling back, same as before -- only the
+    -- normal (non-critical) warning uses orange. It still auto-hides just
+    -- like the orange one, just with a longer window (20s instead of 10s)
+    -- since it's the more urgent message. Note: this is a one-shot popup per
     -- continuous stretch above its own line (critical, or each yellow/orange
     -- threshold) -- it won't re-appear on its own while memory keeps
     -- climbing past that point; it only re-arms once memory drops back
     -- below that line minus 100 and crosses it again (see criticalTriggered
     -- reset below, and the matching triggeredThresholds reset above it).
-    cornerWarningWnd.warnLabel.style:SetColor(1, 0.6, 0, 1)
+    if isCritical then
+        cornerWarningWnd.warnLabel.style:SetColor(1, 0.1, 0.1, 1)
+    else
+        cornerWarningWnd.warnLabel.style:SetColor(1, 0.6, 0, 1)
+    end
     if isCritical then
         cornerWarningHideTime = api.Time:GetUiMsec() + 20000
     else
@@ -743,6 +747,30 @@ end
 local function OnLoad()
 	-- LoadConfig() now runs at require-time (see bottom of the config
 	-- section above), so config is already correct by the time OnLoad runs.
+
+	-- Re-run the same inferred-crash check/reset that already runs once at
+	-- require-time (see CheckForInferredCrashAndReset above). That
+	-- require-time call is only enough for a genuine, once-per-process
+	-- client start: main.lua also calls OnUnload()+OnLoad() on every
+	-- module on its own, later, whenever the whole addon suite gets torn
+	-- down and rebuilt WITHOUT the client actually restarting -- its
+	-- deliberate self-reload 3 seconds after startup (see main.lua), and
+	-- any manual /reload ui. Since `require()` caches this module, that
+	-- later OnLoad does NOT re-run the require-time code, so without this
+	-- call learnState.cleanExit stayed stuck at whatever OnUnload had just
+	-- set it to (true) for the rest of that entire game session -- meaning
+	-- a REAL crash later in that same session got written to disk with
+	-- cleanExit still true, and the NEXT session's own require-time check
+	-- then wrongly read that as a clean exit and never learned from it.
+	-- Confirmed directly: a real memory-allocation-failure crash (3262MB)
+	-- left elu_crash_learn.lua with cleanExit=true and an empty
+	-- crashFloor. Calling this here is safe to repeat -- LoadLearnState()
+	-- + the nil-reset of lastMB it performs make a second call right
+	-- after the require-time one at genuine startup a no-op, and it
+	-- correctly skips learning anything from OnUnload's own deliberate
+	-- cleanExit=true (that "not learnState.cleanExit" check below returns
+	-- false, exactly as an intentional clean unload should).
+	CheckForInferredCrashAndReset()
 
 	-- api.On("UPDATE" removed for monolithic integration
 	-- CHAT_MESSAGE is now dispatched centrally from main.lua (see HandleChatCommand export below)

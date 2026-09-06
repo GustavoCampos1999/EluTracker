@@ -88,11 +88,42 @@ local function getUniqueWidgetId(prefix)
     return "eluQuickEquip_" .. prefix .. "_" .. widgetCounter .. "_" .. tostring(api.Time:GetUiMsec())
 end
 
-local function safeDestroyWidget(widget)
-    if widget then
-        widget:Show(false)
+-- ===== Deferred widget cleanup (mainCanvas + contextMenu) =====
+-- renderGearSetUI() and closeContextMenu() can both be invoked from INSIDE
+-- a click/drag callback belonging to one of the very widgets they would
+-- otherwise tear down (a preset button's own OnDragStop calls
+-- renderGearSetUI(); a context-menu option's own OnClick, and the menu's
+-- own outside-click MOUSE_DOWN handler, both call closeContextMenu()).
+-- Calling api.Interface:Free() on a widget while its own handler is still
+-- on the call stack corrupts the engine's live event dispatch -- confirmed
+-- by two separate live-game attempts (an immediate Free(), and a
+-- one-tick-deferred Free() via api:DoIn) that both broke Ctrl+Click. Both
+-- were reverted, leaving every render/open leak its predecessor forever
+-- (see the audit that found Elu_Tracker's window count climbing to 60+ in
+-- a normal session from this).
+--
+-- The fix that's actually safe: never free the CURRENT generation.
+-- Instead, retire it (Show(false) only) and free the PREVIOUS generation
+-- instead -- by the time the next render/open call happens, whatever
+-- click/drag dispatch led to that previous generation's retirement has
+-- long since returned control to the engine, so there is no possibility of
+-- freeing a widget out from under its own still-running handler. This
+-- bounds the leak to at most one retired generation at a time instead of
+-- leaking a full generation forever on every action.
+local previousGeneration = nil -- { canvas, buttons = {...}, addBtn, indicator }
+local previousContextMenu = nil
+
+local function FreeGeneration(gen)
+    if not gen then return end
+    if gen.indicator then pcall(function() api.Interface:Free(gen.indicator) end) end
+    for _, btn in ipairs(gen.buttons or {}) do
+        if btn then pcall(function() api.Interface:Free(btn) end) end
     end
-    return nil
+    if gen.addBtn then pcall(function() api.Interface:Free(gen.addBtn) end) end
+    if gen.canvas then
+        gen.canvas:Show(false)
+        pcall(function() api.Interface:Free(gen.canvas) end)
+    end
 end
 
 -- Hover tooltips: flip near a screen edge, same idea as the ctrl+click
@@ -314,19 +345,19 @@ end
 -- ===== Ctrl+Click context menu (Replace / Rename / Delete) =====
 
 function closeContextMenu()
+    -- Free whatever was retired by the PREVIOUS close -- see the
+    -- FreeGeneration/previousGeneration comment above. This is reached
+    -- from inside the menu's own MOUSE_DOWN handler and from its own
+    -- option buttons' OnClick, so the CURRENT menu below is only ever
+    -- hidden here, never freed until the call after this one.
+    if previousContextMenu then
+        pcall(function() previousContextMenu:Show(false) end)
+        pcall(function() api.Interface:Free(previousContextMenu) end)
+        previousContextMenu = nil
+    end
     if contextMenu then
-        -- NOTE: only hides, does not Free() the menu. This close path is
-        -- also reached from INSIDE the menu's own registered global
-        -- MOUSE_DOWN handler (the click-outside-to-close feature) -- i.e.
-        -- it can free the widget from within that same widget's own event
-        -- dispatch. That broke Ctrl+Click again after the first open/close
-        -- cycle (confirmed: the menu opened fine once, but never came back
-        -- after being closed by an outside click). addonlibrary's own
-        -- popup_menu.lua avoids this entirely by never freeing its popup at
-        -- all -- it just Show(false)s and reuses the same widget across
-        -- every open. Do the same here: leave the small, rarely-created
-        -- menu window un-freed rather than repeat that failure mode.
         contextMenu:Show(false)
+        previousContextMenu = contextMenu
         contextMenu = nil
     end
 end
@@ -561,34 +592,44 @@ end
 function renderGearSetUI()
     closeContextMenu()
 
+    -- Free whatever was retired by the LAST call to renderGearSetUI -- see
+    -- the FreeGeneration/previousGeneration comment above. Safe because a
+    -- full render call (this one) separates it from whatever click/drag
+    -- dispatch retired it, so none of those widgets' own handlers can
+    -- still be on the call stack. This is what actually closes the leak:
+    -- at most one retired generation is ever left un-freed at a time,
+    -- instead of every single render leaking its predecessor forever.
+    FreeGeneration(previousGeneration)
+    previousGeneration = { buttons = {} }
+
     for i, btn in ipairs(gearSetButtons) do
-        gearSetButtons[i] = safeDestroyWidget(btn)
+        table.insert(previousGeneration.buttons, btn)
+        if btn then btn:Show(false) end
     end
     gearSetButtons = {}
     buttonRects = {}
     buttonLocalX = {}
 
-    addSetButton = safeDestroyWidget(addSetButton)
+    previousGeneration.addBtn = addSetButton
+    if addSetButton then addSetButton:Show(false) end
+    addSetButton = nil
 
-    if mainCanvas then
-        -- NOTE: this only hides the old canvas, it does not Free() it.
-        -- An earlier attempt to Free() it here (this function can run
-        -- from inside a click/drag callback on one of mainCanvas's own
-        -- child buttons -- a preset's OnDragStop, or a context-menu
-        -- option's OnClick -- reordering/renaming/deleting a preset all
-        -- go through here) broke Ctrl+Click's context menu, and a follow
-        -- up attempt to defer the Free() by one tick did not fix it
-        -- either. Reverted to the safe, always-worked behavior rather
-        -- than keep guessing at a live-game-only bug from static code.
-        -- This does mean renderGearSetUI leaves the previous canvas
-        -- window behind on every add/rename/delete/reorder -- see the
-        -- audit report for that tradeoff.
-        mainCanvas:Show(false)
-        mainCanvas = nil
-    end
+    -- This function can run from inside a click/drag callback on one of
+    -- mainCanvas's own child buttons (a preset's OnDragStop, or a
+    -- context-menu option's OnClick -- reordering/renaming/deleting a
+    -- preset all go through here), so mainCanvas can only be hidden here,
+    -- never freed until the retirement above's Free() runs one render
+    -- call later. See the comment above FreeGeneration for why an
+    -- immediate or one-tick-deferred Free() here both broke Ctrl+Click.
+    previousGeneration.canvas = mainCanvas
+    if mainCanvas then mainCanvas:Show(false) end
+    mainCanvas = nil
+
     -- dragIndicator is a child of mainCanvas above, so it was just hidden
-    -- along with it; drop the stale Lua-side reference too (it will be
-    -- recreated below along with the rest of the bar).
+    -- along with it; retire the reference too (it will be recreated below
+    -- along with the rest of the bar) and let FreeGeneration free it next
+    -- render call.
+    previousGeneration.indicator = dragIndicator
     dragIndicator = nil
 
     local canvas_x = settings.x or 200
@@ -841,12 +882,27 @@ local function destroyBarUI()
     closeContextMenu()
     closePrompt()
 
+    -- Real teardown (OnUnload, or the Misc-tab checkbox turning the bar
+    -- off) is never triggered from inside one of these widgets' own click
+    -- dispatch -- the checkbox lives in a completely separate window --
+    -- so unlike renderGearSetUI/closeContextMenu above, it's safe to flush
+    -- and free anything still waiting in the retirement queue right now,
+    -- instead of waiting for one more render/open call that may never come.
+    FreeGeneration(previousGeneration)
+    previousGeneration = nil
+    if previousContextMenu then
+        pcall(function() previousContextMenu:Show(false) end)
+        pcall(function() api.Interface:Free(previousContextMenu) end)
+        previousContextMenu = nil
+    end
+
     for i, btn in ipairs(gearSetButtons) do
-        gearSetButtons[i] = safeDestroyWidget(btn)
+        if btn then btn:Show(false) end
     end
     gearSetButtons = {}
 
-    addSetButton = safeDestroyWidget(addSetButton)
+    if addSetButton then addSetButton:Show(false) end
+    addSetButton = nil
 
     if mainCanvas then
         mainCanvas:Show(false)
