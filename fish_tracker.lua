@@ -111,6 +111,7 @@ local previousFish
 local MARKED_FISH_TIMER = 150000
 local deadFishes = {}
 local markedFishUI = {}
+local markedFishPoolBuilt = false
 
 local function LoadMiscSettings()
     local data = api.File:Read("elu_tracker_misc.txt")
@@ -248,6 +249,112 @@ function fish_tracker.CreateUI(wndParent)
     dfMoveBtn:SetHandler("OnClick", dfMoveBtn.OnClick)
 end
 
+-- The dead-fish-timer UI -- the drag box used to reposition it, plus the
+-- 9-slot "marked dead fish" pool (10 windows + ~27 child widgets total) --
+-- is only ever shown when Enable Dead Fish Timers is on. Both used to be
+-- built unconditionally in OnLoad (the drag box directly there, the pool
+-- via this function), so every player paid for all of it whether or not
+-- they ever turned the feature on. Found 2026-09-07 while reviewing a real
+-- gameplay session: the pool itself had already been made lazy, but the
+-- drag box was missed -- it's built here too now, lazily, once, the first
+-- time it's actually needed (see the enableDeadFishTimers check in OnLoad
+-- below, and the safety-net call in OnUpdate in case the setting gets
+-- turned on after load). Safe to call more than once: it's a no-op once
+-- everything already exists. dfMoveBtn's OnClick handler (above) already
+-- nil-checks fish_tracker.deadFishDragBox before using it, so there's
+-- nothing else to guard.
+local function BuildMarkedFishPool()
+    if markedFishPoolBuilt then return end
+    markedFishPoolBuilt = true
+
+    local deadFishDragBox = api.Interface:CreateEmptyWindow("eluDeadFishDragBox", "UIParent")
+    deadFishDragBox:SetExtent(300, 50)
+    deadFishDragBox:AddAnchor("CENTER", "UIParent", "CENTER", fish_tracker.deadFishContainerPos[1], fish_tracker.deadFishContainerPos[2])
+    deadFishDragBox:Show(false)
+
+    local bg = deadFishDragBox:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+    bg:SetTextureInfo("bg_quest")
+    bg:SetColor(0, 0, 0, 0.4)
+    bg:AddAnchor("TOPLEFT", deadFishDragBox, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", deadFishDragBox, 0, 0)
+
+    deadFishDragBox:SetHandler("OnDragStart", function()
+        deadFishDragBox:StartMoving()
+    end)
+    deadFishDragBox:SetHandler("OnDragStop", function()
+        deadFishDragBox:StopMovingOrSizing()
+        local x, y = deadFishDragBox:GetOffset()
+        deadFishDragBox:RemoveAllAnchors()
+        deadFishDragBox:AddAnchor("TOPLEFT", "UIParent", "TOPLEFT", x, y)
+        fish_tracker.deadFishContainerPos = {x, y, "TOPLEFT"}
+        SaveMiscSettings()
+    end)
+
+    if fish_tracker.deadFishContainerPos[3] == "TOPLEFT" then
+        deadFishDragBox:RemoveAllAnchors()
+        deadFishDragBox:AddAnchor("TOPLEFT", "UIParent", "TOPLEFT", fish_tracker.deadFishContainerPos[1], fish_tracker.deadFishContainerPos[2])
+    end
+
+    fish_tracker.deadFishDragBox = deadFishDragBox
+
+    for i = 1, 9 do
+        local canvas = api.Interface:CreateEmptyWindow("eluMarkedFishTarget" .. i)
+        canvas:SetExtent(40, 60)
+        canvas:Show(false)
+
+        local icon = CreateItemIconButton("eluMarkedFishIcon" .. i, canvas)
+        icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
+        icon:Show(true)
+        F_SLOT.ApplySlotSkin(icon, icon.back, SLOT_STYLE.DEFAULT)
+
+        local markerLabel = canvas:CreateChildWidget("label", "eluMarkedFishMarkerLabel" .. i, 0, true)
+        markerLabel:SetText("")
+        markerLabel:AddAnchor("BOTTOM", icon, "TOP", 0, 2)
+        markerLabel.style:SetFontSize(22)
+        markerLabel.style:SetAlign(ALIGN.CENTER)
+        markerLabel.style:SetShadow(true)
+        markerLabel.style:SetColor(1, 0.8, 0, 1)
+
+        local timeLabel = canvas:CreateChildWidget("label", "eluMarkedFishTimeLabel" .. i, 0, true)
+        timeLabel:SetText("")
+        timeLabel:AddAnchor("TOP", icon, "BOTTOM", 0, 2)
+        timeLabel.style:SetFontSize(18)
+        timeLabel.style:SetAlign(ALIGN.CENTER)
+        timeLabel.style:SetShadow(true)
+        timeLabel.style:SetColor(1, 0.5, 0, 1)
+
+        function icon:OnClick(arg)
+            if arg == "RightButton" or arg == "LeftButton" then
+                if canvas.deadFishKey then
+                    if canvas.deleteState then
+                        deadFishes[canvas.deadFishKey] = nil
+                        canvas:Show(false)
+                        canvas.deleteState = false
+                    else
+                        canvas.deleteState = true
+                        canvas.deleteTime = api.Time:GetUiMsec()
+                    end
+                end
+            end
+        end
+        icon:SetHandler("OnClick", icon.OnClick)
+
+        function icon:OnLeave()
+            if canvas.deleteState then
+                canvas.deleteState = false
+            end
+        end
+        icon:SetHandler("OnLeave", icon.OnLeave)
+
+        markedFishUI[i] = {
+            canvas = canvas,
+            icon = icon,
+            timeLabel = timeLabel,
+            markerLabel = markerLabel
+        }
+    end
+end
+
 function fish_tracker:OnLoad()
     LoadMiscSettings()
 
@@ -280,97 +387,17 @@ function fish_tracker:OnLoad()
     strengthContestTimeLabel.style:SetShadow(true)
     strengthContestTimeLabel.style:SetColor(1, 1, 0, 1)
 
-    local deadFishDragBox = api.Interface:CreateEmptyWindow("eluDeadFishDragBox", "UIParent")
-    deadFishDragBox:SetExtent(300, 50)
-    deadFishDragBox:AddAnchor("CENTER", "UIParent", "CENTER", fish_tracker.deadFishContainerPos[1], fish_tracker.deadFishContainerPos[2])
-    deadFishDragBox:Show(false)
-
-    local bg = deadFishDragBox:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    bg:SetTextureInfo("bg_quest")
-    bg:SetColor(0, 0, 0, 0.4)
-    bg:AddAnchor("TOPLEFT", deadFishDragBox, 0, 0)
-    bg:AddAnchor("BOTTOMRIGHT", deadFishDragBox, 0, 0)
-    
-    deadFishDragBox:SetHandler("OnDragStart", function() 
-        deadFishDragBox:StartMoving() 
-    end)
-    deadFishDragBox:SetHandler("OnDragStop", function() 
-        deadFishDragBox:StopMovingOrSizing() 
-        local x, y = deadFishDragBox:GetOffset()
-        deadFishDragBox:RemoveAllAnchors()
-        deadFishDragBox:AddAnchor("TOPLEFT", "UIParent", "TOPLEFT", x, y)
-        fish_tracker.deadFishContainerPos = {x, y, "TOPLEFT"}
-        SaveMiscSettings()
-    end)
-    
-    if fish_tracker.deadFishContainerPos[3] == "TOPLEFT" then
-        deadFishDragBox:RemoveAllAnchors()
-        deadFishDragBox:AddAnchor("TOPLEFT", "UIParent", "TOPLEFT", fish_tracker.deadFishContainerPos[1], fish_tracker.deadFishContainerPos[2])
+    -- Dead-fish-timer UI (drag box + 9-slot marker pool) is built lazily by
+    -- BuildMarkedFishPool -- only up front here if the feature is already
+    -- on (so returning users see zero behavior change). If it's off,
+    -- OnUpdate's safety-net call builds it the moment it's turned on
+    -- instead. See the comment on BuildMarkedFishPool above.
+    if fish_tracker.enableDeadFishTimers then
+        BuildMarkedFishPool()
     end
-    
-    fish_tracker.deadFishDragBox = deadFishDragBox
-
-    for i = 1, 9 do
-        local canvas = api.Interface:CreateEmptyWindow("eluMarkedFishTarget" .. i)
-        canvas:SetExtent(40, 60)
-        canvas:Show(false)
-
-        local icon = CreateItemIconButton("eluMarkedFishIcon" .. i, canvas)
-        icon:AddAnchor("TOPLEFT", canvas, "TOPLEFT", 0, 0)
-        icon:Show(true)
-        F_SLOT.ApplySlotSkin(icon, icon.back, SLOT_STYLE.DEFAULT)
-
-        local markerLabel = canvas:CreateChildWidget("label", "eluMarkedFishMarkerLabel" .. i, 0, true)
-        markerLabel:SetText("")
-        markerLabel:AddAnchor("BOTTOM", icon, "TOP", 0, 2)
-        markerLabel.style:SetFontSize(22)
-        markerLabel.style:SetAlign(ALIGN.CENTER)
-        markerLabel.style:SetShadow(true)
-        markerLabel.style:SetColor(1, 0.8, 0, 1)
-
-        local timeLabel = canvas:CreateChildWidget("label", "eluMarkedFishTimeLabel" .. i, 0, true)
-        timeLabel:SetText("")
-        timeLabel:AddAnchor("TOP", icon, "BOTTOM", 0, 2)
-        timeLabel.style:SetFontSize(18)
-        timeLabel.style:SetAlign(ALIGN.CENTER)
-        timeLabel.style:SetShadow(true)
-        timeLabel.style:SetColor(1, 0.5, 0, 1)
-        
-        function icon:OnClick(arg)
-            if arg == "RightButton" or arg == "LeftButton" then
-                if canvas.deadFishKey then
-                    if canvas.deleteState then
-                        deadFishes[canvas.deadFishKey] = nil
-                        canvas:Show(false)
-                        canvas.deleteState = false
-                    else
-                        canvas.deleteState = true
-                        canvas.deleteTime = api.Time:GetUiMsec()
-                    end
-                end
-            end
-        end
-        icon:SetHandler("OnClick", icon.OnClick)
-        
-        function icon:OnLeave()
-            if canvas.deleteState then
-                canvas.deleteState = false
-            end
-        end
-        icon:SetHandler("OnLeave", icon.OnLeave)
-
-        markedFishUI[i] = {
-            canvas = canvas,
-            icon = icon,
-            timeLabel = timeLabel,
-            markerLabel = markerLabel
-        }
-    end
-
-
 
     deadFishes = {}
-    
+
 end
 
 function fish_tracker:OnUpdate(dt)
@@ -446,6 +473,7 @@ function fish_tracker:OnUpdate(dt)
 
     -- Update Dead Fish Timers UI
     if fish_tracker.enableDeadFishTimers then
+        BuildMarkedFishPool()
         local activeTimerCount = 0
         local index = 1
         
@@ -716,6 +744,7 @@ function fish_tracker:OnUnload()
     end
     markedFishUI = {}
     deadFishes = {}
+    markedFishPoolBuilt = false
 end
 
 return fish_tracker

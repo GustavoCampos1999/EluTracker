@@ -10,6 +10,12 @@ local spotOverlays = {}
 local doodadListener = nil
 local lastDoodadInfo = nil
 local lastCaptureMs = 0
+local trackingUIBuilt = false
+-- Forward-declared (assigned further down, near OnLoad) so CreateUI's
+-- altToggle checkbox handler -- defined earlier in this file -- can call it
+-- by name too. See EnsureTrackingUI's own definition below for why this
+-- exists.
+local EnsureTrackingUI
 
 spot_tracker.enableAltTracking = false
 
@@ -140,6 +146,9 @@ function spot_tracker.CreateUI(wndParent)
     function altToggle:OnCheckChanged()
         spot_tracker.enableAltTracking = self:GetChecked()
         SaveMiscSettings()
+        if spot_tracker.enableAltTracking then
+            EnsureTrackingUI()
+        end
     end
     altToggle:SetHandler("OnCheckChanged", altToggle.OnCheckChanged)
 
@@ -230,7 +239,19 @@ function spot_tracker.CaptureHoveredSpot()
     return true
 end
 
-function spot_tracker:OnLoad()
+-- Spot-tracking's UI -- the doodad-hover listener, the "replace oldest
+-- timer" warning banner, and the 3-slot timer overlay pool (5 windows plus
+-- ~15 child widgets total) -- used to be built unconditionally in OnLoad,
+-- so every player paid for it even with Enable Spot Tracking left off (the
+-- default). It's now built lazily: once, either at OnLoad if the feature
+-- is already on or there's a saved timer to restore across a reload/relog
+-- (see OnLoad below), or the instant it's turned on via the checkbox in
+-- Fishing Settings (see CreateUI above). Safe to call more than once: it's
+-- a no-op once already built.
+EnsureTrackingUI = function()
+    if trackingUIBuilt then return end
+    trackingUIBuilt = true
+
     doodadListener = api.Interface:CreateEmptyWindow("eluSpotDoodadListener", "UIParent")
     doodadListener:Show(false)
     function doodadListener:OnEvent(event, ...)
@@ -367,6 +388,22 @@ function spot_tracker:OnLoad()
     LoadSpotPositions()
 end
 
+function spot_tracker:OnLoad()
+    -- LoadMiscSettings reads the saved enableAltTracking preference. It
+    -- also re-runs (harmlessly) from spot_tracker.CreateUI whenever the
+    -- Fishing Settings panel is opened -- same pattern already used by
+    -- fish_tracker.CreateUI.
+    LoadMiscSettings()
+    if not spot_tracker.modifierKey then spot_tracker.modifierKey = "ALT" end
+
+    local savedTimers = EluTrackerSettings.spotTimers
+    local hasSavedTimers = type(savedTimers) == "table" and #savedTimers > 0
+
+    if spot_tracker.enableAltTracking or hasSavedTimers then
+        EnsureTrackingUI()
+    end
+end
+
 function spot_tracker:OnUpdate(dt)
     local nowMs = api.Time:GetUiMsec()
 
@@ -489,6 +526,7 @@ function spot_tracker:OnUnload()
     for i = 1, MAX_TIMERS do
         spotOverlays[i] = nil
     end
+    trackingUIBuilt = false
 end
 
 return spot_tracker

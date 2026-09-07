@@ -11,17 +11,27 @@ local settingsManager = require("Elu_Tracker/settings_manager")
 local EluTrackerSettings = settingsManager.Settings
 local SaveEluTrackerSettings = settingsManager.SaveSettings
 
--- Calibrated 2026-09-03 from a real historical crash study (24 confirmed
--- "*** Memory allocation for N bytes failed ****" engine crashes matched
--- against ArcheAge.log across Aug/Sep, cross-referenced with each session's
--- own "[ADDONS] Current memory usage" readings). Findings:
---   - the tightest-correlated readings (crash within seconds/minutes of the
---     last known reading) cluster at 3055-3206 MB
---   - the lowest EVER confirmed pre-crash reading was 2802 MB
---   - the highest EVER confirmed CLEAN session (no crash) reached 3199 MB
--- These numbers (3000/3100/3200) are the shipped default/fallback -- see
--- the self-calibration section below for how they shift per-PC from there.
-local MAX_MEMORY = 3200 -- ties the % readout to "critical" itself: 100% = act now
+-- Originally calibrated 2026-09-03 from a historical crash study (24
+-- confirmed engine crashes matched against ArcheAge.log). Re-anchored
+-- 2026-09-07: the crash-floor-based "learning" below had pulled critical
+-- down to ~2953 MB off a single inferred crash whose recorded reading
+-- (3003 MB) undershot that crash's real dump value (3270 MB) by ~270 MB --
+-- see the comment above learnState for why. That produced a full CRITICAL
+-- WARNING at barely ~3000 MB of totally normal usage, which made no sense.
+--
+-- BASELINE_MAX_MEMORY (below, near LEARN_FILE) is the average of the 4
+-- confirmed real crash dumps recorded on this pc so far -- 3262, 3332,
+-- 3288, 3270 MB, every single one the same exception address, i.e. the
+-- 32-bit client's hard address-space ceiling. critical always fires at
+-- CRITICAL_PERCENT of MAX_MEMORY, so "100%" IS that danger zone and
+-- critical is the last call just before reaching it.
+--
+-- The ceiling can still move, but ONLY upward now: enough clean (no
+-- crash) sessions that safely reached critical is real proof this pc
+-- tolerates more, and that raises the ceiling to match (safeCeiling,
+-- below). Nothing lowers it anymore -- one imprecise sample can no longer
+-- drag every future session's warnings down with it.
+local MAX_MEMORY = 3288 -- see BASELINE_MAX_MEMORY / RecalibrateFromLearning below
 
 -- NOTE: this module used to keep its own private copy of these settings and
 -- save/load them by directly reading and rewriting elu_tracker_settings.lua
@@ -44,8 +54,8 @@ local MAX_MEMORY = 3200 -- ties the % readout to "critical" itself: 100% = act n
 -- ever a single writer for the whole file.
 local config = {
     enabled = false,
-	thresholds = { 3000, 3100 }, -- [1] = yellow starts, [2] = orange starts (see MAX_MEMORY comment above)
-    critical = 3200,
+	thresholds = { 2989, 3089 }, -- [1] = yellow starts, [2] = orange starts (see MAX_MEMORY comment above)
+    critical = 3189,
 	showLiveUsage = false,
 	warnOffsetX = 400,
 	warnOffsetY = 100,
@@ -110,7 +120,7 @@ local function LoadConfig()
 	table.sort(config.thresholds)
 end
 
--- ===== Self-calibrating thresholds ("learning") =====
+-- ===== Self-calibrating ceiling ("learning") =====
 -- Keeps a tiny file OF ITS OWN (not the shared settings file) tracking the
 -- most recent memory reading and whether the last session closed cleanly.
 -- Kept separate from elu_tracker_settings.lua on purpose: this gets written
@@ -129,46 +139,45 @@ end
 -- or a power cut at 1800MB from being mistaken for a memory crash and
 -- polluting the learned data, without needing to read ArcheAge.log at all.
 --
--- What it learns:
---   crashFloor  -- MB readings from inferred crashes on THIS pc. If this
---                  builds up, critical moves DOWN toward (lowest - margin),
---                  since this pc apparently can't be trusted past that.
+-- What it tracks:
+--   crashFloor  -- MB readings from inferred crashes on THIS pc. Recorded
+--                  for visibility only as of 2026-09-07 -- it no longer
+--                  moves the ceiling. Reason: this file only saves every
+--                  LEARN_SAVE_INTERVAL (30s), so a recorded reading can
+--                  undershoot the TRUE crash-time memory by however much
+--                  it climbed in that last window -- confirmed for real on
+--                  this pc (crash dump 3270 MB, learned floor only 3003
+--                  MB, a ~270 MB gap). One sample like that had dragged
+--                  critical all the way down to ~2953 MB and fired a full
+--                  CRITICAL WARNING at barely ~3000 MB. A single noisy
+--                  sample should never be able to do that on its own, so
+--                  crashFloor is now diagnostic-only.
 --   safeCeiling -- the highest MB reached in sessions that closed cleanly,
 --                  but only kept when that peak was already >= critical.
---                  If THIS builds up with no crash ever recorded, critical
---                  moves UP toward (highest + margin) -- this pc evidently
---                  tolerates more than the shipped default, so warning at
---                  the old number would just be nagging too early.
--- Either way it always starts from the shipped numbers above until there's
--- enough local evidence (3+ samples) to move away from them, and crash
--- evidence always wins over ceiling evidence if a pc somehow has both.
+--                  This is the ONLY thing that moves the ceiling now, and
+--                  only UPWARD: once MIN_LEARN_SAMPLES clean sessions have
+--                  safely reached at least this high, the ceiling rises to
+--                  (highest + CEILING_MARGIN). Crash history no longer
+--                  blocks this -- repeated, real, crash-free evidence at a
+--                  given memory level always wins.
+-- Starts from BASELINE_MAX_MEMORY (see top of file) until enough clean-
+-- session evidence (MIN_LEARN_SAMPLES) shows up to move above it.
 local LEARN_FILE = "elu_crash_learn.lua"
 local LEARN_SAVE_INTERVAL = 30000 -- 30s -- deliberately much slower than the 5s UI tick
 local MIN_LEARN_SAMPLES = 3
-local CRASH_MARGIN = 50
 local CEILING_MARGIN = 100
 local MAX_LEARN_HISTORY = 8
-local LEARN_CRITICAL_MAX = 3800 -- sanity ceiling: never stop warning entirely
-local DEFAULT_CRITICAL = 3200   -- shipped default, also RecalibrateFromLearning's fallback
+local LEARN_CRITICAL_MAX = 3800  -- sanity ceiling: never stop warning entirely
+local BASELINE_MAX_MEMORY = 3288 -- avg of the 4 confirmed real crash dumps on this pc (3262/3332/3288/3270 MB, all the same exception address -- the 32-bit client's address-space ceiling)
+local CRITICAL_PERCENT = 0.97    -- critical always fires at this fraction of MAX_MEMORY
 
--- The bar an inferred crash's last-known MB has to clear to be believed as
--- a MEMORY crash at all (otherwise: network drop, alt-F4, power cut, task
--- kill -- something else, not counted). Deliberately a FIXED number, not
--- config.thresholds[1] -- that one is learned and can itself drift down
--- over time, and using a moving target here would let a downward drift
--- feed on itself (a crash counted in because the bar had already dropped
--- last time would drag the bar down further, counting in even lower crashes
--- next time, with nothing to anchor it). No PC is expected to ever crash
--- from Elu Tracker's addon memory alone below this, no matter how far
--- critical itself has been learned down for that PC.
+-- The bar an inferred crash's last-known MB has to clear to be recorded
+-- into crashFloor at all (otherwise: network drop, alt-F4, power cut, task
+-- kill -- something else, not a memory crash). Fixed on purpose. crashFloor
+-- is diagnostic-only now (see above) so there's no downward-drift risk left
+-- to guard against, but keeping this fixed still keeps a low-memory
+-- disconnect from being logged as if it were a memory crash.
 local LEARN_CRASH_FILTER_MB = 3000
-
--- Sanity floor for a LEARNED critical value. Derived from the filter above
--- (rather than an independent magic number) so it can never silently drift
--- out of sync with it: every value that actually reaches crashFloor is
--- already >= LEARN_CRASH_FILTER_MB by construction, so the lowest possible
--- learned critical is always exactly LEARN_CRASH_FILTER_MB - CRASH_MARGIN.
-local LEARN_CRITICAL_MIN = LEARN_CRASH_FILTER_MB - CRASH_MARGIN
 
 local learnState = {
     cleanExit = true, -- true so a first-ever run isn't mistaken for a crash
@@ -218,38 +227,31 @@ local function AddCapped(list, value)
     end
 end
 
--- Recomputes config.critical/config.thresholds/MAX_MEMORY from whatever's
--- been learned so far, always falling back to the shipped default when
--- there isn't enough local evidence yet. thresholds keep the same spacing
--- below critical the shipped defaults use (100 and 200 MB below), so the
--- whole gradient shifts together as critical is learned.
+-- Recomputes MAX_MEMORY/config.critical/config.thresholds. Anchored to
+-- BASELINE_MAX_MEMORY (top of file) instead of the raw crash-floor minimum
+-- -- only real, observed safe usage (a clean session that reached at least
+-- critical without crashing) is trusted to push the ceiling up, and
+-- nothing pulls it back down anymore. See the 2026-09-07 comment above
+-- learnState for why the old down-drifting version was retired.
+-- thresholds keep the same spacing below critical as before (100 and 200
+-- MB below), so the whole gradient still shifts together if the ceiling
+-- ever rises.
 local function RecalibrateFromLearning()
-    local newCritical = DEFAULT_CRITICAL
+    local ceiling = BASELINE_MAX_MEMORY
 
-    if #learnState.crashFloor >= MIN_LEARN_SAMPLES then
-        local lowest = math.huge
-        for _, v in ipairs(learnState.crashFloor) do
-            if v < lowest then lowest = v end
-        end
-        newCritical = math.max(LEARN_CRITICAL_MIN, lowest - CRASH_MARGIN)
-    elseif #learnState.crashFloor == 0 and #learnState.safeCeiling >= MIN_LEARN_SAMPLES then
-        -- Only ever raise critical when there is NO recorded crash evidence
-        -- at all on this pc, not merely "fewer than MIN_LEARN_SAMPLES of
-        -- it" -- even one real inferred crash is a real data point, and
-        -- should block a raise rather than being outvoted by unrelated
-        -- clean-session evidence just because it hasn't hit 3 yet.
+    if #learnState.safeCeiling >= MIN_LEARN_SAMPLES then
         local highest = 0
         for _, v in ipairs(learnState.safeCeiling) do
             if v > highest then highest = v end
         end
-        if highest + CEILING_MARGIN > newCritical then
-            newCritical = math.min(LEARN_CRITICAL_MAX, highest + CEILING_MARGIN)
+        if highest + CEILING_MARGIN > ceiling then
+            ceiling = math.min(LEARN_CRITICAL_MAX, highest + CEILING_MARGIN)
         end
     end
 
-    config.critical = newCritical
-    config.thresholds = { newCritical - 200, newCritical - 100 }
-    MAX_MEMORY = newCritical
+    MAX_MEMORY = ceiling
+    config.critical = math.floor(ceiling * CRITICAL_PERCENT + 0.5)
+    config.thresholds = { config.critical - 200, config.critical - 100 }
     -- pcall'd like every other I/O call in this section: this now runs from
     -- OnUnload (before window cleanup and SaveLearnState below it) and from
     -- require-time. If SaveEluTrackerSettings ever threw here unprotected,
@@ -261,8 +263,10 @@ local function RecalibrateFromLearning()
 end
 
 -- Runs once, at load: check whether last session's shutdown was clean; if
--- not, and the last known reading was already elevated, learn from it as
--- an inferred crash. Then reset the tracking state for this new session.
+-- not, and the last known reading was already elevated, record it into
+-- crashFloor as an inferred crash (diagnostic only -- see the comment
+-- above learnState; this no longer feeds RecalibrateFromLearning). Then
+-- reset the tracking state for this new session.
 local function CheckForInferredCrashAndReset()
     LoadLearnState()
 

@@ -201,10 +201,15 @@ local function OnLoad()
         LossPornSessionWiped = true
     end
 
-    if ui and ui.Initialize then
-        ui.Initialize()
-    end
-    
+    -- The visible log window (ui.Initialize) is intentionally NOT built
+    -- here anymore. ui.Toggle() (wired to the "Open Regrade Log" button and
+    -- to the shared addon-manager hook below) already lazily calls
+    -- ui.Initialize() itself the first time it's needed, and ui.RefreshList
+    -- is already nil-safe when the window doesn't exist yet -- so building
+    -- it unconditionally on every load was pure waste for the many
+    -- sessions that never open this log. This only defers window creation;
+    -- nothing about when/whether regrades are recorded changes, since that
+    -- is handled by lossPornWindow's event listener below, not by the UI.
     lossPornWindow = api.Interface:CreateEmptyWindow("lossPornWnd", "UIParent")
 
     function lossPornWindow:OnEvent(event, ...)

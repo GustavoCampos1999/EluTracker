@@ -50,7 +50,14 @@ local function LoadPosition()
     end
 end
 
-function stopwatch_addon:OnLoad()
+-- Built lazily the first time the stopwatch is actually toggled on (see
+-- ToggleStopwatch below) instead of unconditionally in OnLoad -- most
+-- sessions never open the stopwatch, so this saves a window plus ~9 child
+-- widgets every single load. Safe to call more than once: it's a no-op if
+-- swOverlay already exists.
+local function BuildOverlay()
+    if swOverlay then return end
+
     swOverlay = api.Interface:CreateEmptyWindow("eluStopwatchOverlay", "UIParent")
     swOverlay:SetExtent(170, 95)
     swOverlay:AddAnchor("TOPLEFT", "UIParent", 500, 250)
@@ -60,8 +67,8 @@ function stopwatch_addon:OnLoad()
     function swOverlay:OnDragStart() self:StartMoving() end
     swOverlay:SetHandler("OnDragStart", swOverlay.OnDragStart)
 
-    function swOverlay:OnDragStop() 
-        self:StopMovingOrSizing() 
+    function swOverlay:OnDragStop()
+        self:StopMovingOrSizing()
         SavePosition()
     end
     swOverlay:SetHandler("OnDragStop", swOverlay.OnDragStop)
@@ -71,8 +78,8 @@ function stopwatch_addon:OnLoad()
     bg:SetColor(0, 0, 0, 0.6)
     bg:AddAnchor("TOPLEFT", swOverlay, 0, 0)
     bg:AddAnchor("BOTTOMRIGHT", swOverlay, 0, 0)
-    
-    local clockIcon = swOverlay:CreateChildWidget("label", "clockIcon", 0, true)  
+
+    local clockIcon = swOverlay:CreateChildWidget("label", "clockIcon", 0, true)
     clockIcon:AddAnchor("TOPLEFT", swOverlay, 10, 2)
     local clockIconTexture = clockIcon:CreateImageDrawable(TEXTURE_PATH.HUD, "background")
     clockIconTexture:SetTextureInfo("clock")
@@ -102,17 +109,17 @@ function stopwatch_addon:OnLoad()
     function closeBtn:OnClick() swOverlay:Show(false) end
     closeBtn:SetHandler("OnClick", closeBtn.OnClick)
 
-    local startBtn = swOverlay:CreateChildWidget("button", "startBtn", 0, true)  
+    local startBtn = swOverlay:CreateChildWidget("button", "startBtn", 0, true)
     startBtn:AddAnchor("BOTTOM", swOverlay, -50, -10)
     startBtn:SetText("Start")
     api.Interface:ApplyButtonSkin(startBtn, BSCBTN)
-    
-    local stopBtn = swOverlay:CreateChildWidget("button", "stopBtn", 0, true)  
+
+    local stopBtn = swOverlay:CreateChildWidget("button", "stopBtn", 0, true)
     stopBtn:AddAnchor("BOTTOM", swOverlay, 0, -10)
     stopBtn:SetText("Stop")
     api.Interface:ApplyButtonSkin(stopBtn, BSCBTN)
 
-    local restartBtn = swOverlay:CreateChildWidget("button", "restartBtn", 0, true)  
+    local restartBtn = swOverlay:CreateChildWidget("button", "restartBtn", 0, true)
     restartBtn:AddAnchor("BOTTOM", swOverlay, 50, -10)
     restartBtn:SetText("Reset")
     api.Interface:ApplyButtonSkin(restartBtn, BSCBTN)
@@ -143,7 +150,13 @@ function stopwatch_addon:OnLoad()
     LoadPosition()
 end
 
+function stopwatch_addon:OnLoad()
+    -- swOverlay is no longer built here -- BuildOverlay() above now runs
+    -- lazily the first time ToggleStopwatch() is actually called.
+end
+
 function stopwatch_addon.ToggleStopwatch()
+    BuildOverlay()
     if swOverlay then
         local isVisible = not swOverlay:IsVisible()
         swOverlay:Show(isVisible)

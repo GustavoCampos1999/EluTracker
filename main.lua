@@ -465,6 +465,96 @@ local function CreateFishingWindow(wndParent)
     return wnd
 end
 
+-- Built lazily the first time "Toggle Trip Counter" is actually clicked
+-- (see toggleBtn:OnClick below) instead of unconditionally in OnLoad --
+-- most sessions never touch the Trip Counter, so this saves a whole
+-- top-level window plus 5 child widgets (bg, closeBtn, resetOverlayBtn,
+-- countLabel, compBtn) on every single load. Safe to call more than once:
+-- it's a no-op if tripOverlay already exists.
+local function BuildTripOverlay()
+    if tripOverlay then return end
+
+    tripOverlay = api.Interface:CreateEmptyWindow("tripOverlay", "UIParent")
+    tripOverlay:SetExtent(160, 90)
+    tripOverlay:AddAnchor("TOPLEFT", "UIParent", 300, 100)
+    tripOverlay:Show(false)
+    tripOverlay:EnableDrag(true)
+
+    local tripPosFile = "elu_trip_pos.txt"
+    local function SaveTripPos()
+        if tripOverlay then
+            local x, y = tripOverlay:GetOffset()
+            if x and y then
+                api.File:Write(tripPosFile, { x = x, y = y })
+            end
+        end
+    end
+
+    local function LoadTripPos()
+        local data = api.File:Read(tripPosFile)
+        if type(data) == "table" and data.x and data.y then
+            tripOverlay:RemoveAllAnchors()
+            tripOverlay:AddAnchor("TOPLEFT", "UIParent", data.x, data.y)
+        end
+    end
+
+    function tripOverlay:OnDragStart() self:StartMoving() end
+    tripOverlay:SetHandler("OnDragStart", tripOverlay.OnDragStart)
+
+    function tripOverlay:OnDragStop()
+        self:StopMovingOrSizing()
+        SaveTripPos()
+    end
+    tripOverlay:SetHandler("OnDragStop", tripOverlay.OnDragStop)
+    LoadTripPos()
+
+    local bg = tripOverlay:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+    bg:SetTextureInfo("bg_quest")
+    bg:SetColor(0, 0, 0, 0.7)
+    bg:AddAnchor("TOPLEFT", tripOverlay, 0, 0)
+    bg:AddAnchor("BOTTOMRIGHT", tripOverlay, 0, 0)
+
+    local closeBtn = tripOverlay:CreateChildWidget("button", "closeBtn", 0, true)
+    closeBtn:SetText("X")
+    closeBtn:SetExtent(16, 16)
+    closeBtn:AddAnchor("TOPRIGHT", tripOverlay, -5, 5)
+    closeBtn.style:SetAlign(ALIGN.CENTER)
+    ApplyTextColor(closeBtn, FONT_COLOR.RED)
+    function closeBtn:OnClick() tripOverlay:Show(false) end
+    closeBtn:SetHandler("OnClick", closeBtn.OnClick)
+
+    local resetOverlayBtn = tripOverlay:CreateChildWidget("button", "resetOverlayBtn", 0, true)
+    resetOverlayBtn:SetText("R")
+    resetOverlayBtn:SetExtent(15, 15)
+    resetOverlayBtn:AddAnchor("RIGHT", closeBtn, "LEFT", -5, 0)
+    ApplyTextColor(resetOverlayBtn, FONT_COLOR.EXP_ORANGE)
+    function resetOverlayBtn:OnClick()
+        tripCount = 0
+        if tripOverlay and tripOverlay.countLabel then
+            tripOverlay.countLabel:SetText("Trip: " .. tostring(tripCount))
+        end
+    end
+    resetOverlayBtn:SetHandler("OnClick", resetOverlayBtn.OnClick)
+
+    local countLabel = tripOverlay:CreateChildWidget("label", "countLabel", 0, true)
+    countLabel:AddAnchor("TOP", tripOverlay, 0, 20)
+    countLabel.style:SetFontSize(FONT_SIZE.LARGE)
+    countLabel:SetText("Trip: " .. tostring(tripCount or 0))
+    tripOverlay.countLabel = countLabel
+
+    local compBtn = tripOverlay:CreateChildWidget("button", "compBtn", 0, true)
+    compBtn:SetText("Complete Trip")
+    compBtn:AddAnchor("BOTTOM", tripOverlay, 0, -15)
+    ApplyButtonSkin(compBtn, BUTTON_BASIC.DEFAULT)
+
+    function compBtn:OnClick()
+        tripCount = (tripCount or 0) + 1
+        countLabel:SetText("Trip: " .. tostring(tripCount or 0))
+    end
+    compBtn:SetHandler("OnClick", compBtn.OnClick)
+    tripOverlay.compBtn = compBtn
+end
+
 local _miscWnd = nil
 
 local function CreateMiscWindow(wndParent)
@@ -526,6 +616,7 @@ local function CreateMiscWindow(wndParent)
     toggleBtn:AddAnchor("LEFT", toolsRow, 0, 0)
     ApplyButtonSkin(toggleBtn, BUTTON_BASIC.DEFAULT)
     function toggleBtn:OnClick()
+        BuildTripOverlay()
         if tripOverlay then
             local isVisible = not tripOverlay:IsVisible()
             tripOverlay:Show(isVisible)
@@ -789,85 +880,9 @@ function OnLoad()
     end
     eluBtn:SetHandler("OnLeave", eluBtn.OnLeave)
 
-    tripOverlay = api.Interface:CreateEmptyWindow("tripOverlay", "UIParent")
-    tripOverlay:SetExtent(160, 90)
-    tripOverlay:AddAnchor("TOPLEFT", "UIParent", 300, 100)
-    tripOverlay:Show(false)
-    tripOverlay:EnableDrag(true)
-
-    local tripPosFile = "elu_trip_pos.txt"
-    local function SaveTripPos()
-        if tripOverlay then
-            local x, y = tripOverlay:GetOffset()
-            if x and y then
-                api.File:Write(tripPosFile, { x = x, y = y })
-            end
-        end
-    end
-
-    local function LoadTripPos()
-        local data = api.File:Read(tripPosFile)
-        if type(data) == "table" and data.x and data.y then
-            tripOverlay:RemoveAllAnchors()
-            tripOverlay:AddAnchor("TOPLEFT", "UIParent", data.x, data.y)
-        end
-    end
-
-    function tripOverlay:OnDragStart() self:StartMoving() end
-    tripOverlay:SetHandler("OnDragStart", tripOverlay.OnDragStart)
-
-    function tripOverlay:OnDragStop() 
-        self:StopMovingOrSizing() 
-        SaveTripPos()
-    end
-    tripOverlay:SetHandler("OnDragStop", tripOverlay.OnDragStop)
-    LoadTripPos()
-    
-    local bg = tripOverlay:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    bg:SetTextureInfo("bg_quest")
-    bg:SetColor(0, 0, 0, 0.7)
-    bg:AddAnchor("TOPLEFT", tripOverlay, 0, 0)
-    bg:AddAnchor("BOTTOMRIGHT", tripOverlay, 0, 0)
-    
-    local closeBtn = tripOverlay:CreateChildWidget("button", "closeBtn", 0, true)
-    closeBtn:SetText("X")
-    closeBtn:SetExtent(16, 16)
-    closeBtn:AddAnchor("TOPRIGHT", tripOverlay, -5, 5)
-    closeBtn.style:SetAlign(ALIGN.CENTER)
-    ApplyTextColor(closeBtn, FONT_COLOR.RED)
-    function closeBtn:OnClick() tripOverlay:Show(false) end
-    closeBtn:SetHandler("OnClick", closeBtn.OnClick)
-    
-    local resetOverlayBtn = tripOverlay:CreateChildWidget("button", "resetOverlayBtn", 0, true)
-    resetOverlayBtn:SetText("R")
-    resetOverlayBtn:SetExtent(15, 15)
-    resetOverlayBtn:AddAnchor("RIGHT", closeBtn, "LEFT", -5, 0)
-    ApplyTextColor(resetOverlayBtn, FONT_COLOR.EXP_ORANGE)
-    function resetOverlayBtn:OnClick()
-        tripCount = 0
-        if tripOverlay and tripOverlay.countLabel then
-            tripOverlay.countLabel:SetText("Trip: " .. tostring(tripCount))
-        end
-    end
-    resetOverlayBtn:SetHandler("OnClick", resetOverlayBtn.OnClick)
-
-    local countLabel = tripOverlay:CreateChildWidget("label", "countLabel", 0, true)
-    countLabel:AddAnchor("TOP", tripOverlay, 0, 20)
-    countLabel.style:SetFontSize(FONT_SIZE.LARGE)
-    countLabel:SetText("Trip: " .. tostring(tripCount or 0))
-    tripOverlay.countLabel = countLabel
-    
-    local compBtn = tripOverlay:CreateChildWidget("button", "compBtn", 0, true)
-    compBtn:SetText("Complete Trip")
-    compBtn:AddAnchor("BOTTOM", tripOverlay, 0, -15)
-    ApplyButtonSkin(compBtn, BUTTON_BASIC.DEFAULT)
-
-    function compBtn:OnClick()
-        tripCount = (tripCount or 0) + 1
-        countLabel:SetText("Trip: " .. tostring(tripCount or 0))
-    end
-    compBtn:SetHandler("OnClick", compBtn.OnClick)
-    tripOverlay.compBtn = compBtn
+    -- tripOverlay itself is no longer built here -- see BuildTripOverlay()
+    -- above, which now runs lazily the first time "Toggle Trip Counter" is
+    -- actually clicked.
 
     packsAddon:OnLoad()
     guildCheckAddon:OnLoad()
