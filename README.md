@@ -6,6 +6,7 @@ A highly comprehensive and self-sufficient productivity, utility, and recruitmen
 - **Trade Pack Profit Tracker** that allows you to pull weekly average prices or set your own manual prices.
 - **Fishing Profit Tracker** and a **Fishing Spots Time Tracker**.
 - **Fishing Tools** that display the required skill under the fish's HP bar, along with a dead fish timer tracking how much time is left before its loot expires.
+- **Loot Tracker** start and stop loot sessions to precisely track every single item dropped during your grinding or farming runs.
 - **Raid Management** featuring an Auto Raid system with Whitelist and Auto-Givelead, plus a "Quick Auto Raid" mode for fast open-world events.
 - **Guild Check** to easily identify the guilds of both players and vessels (ships).
 - **Range Finder** with fully customizable dynamic colors.
@@ -54,24 +55,29 @@ The regrade log can be opened in two different ways: by navigating to the **Misc
 ### 3. Commerce Tracker (Packs)
 *Calculates the value of pending packs, pulls weekly average prices for pack resources, and features an option to set manual prices of your choice.*
 
-### 4. System Stability & Anti-Crash
+### 4. Loot Tracker
+*Originally built upon the baseline framework by Michaelqt*
+- **Session-Based Logging**: Start and stop loot sessions to precisely track every single item dropped during your grinding or farming runs.
+- **Visual Grid Inventory**: See exactly how many of each item you looted in a clean, visual grid interface, helping you calculate exactly how much money you made in an hour.
+
+### 5. System Stability & Anti-Crash
 - **Live RAM Monitor:** Displays a live memory tracker on-screen to monitor ArcheAge's RAM consumption.
 - **Crash Preventer Warning:** Monitors RAM usage and pops an on-screen warning when it hits a critical threshold (e.g., 3200 MB or 96% of the 32-bit limit), so you know it's time to relog before a fatal crash happens. The actual client restart is manual — click the warning's "Crash NOW" button, or use the Crash Command below — it is never triggered automatically.
 - **Crash Command:** Features a customizable chat command (default is `/crash`) that forcefully and instantly restarts the client.
 
-### 5. Regrade Log 
+### 6. Regrade Log 
 *Tracks server success and failure regrades, and allows you to toggle whether failures are displayed in your System chat.*
 
-### 6. Combat & Target Utilities
+### 7. Combat & Target Utilities
 - **Range Meter:** A tiny, minimalist overlay that displays the exact distance (in meters) to your current target. It overrides all other game windows and addons natively so it never gets hidden behind bags or maps. You can customize colors for up to 3 different range thresholds and choose exactly where it anchors onto the enemy's health bar.
 - **Guild Check:** Instantly displays the guild of your current target. Creates a customizable floating box at the top of the screen and also adds the guild name directly above the target's health bar.
 - **Zeal Alert:** Pops a customizable visual alert on your screen the moment the Zeal buff activates.
 
-### 7. Misc & Utility
+### 8. Misc & Utility
 - **Integrated Chronometer (Stopwatch):** A highly accurate, low-overhead live timer mapped into the user interface.
 - **Trip Counter:** A persistent counter for your trade runs featuring anti-DC protection (your progress is safely cached and only resets if you click it). 
 
-### 8. Quick Equip
+### 9. Quick Equip
 *A gear-set swapper: save your currently equipped gear as a named preset, then re-equip the whole set with a single click. Disabled by default on a fresh install; enable it from the **Misc** tab's Tools section, and your choice is saved across reload/relog like every other Elu Tracker setting.*
 - **One-Click Loadouts:** Save your current gear as a named preset and re-equip the entire set instantly, without dragging items one by one.
 - **Ctrl + Click a Preset:** Opens a context menu with **Replace** (overwrite the preset with your currently equipped gear, same name), **Rename**, and **Delete**.
