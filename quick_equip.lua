@@ -701,7 +701,16 @@ function renderGearSetUI()
         local setBtn = api.Interface:CreateWidget('button', buttonId, mainCanvas)
         setBtn:AddAnchor("TOPLEFT", buttonX, 3)
         setBtn:SetText(gear_set.name)
-        local skin = BUTTON_BASIC.DEFAULT
+        -- Bug fix: this used to be "local skin = BUTTON_BASIC.DEFAULT" --
+        -- that's a reference to the one shared, addon-wide default button
+        -- skin table, not a copy. Setting skin.width/height right after
+        -- permanently mutated BUTTON_BASIC.DEFAULT itself, on every single
+        -- render of this gear-set button row (i.e. every time this list
+        -- redraws), silently resizing every OTHER button anywhere in the
+        -- addon that also uses BUTTON_BASIC.DEFAULT's size after that point.
+        -- A real, honest copy avoids touching the shared table at all.
+        local skin = {}
+        for k, v in pairs(BUTTON_BASIC.DEFAULT) do skin[k] = v end
         skin.width = buttonBaseWidth
         skin.height = 30
         api.Interface:ApplyButtonSkin(setBtn, skin)
@@ -794,7 +803,10 @@ function renderGearSetUI()
     addSetButton = api.Interface:CreateWidget('button', addButtonId, mainCanvas)
     addSetButton:AddAnchor("TOPLEFT", addButtonX, 3)
     addSetButton:SetText("+")
-    local addSkin = BUTTON_BASIC.DEFAULT
+    -- Same shared-table aliasing bug as the "skin" copy above -- fixed the
+    -- same way, with an actual copy instead of a reference.
+    local addSkin = {}
+    for k, v in pairs(BUTTON_BASIC.DEFAULT) do addSkin[k] = v end
     addSkin.width = 60
     addSkin.height = 30
     api.Interface:ApplyButtonSkin(addSetButton, addSkin)

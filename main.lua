@@ -17,6 +17,7 @@ local crashAlertAddon = require("Elu_Tracker/crash_alert")
 local lossPornAddon = require("Elu_Tracker/loss_porn")
 local rangeMeterAddon = require("Elu_Tracker/range_meter")
 local quickEquipAddon = require("Elu_Tracker/quick_equip")
+local lootTrackerAddon = require("Elu_Tracker/loot")
 eluDisplayWindow = nil
 local eluWasVisible = false
 local eluBtn
@@ -124,6 +125,7 @@ local function OnUpdate(dt)
     end
     if rangeMeterAddon and rangeMeterAddon.OnUpdate then rangeMeterAddon.OnUpdate(dt) end
     if quickEquipAddon and quickEquipAddon.OnUpdate then quickEquipAddon:OnUpdate(dt) end
+    if lootTrackerAddon and lootTrackerAddon.OnUpdate then lootTrackerAddon.OnUpdate(dt) end
 
     if eluDisplayWindow then
         local isVis = eluDisplayWindow:IsVisible()
@@ -465,6 +467,29 @@ local function CreateFishingWindow(wndParent)
     return wnd
 end
 
+local _lootWnd = nil
+
+local function CreateLootWindow(wndParent)
+    -- Same fix as Commerce/Fishing/Misc/Guild Check above: subWindowConstructor
+    -- fires on every tab activation, not just the first, so without this
+    -- guard every visit to Loot Tracker would rebuild (and leak) a whole
+    -- new copy of this tab on top of the previous one.
+    if _lootWnd then
+        return _lootWnd
+    end
+
+    local wnd = wndParent:CreateChildWidget("emptywidget", "lootWindow", 0, true)
+    wnd:SetExtent(600, 600)
+    wnd:AddAnchor("TOP", wndParent, 0, 0)
+
+    if lootTrackerAddon and lootTrackerAddon.CreateUI then
+        lootTrackerAddon.CreateUI(wnd)
+    end
+
+    _lootWnd = wnd
+    return wnd
+end
+
 -- Built lazily the first time "Toggle Trip Counter" is actually clicked
 -- (see toggleBtn:OnClick below) instead of unconditionally in OnLoad --
 -- most sessions never touch the Trip Counter, so this saves a whole
@@ -803,6 +828,7 @@ function OnLoad()
     lossPornAddon = require("Elu_Tracker/loss_porn")
     rangeMeterAddon = require("Elu_Tracker/range_meter")
     quickEquipAddon = require("Elu_Tracker/quick_equip")
+    lootTrackerAddon = require("Elu_Tracker/loot")
 
 
     local tabInfo = {
@@ -815,6 +841,11 @@ function OnLoad()
             validationCheckFunc = function() return true end,
             title = "Fishing",
             subWindowConstructor = function(parent) CreateFishingWindow(parent) end
+        },
+        {
+            validationCheckFunc = function() return true end,
+            title = "Loot Tracker",
+            subWindowConstructor = function(parent) CreateLootWindow(parent) end
         },
         {
             validationCheckFunc = function() return true end,
@@ -896,6 +927,7 @@ function OnLoad()
     if lossPornAddon and lossPornAddon.OnLoad then lossPornAddon.OnLoad() end
     if rangeMeterAddon and rangeMeterAddon.OnLoad then rangeMeterAddon.OnLoad() end
     if quickEquipAddon and quickEquipAddon.OnLoad then quickEquipAddon:OnLoad() end
+    if lootTrackerAddon and lootTrackerAddon.OnLoad then lootTrackerAddon:OnLoad() end
 
     api.On("UPDATE", OnUpdate)
     api.On("CHAT_MESSAGE", OnChatMessage)
@@ -944,6 +976,7 @@ function OnUnload()
     if lossPornAddon and lossPornAddon.OnUnload then lossPornAddon.OnUnload(); lossPornAddon = nil end
     if rangeMeterAddon and rangeMeterAddon.OnUnload then rangeMeterAddon.OnUnload(); rangeMeterAddon = nil end
     if quickEquipAddon and quickEquipAddon.OnUnload then quickEquipAddon:OnUnload(); quickEquipAddon = nil end
+    if lootTrackerAddon and lootTrackerAddon.OnUnload then lootTrackerAddon:OnUnload(); lootTrackerAddon = nil end
 
     if eluDisplayWindow then
         eluDisplayWindow:Show(false)
@@ -958,6 +991,7 @@ function OnUnload()
     -- open would hand back a dangling reference instead of building fresh.
     _commerceWnd = nil
     _fishingWnd = nil
+    _lootWnd = nil
     _miscWnd = nil
     _guildCheckWnd = nil
 

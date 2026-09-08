@@ -593,6 +593,23 @@ local function OnLoad()
     eluFishingEventWindow:RegisterEvent("CHAT_JOINED_CHANNEL")
     eluFishingEventWindow:RegisterEvent("UPDATE_SPECIALTY_RATIO")
 
+    -- Guard against building this tab's widgets twice onto the same
+    -- fishingWindow container. In the normal case fishingWindow is a brand
+    -- new container every time this runs (main.lua fully Free()s and
+    -- rebuilds eluDisplayWindow -- and resets its own _fishingWnd cache --
+    -- on every OnUnload+OnLoad cycle before this OnLoad ever gets called
+    -- again), so this guard is a no-op there. It exists as the same
+    -- defense-in-depth every other tab/popup builder in this addon already
+    -- has (see loot.lua's BuildLootTrackerOverlay, main.lua's _fishingWnd
+    -- guard on the container itself, etc.) in case that invariant is ever
+    -- broken by a future change -- without it, a second run here would
+    -- stack an entire duplicate set of ~15 widgets (including a second
+    -- InsertColumn/InsertRows on the scroll list) on top of the first,
+    -- exactly the anti-pattern that used to cost this addon dozens of
+    -- leaked windows before it was fixed elsewhere.
+    if not fishingWindow.eluWidgetsBuilt then
+        fishingWindow.eluWidgetsBuilt = true
+
     local sessionScrollList = fishingWindow.sessionScrollList
     sessionScrollList:InsertColumn("", 600, 1, SessionSetFunc, nil, nil, SessionsColumnLayoutSetFunc)
     sessionScrollList:InsertRows(8, false)
@@ -604,7 +621,7 @@ local function OnLoad()
         sessionScrollList:DeleteAllDatas()
         sessionScrollList:ResetScroll(0)
         fillSessionTableData(sessionScrollList, pageIndex)
-    end 
+    end
     fishingWindow.sessionScrollList = sessionScrollList
 
     local todayGoldStr = fishingWindow:CreateChildWidget("label", "todayGoldStr", 0, true)
@@ -749,6 +766,18 @@ local function OnLoad()
     fishingWindow.favouritePackStr = favouritePackStr
 
     clearPinkBtn:AddAnchor("LEFT", favouritePackStr, "RIGHT", 15, 0)
+
+    else
+        -- Widgets already exist (see the guard comment above) -- still
+        -- refresh the list against pastSessions, which was just re-read
+        -- from disk a few lines up, instead of leaving it showing whatever
+        -- it last had.
+        if fishingWindow.sessionScrollList then
+            fillSessionTableData(fishingWindow.sessionScrollList, 1)
+            fishingWindow.sessionScrollList.pageControl.maxPage = maxPage
+            fishingWindow.sessionScrollList.pageControl:SetCurrentPage(1, true)
+        end
+    end
 
     refreshStatisticsLabels()
 end

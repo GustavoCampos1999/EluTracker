@@ -807,21 +807,28 @@ local function OnUnload()
 	RecalibrateFromLearning()
 	SaveLearnState()
 
+	-- pcall-wrapped to match every other module's OnUnload convention in
+	-- this addon (see loot.lua, fish_tracker.lua, etc.): if any single
+	-- Free() call ever threw here, an unwrapped call would abort the rest
+	-- of OnUnload right there, leaving the remaining windows non-nil and
+	-- un-freed -- and since CreateUI/ShowCornerWarning/UpdateLiveUsage all
+	-- guard on "if X == nil then build", a stale non-nil reference to an
+	-- already-freed-by-the-engine window would mean that surface silently
+	-- never rebuilds for the rest of the session after a reload cycle.
 	if configWnd then
-		
-		api.Interface:Free(configWnd)
+		pcall(function() api.Interface:Free(configWnd) end)
 		configWnd = nil
 	end
 
 	if cornerWarningWnd then
 		cornerWarningWnd:Show(false)
-		api.Interface:Free(cornerWarningWnd)
+		pcall(function() api.Interface:Free(cornerWarningWnd) end)
 		cornerWarningWnd = nil
 	end
 
 	if liveUsageWnd then
 		liveUsageWnd:Show(false)
-		api.Interface:Free(liveUsageWnd)
+		pcall(function() api.Interface:Free(liveUsageWnd) end)
 		liveUsageWnd = nil
 	end
 end

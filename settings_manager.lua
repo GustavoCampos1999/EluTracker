@@ -13,6 +13,10 @@ EluTrackerSettingsManager.Settings = {
     zealSettings = { opacity = 50, sound = true, size = 1.0 },
     misc = { enableAltTracking = false, modifierKey = "SHIFT" },
     activeLootSession = {},
+    -- Loot Tracker overlay (draggable HUD showing live profit/kills/labor).
+    -- x/y default to 0,0 which loot.lua treats as "not positioned yet" and
+    -- centers on screen instead (same convention tripPos/spotPos/etc use).
+    lootOverlay = { x = 0, y = 0, visible = false },
     -- chatMode: 1 = Off, 2 = System Chat, 3 = Alert Chat (see loss_porn.lua).
     -- Replaces the old boolean `showInChat` (still migrated from on first
     -- load for existing players, in loss_porn.lua's OnLoad).

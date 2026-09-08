@@ -1,3 +1,10 @@
+-- Was missing this -- every api.X call below was silently relying on some
+-- OTHER module (loaded earlier by main.lua's own require chain) having
+-- left "api" as a real global. Worked by accident of load order rather
+-- than by design, unlike every other module in this addon, which all
+-- explicitly require("api") for themselves.
+local api = require("api")
+
 local settingsManager = require('Elu_Tracker/settings_manager')
 local EluTrackerSettings = settingsManager.Settings
 local SaveEluTrackerSettings = settingsManager.SaveSettings

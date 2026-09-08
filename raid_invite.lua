@@ -37,6 +37,13 @@ local state = {
 
 local widgets = {}
 
+-- AddTooltip() (below) creates each tooltip as its own top-level widget
+-- parented to "UIParent" (not to the button it's anchored under), so
+-- freeing that button's/panel's window does NOT free these along with it.
+-- Tracked here so OnUnload can free them explicitly instead of leaking a
+-- handful of orphaned UIParent-level widgets on every addon reload.
+local tooltipWidgets = {}
+
 local MSG_PREFIX = "[Elu Auto Invite] "
 
 local function LogInfo(msg) api.Log:Info(MSG_PREFIX .. msg) end
@@ -68,7 +75,23 @@ end
 local function MarkInvited(name)
     local key = string.lower(name or "")
     if key == "" then return end
-    recentInvites[key] = api.Time:GetUiMsec()
+    local now = api.Time:GetUiMsec()
+    recentInvites[key] = now
+
+    -- recentInvites otherwise only ever grows: entries are never removed,
+    -- just left behind once they age out of the cooldown window, so a long
+    -- play session (or several, since this module-level table also
+    -- survives an OnUnload+OnLoad reload cycle) inviting many different
+    -- names over time would slowly accumulate one stale entry per unique
+    -- name forever. Piggyback the prune on every new invite (cheap: this
+    -- only runs on an actual invite, not every chat message) and clear out
+    -- anything well past the cooldown -- a wide 10x margin so this can
+    -- never race RecentlyInvited's own check above.
+    for k, t in pairs(recentInvites) do
+        if now - t > INVITE_COOLDOWN_MS * 10 then
+            recentInvites[k] = nil
+        end
+    end
 end
 
 -- Forward-declared so LoadSettings (below) can call it: SaveSettings is
@@ -440,6 +463,7 @@ end
     local function AddTooltip(widget, text)
         tooltipIdCounter = tooltipIdCounter + 1
         local tooltip = api.Interface:CreateWidget("emptywidget", "eluTooltip_" .. tostring(math.random(10000, 99999)) .. "_" .. tostring(tooltipIdCounter), "UIParent")
+        table.insert(tooltipWidgets, tooltip)
         tooltip:SetExtent(280, 110)
         tooltip:AddAnchor("BOTTOM", widget, "TOP", 0, -5)
         tooltip:Show(false)
@@ -1419,6 +1443,14 @@ function raid_invite.OnUnload()
         pcall(function() api.Interface:Free(widgets.floatingIcon) end)
     end
 
+    -- Tooltips created by AddTooltip() are their own top-level widgets (see
+    -- the comment on tooltipWidgets above), never freed by any of the
+    -- parent Free() calls above -- free them explicitly here.
+    for _, tooltip in ipairs(tooltipWidgets) do
+        pcall(function() api.Interface:Free(tooltip) end)
+    end
+    tooltipWidgets = {}
+
     state.inviteMode = 0
 
     widgets.qai_label = nil
@@ -1436,6 +1468,23 @@ function raid_invite.OnUnload()
     widgets.fKeywordLbl = nil
     widgets.ToggleListWindow = nil
     widgets.raid_manager = nil
+
+    -- These were never nil'd out even though their parent window/panel was
+    -- just freed above (widgets.sidePanel / widgets.floatingIcon /
+    -- widgets.enhancedCanvas) -- so ToggleActive() and OnUpdate (both of
+    -- which do "if widgets.toggleBtn then ... :SetText(...)") could still
+    -- find a truthy-but-already-freed reference and error out on a stale
+    -- widget after a reload cycle, instead of the guard correctly skipping
+    -- it like it's meant to.
+    widgets.fBgOn = nil
+    widgets.fBgOff = nil
+    widgets.toggleBtn = nil
+    widgets.statusLbl = nil
+    widgets.cbIcon = nil
+    widgets.kwInput = nil
+    widgets.eluFilterCombo = nil
+    widgets.giveleadCombo = nil
+    widgets.enhancedCanvasLbl = nil
 end
 
 raid_invite.OnChatMessage = OnChatMessage

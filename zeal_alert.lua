@@ -7,6 +7,13 @@ local zeal_alert = {}
 local zealOverlay = nil
 local zealLabel = nil
 local zealIcon = nil
+-- Both of these were missing "local" -- leaking into the global namespace,
+-- and (worse than loss_porn.lua's similar global) never nil'd in OnUnload
+-- either, so after a Free(zealOverlay) they were left as dangling
+-- references to an already-freed child widget until the next OnLoad
+-- happened to overwrite them.
+local moveModeLabel = nil
+local zealBg = nil
 local buffIdToTrack = 495
 local trackedBuffInfo = {}
 local zealSettingsFile = "elu_zeal_settings.txt"
@@ -164,7 +171,11 @@ function zeal_alert.CreateUI(wndParent)
 
     local moveBtn = rowZeal:CreateChildWidget("button", "moveBtn", 0, true)
     ApplyButtonSkin(moveBtn, BUTTON_BASIC.DEFAULT)
-    moveBtn:SetText(isMoving and "Save UI" or "Move UI")
+    -- Bug fix: "isMoving" was never defined anywhere in this file (always
+    -- nil), so this button's initial label was always "Move UI" even when
+    -- settings.moving was already true (e.g. right after a reload while
+    -- mid-drag-setup). settings.moving is the actual state this tracks.
+    moveBtn:SetText(settings.moving and "Save UI" or "Move UI")
     moveBtn:SetExtent(100, 25)
     moveBtn:AddAnchor("LEFT", applyScaleBtn, "RIGHT", 10, 0)
 
@@ -304,6 +315,14 @@ function zeal_alert:OnUnload()
         pcall(function() api.Interface:Free(zealOverlay) end)
         zealOverlay = nil
     end
+    -- zealLabel/zealIcon/moveModeLabel/zealBg are all children of
+    -- zealOverlay and freed along with it above, but were never nil'd here
+    -- -- leaving stale references to already-freed widgets until the next
+    -- OnLoad happens to overwrite them.
+    zealLabel = nil
+    zealIcon = nil
+    moveModeLabel = nil
+    zealBg = nil
 end
 
 return zeal_alert

@@ -1066,7 +1066,14 @@ function packs_helper:GetSpecialtyPackNameById(itemId)
 end 
 
 function packs_helper:GetSpecialtyPackZoneIdById(itemId)
-    return packsInfo[itemId].zone
+    -- Bug fix: unlike GetSpecialtyPackNameById right above it, this had no
+    -- nil check -- any itemId not present in packsInfo (an unrecognized/new
+    -- pack, or a bad id) threw "attempt to index a nil value" and aborted
+    -- whatever caller was mid-call, instead of returning nil like the rest
+    -- of this file's lookup helpers do.
+    local info = packsInfo[itemId]
+    if info == nil then return nil end
+    return info.zone
 end
 
 function packs_helper:GetSpecialtyPackZoneIdByName(itemName)

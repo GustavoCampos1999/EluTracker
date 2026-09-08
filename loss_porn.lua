@@ -15,6 +15,14 @@ local ui = require("Elu_Tracker/loss_porn_ui")
 
 local lossPornWindow
 
+-- Was missing "local" -- leaked into the global namespace (_G), where it
+-- could collide with another addon's or the client's own globals. Behaves
+-- the same functionally either way (both forms persist for the life of the
+-- process, since require() caches this module and OnLoad's later reload
+-- cycles don't re-run top-of-file code), so this is a namespace-hygiene fix,
+-- not a behavior change.
+local LossPornSessionWiped = false
+
 local clockTimer = 0
 local clockResetTime = 1000
 
