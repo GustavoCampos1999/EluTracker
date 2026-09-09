@@ -1,8 +1,8 @@
 local elu_tracker_addon = {
 	name = "Elu Tracker",
 	author = "Eludelu",
-	version = "4.2",
-	desc = "Commerce, fishing and tools."
+	version = "5.0.0",
+	desc = "Commerce, Fishing and Tools."
 }
 
 local packsAddon = require("Elu_Tracker/packs")
@@ -18,6 +18,30 @@ local lossPornAddon = require("Elu_Tracker/loss_porn")
 local rangeMeterAddon = require("Elu_Tracker/range_meter")
 local quickEquipAddon = require("Elu_Tracker/quick_equip")
 local lootTrackerAddon = require("Elu_Tracker/loot")
+local eluFunctionsToolsAddon = require("Elu_Tracker/elu_functions_tools")
+
+local ELU_SMALL_BTN_SKIN = {
+    path = "ui/common/default.dds",
+    fontColor = {
+        normal = { 0.407843, 0.266667, 0.0705882, 1 },
+        pushed = { 0.407843, 0.266667, 0.0705882, 1 },
+        highlight = { 0.603922, 0.376471, 0.0627451, 1 },
+        disabled = { 0.360784, 0.360784, 0.360784, 1 },
+    },
+    coords = {
+        normal = { 727, 247, 60, 25 },
+        disable = { 788, 273, 60, 25 },
+        over = { 727, 273, 60, 25 },
+        click = { 788, 247, 60, 25 },
+    },
+    fontInset = { top = 0, right = 11, left = 11, bottom = 0 },
+    width = 30,
+    height = 24,
+    autoResize = true,
+    drawableType = "ninePart",
+    coordsKey = "btn",
+}
+
 eluDisplayWindow = nil
 local eluWasVisible = false
 local eluBtn
@@ -126,6 +150,7 @@ local function OnUpdate(dt)
     if rangeMeterAddon and rangeMeterAddon.OnUpdate then rangeMeterAddon.OnUpdate(dt) end
     if quickEquipAddon and quickEquipAddon.OnUpdate then quickEquipAddon:OnUpdate(dt) end
     if lootTrackerAddon and lootTrackerAddon.OnUpdate then lootTrackerAddon.OnUpdate(dt) end
+    if eluFunctionsToolsAddon and eluFunctionsToolsAddon.OnUpdate then eluFunctionsToolsAddon.OnUpdate(dt) end
 
     if eluDisplayWindow then
         local isVis = eluDisplayWindow:IsVisible()
@@ -174,16 +199,26 @@ local function CreateCommerceWindow(wndParent)
 
     local setPriceBtn = wnd:CreateChildWidget("button", "setPriceBtn", 0, true)
     setPriceBtn:SetText("Set Price")
-    setPriceBtn:SetExtent(80, 25)
     setPriceBtn:AddAnchor("TOPRIGHT", wnd, -15, 10)
-    api.Interface:ApplyButtonSkin(setPriceBtn, BUTTON_BASIC.DEFAULT)
+    api.Interface:ApplyButtonSkin(setPriceBtn, ELU_SMALL_BTN_SKIN)
 
     local resetPriceBtn = wnd:CreateChildWidget("button", "resetPriceBtn", 0, true)
     resetPriceBtn:SetText("Reset")
-    resetPriceBtn:SetExtent(60, 25)
     resetPriceBtn:AddAnchor("RIGHT", setPriceBtn, "LEFT", -5, 0)
-    api.Interface:ApplyButtonSkin(resetPriceBtn, BUTTON_BASIC.DEFAULT)
-    
+    api.Interface:ApplyButtonSkin(resetPriceBtn, ELU_SMALL_BTN_SKIN)
+
+    -- One-shot measurement, not a guess: confirms next test whether the
+    -- skin swap above actually shrank these buttons. Written once, here,
+    -- rather than guessing again from a screenshot.
+    pcall(function()
+        local w1, h1 = setPriceBtn:GetExtent()
+        local w2, h2 = resetPriceBtn:GetExtent()
+        api.File:Write("elu_commerce_btn_debug.lua", {
+            "setPriceBtn actual GetExtent() after ELU_SMALL_BTN_SKIN = " .. tostring(w1) .. "x" .. tostring(h1),
+            "resetPriceBtn actual GetExtent() after ELU_SMALL_BTN_SKIN = " .. tostring(w2) .. "x" .. tostring(h2),
+        })
+    end)
+
     function resetPriceBtn:OnClick()
         local dataFile = api.File:Read("elu_commerce_prices.txt")
         if type(dataFile) == "table" then
@@ -264,9 +299,8 @@ local function CreateCommerceWindow(wndParent)
 
     local savePriceBtn = pricePanel:CreateChildWidget("button", "savePriceBtn", 0, true)
     savePriceBtn:SetText("Save")
-    savePriceBtn:SetExtent(60, 24)
     savePriceBtn:AddAnchor("BOTTOM", pricePanel, 0, -8)
-    api.Interface:ApplyButtonSkin(savePriceBtn, BUTTON_BASIC.DEFAULT)
+    api.Interface:ApplyButtonSkin(savePriceBtn, ELU_SMALL_BTN_SKIN)
 
     _charcoalInputRef = charcoalGoldInput
     _charcoalSilverInputRef = charcoalSilverInput
@@ -370,16 +404,6 @@ end
 local _guildCheckWnd = nil
 
 local function CreateGuildCheckWindow(wndParent)
-    -- Reuse a single built tab instead of rebuilding (and leaking) a whole
-    -- new one every time this tab is opened. subWindowConstructor fires on
-    -- every tab activation, not just the first -- without this guard,
-    -- guildCheckAddon.CreateUI(wnd) ran again on every visit and stacked a
-    -- brand new "Font Size" stepper (and everything else in the tab) on top
-    -- of every previous one at the exact same position, which is why those
-    -- buttons appeared to randomly change size (you were actually looking
-    -- at several overlapping copies of the same button). Same fix already
-    -- used for the Fishing Settings popup and Range Meter's color popup
-    -- below.
     if _guildCheckWnd then
         return _guildCheckWnd
     end
@@ -582,33 +606,14 @@ end
 
 local _miscWnd = nil
 
+local _toggleFuncTooltip = nil
+
 local function CreateMiscWindow(wndParent)
-    -- Reuse a single built tab instead of rebuilding (and leaking) a whole
-    -- new one every time this tab is opened. subWindowConstructor fires on
-    -- every tab activation, not just the first -- without this guard, every
-    -- visit to Misc. re-created the semi-transparent background drawable
-    -- (bg, ~50% opaque light gray) on top of every previous one, so after a
-    -- few visits the stacked transparency compounded into that white
-    -- blur/smudge over the tab. It also re-ran every settings section's own
-    -- CreateUI() (Quick Equip/Crash Alert/Zeal Alert/Range Meter) each time,
-    -- which is the same root cause behind Range Meter's font-size buttons
-    -- appearing to randomly change size (overlapping duplicate copies of
-    -- the same button stacked at the same spot). Same fix already used for
-    -- the Fishing Settings popup and Range Meter's own color popup below.
     if _miscWnd then
         return _miscWnd
     end
 
     local wnd = wndParent:CreateChildWidget("emptywidget", "miscWindow", 0, true)
-    -- 820 used to be declared here, but the real content chain below (title
-    -- + toolsRow + Quick Equip[30] + Crash Alert[220] + Zeal Alert[135] +
-    -- Range Meter[145] + the gaps between them + the final button) only
-    -- adds up to ~765px. The semi-transparent "bg" drawable right below
-    -- always fills this widget's FULL declared height, not just however
-    -- much real content exists -- so those extra ~55px of dead space were
-    -- being rendered too, past the bottom of the tab's actual visible
-    -- frame, showing up as a white smudge bleeding out past the panel's own
-    -- border. 780 covers the real content with a small margin instead.
     wnd:SetExtent(600, 780)
     wnd:AddAnchor("TOP", wndParent, 0, 0)
 
@@ -624,16 +629,8 @@ local function CreateMiscWindow(wndParent)
     ApplyTextColor(title, FONT_COLOR.TITLE)
     title:SetText("Tools")
     title:AddAnchor("TOP", wnd, 0, 35)
-
-    -- Both buttons live in a small fixed-width row that is itself centered
-    -- under the title, with each button filled flush to the row's own
-    -- left/right edge (the same technique Crash Alert's button row below
-    -- uses) -- so the pair stays visually centered regardless of each
-    -- button's own text-dependent rendered width, and everything chained
-    -- below inherits a properly centered starting point instead of the
-    -- old guessed -70/+70 offsets.
     local toolsRow = wnd:CreateChildWidget("emptywidget", "toolsRow", 0, true)
-    toolsRow:SetExtent(300, 30)
+    toolsRow:SetExtent(500, 30)
     toolsRow:AddAnchor("TOP", title, "BOTTOM", 0, 20)
 
     local toggleBtn = toolsRow:CreateChildWidget("button", "toggleBtn", 0, true)
@@ -661,15 +658,118 @@ local function CreateMiscWindow(wndParent)
     end
     toggleStopwatchBtn:SetHandler("OnClick", toggleStopwatchBtn.OnClick)
 
+    -- Third button, centered in toolsRow between the other two. Used to
+    -- reach a separate "Unsafe Portals" addon through a hand-rolled
+    -- api.UnsafePortalsBridge global (bare globals aren't shared between
+    -- addons in this sandbox -- each addon script gets its own isolated
+    -- global environment). That addon is now merged directly into this file
+    -- as the eluFunctionsToolsAddon module (required at the top of this
+    -- file), so this button calls it the same way every other module here
+    -- is called -- no bridge, no "other addon" to fail to find.
+    local toggleFuncBtn = toolsRow:CreateChildWidget("button", "toggleFuncBtn", 0, true)
+    ApplyButtonSkin(toggleFuncBtn, BUTTON_BASIC.DEFAULT)
+    toggleFuncBtn:SetExtent(140, 25)
 
-    -- Each settings section below is chained to the actual bottom edge of
-    -- the previous one (rather than an independently-guessed absolute Y
-    -- offset), so they can never overlap regardless of how tall any one of
-    -- them turns out to be. Previously crash_alert/zeal_alert/range_meter
-    -- all used fixed offsets that overlapped each other. Chaining from
-    -- toolsRow (centered, x=0) rather than from toggleBtn (off-center by
-    -- design, as half of the button pair) keeps every section below
-    -- properly centered instead of drifting left.
+    -- File-based debug trace for this button, kept from before the merge --
+    -- still useful for confirming a click actually fired and what
+    -- IsVisible()/SetVisible() reported, without needing to catch a chat
+    -- message live.
+    local ELU_TOGGLE_DEBUG_FILE = "elu_tracker_toggle_debug.lua"
+    local eluToggleDebugLog = {}
+    local eluToggleDbgSeq = 0
+    local function EluToggleDbg(msg)
+        eluToggleDbgSeq = eluToggleDbgSeq + 1
+        table.insert(eluToggleDebugLog, "#" .. eluToggleDbgSeq .. " " .. tostring(msg))
+        while #eluToggleDebugLog > 100 do
+            table.remove(eluToggleDebugLog, 1)
+        end
+        pcall(function() api.File:Write(ELU_TOGGLE_DEBUG_FILE, eluToggleDebugLog) end)
+    end
+
+    local function RefreshToggleFuncBtnText()
+        if eluFunctionsToolsAddon and eluFunctionsToolsAddon.IsVisible then
+            local ok, isVisible = pcall(eluFunctionsToolsAddon.IsVisible)
+            if ok then
+                toggleFuncBtn:SetText("Toggle Func: " .. (isVisible and "ON" or "OFF"))
+            else
+                toggleFuncBtn:SetText("Toggle Func: ERR")
+            end
+        else
+            toggleFuncBtn:SetText("Toggle Func: N/A")
+        end
+    end
+    RefreshToggleFuncBtnText()
+    toggleFuncBtn:AddAnchor("CENTER", toolsRow, 0, 0)
+
+    -- OnClick is wired up FIRST, before anything else touches toolsRow --
+    -- see the pcall block right below for why: an earlier version of the
+    -- "(?)" icon setup ran unprotected and BEFORE this SetHandler call, and
+    -- when it threw, the engine aborted the rest of CreateMiscWindow right
+    -- there, so this line was never reached and Toggle Func stopped
+    -- responding to clicks entirely. Doing the essential wiring first means
+    -- that can never happen again, regardless of what the icon code below
+    -- does.
+    function toggleFuncBtn:OnClick()
+        if not (eluFunctionsToolsAddon and eluFunctionsToolsAddon.IsVisible and eluFunctionsToolsAddon.SetVisible) then
+            EluToggleDbg("OnClick: eluFunctionsToolsAddon module not available")
+            api.Log:Err("[Elu Tracker] Elu Functions Tools module not available.")
+            RefreshToggleFuncBtnText()
+            return
+        end
+        local ok, isVisible = pcall(eluFunctionsToolsAddon.IsVisible)
+        EluToggleDbg("OnClick: IsVisible() pcall ok=" .. tostring(ok) .. " isVisible=" .. tostring(isVisible))
+        local reqValue = not (ok and isVisible)
+        local setOk, setErr = pcall(eluFunctionsToolsAddon.SetVisible, reqValue)
+        if setOk then
+            EluToggleDbg("OnClick: SetVisible(" .. tostring(reqValue) .. ") pcall ok=true")
+        else
+            EluToggleDbg("OnClick: SetVisible(" .. tostring(reqValue) .. ") pcall FAILED err=" .. tostring(setErr))
+        end
+        RefreshToggleFuncBtnText()
+    end
+    toggleFuncBtn:SetHandler("OnClick", toggleFuncBtn.OnClick)
+
+    local iconOk, iconErr = pcall(function()
+        local toggleFuncHelpIcon = W_ICON.CreateGuideIconWidget(toolsRow)
+        toggleFuncHelpIcon:AddAnchor("LEFT", toggleFuncBtn, "RIGHT", 5, 0)
+
+        local tooltip = api.Interface:CreateWidget("emptywidget", "eluToggleFuncTooltip", "UIParent")
+  
+        _toggleFuncTooltip = tooltip
+
+        tooltip:SetExtent(320, 300)
+        tooltip:AddAnchor("TOP", toggleFuncHelpIcon, "BOTTOM", 0, 5)
+        tooltip:Show(false)
+
+        local bg = tooltip:CreateNinePartDrawable("ui/common_new/default.dds", "background")
+        bg:SetTextureInfo("tooltip")
+        bg:AddAnchor("TOPLEFT", tooltip, 0, 0)
+        bg:AddAnchor("BOTTOMRIGHT", tooltip, 0, 0)
+        bg:SetColor(1, 1, 1, 0.95)
+
+        local lbl = tooltip:CreateChildWidget("textbox", "lbl", 0, true)
+        lbl:AddAnchor("TOPLEFT", tooltip, 10, 10)
+        lbl:AddAnchor("BOTTOMRIGHT", tooltip, -10, -10)
+        lbl.style:SetAlign(ALIGN.CENTER)
+        lbl.style:SetFontSize(14)
+        lbl:SetAutoWordwrap(true)
+        lbl:SetText("Shows/hides the Portals and Skin quick-toggle buttons.\n\nPortals: lets you use other players' portals for 10 seconds, then auto re-enables the safety setting.\n\nSkin: ON shows everyone's real gear/costumes. OFF turns on the client's 'All Players with Default Appearances' option, showing generic models for everyone instead -- useful to improve performance (FPS) during large RvR battles.\n\nShift + drag the buttons to move them once visible.")
+        ApplyTextColor(lbl, {1, 1, 1, 1})
+
+        toggleFuncHelpIcon:SetHandler("OnEnter", function()
+            tooltip:Show(true)
+            tooltip:Raise()
+        end)
+        toggleFuncHelpIcon:SetHandler("OnLeave", function()
+            tooltip:Show(false)
+        end)
+    end)
+    if iconOk then
+        EluToggleDbg("(?) help icon + tooltip built OK")
+    else
+        EluToggleDbg("(?) help icon FAILED, Toggle Func still works normally: " .. tostring(iconErr))
+    end
+
     local sectionGap = 15
     local lastSection = toolsRow
 
@@ -730,11 +830,7 @@ local function CreateMiscWindow(wndParent)
 end
 
 local function OnChatMessage(...)
-    -- Single owner of the CHAT_MESSAGE event for the whole addon. Each
-    -- sub-handler used to call api.On("CHAT_MESSAGE", ...) independently,
-    -- which meant whichever module loaded last silently took over the
-    -- event for everyone else (e.g. crash_alert's registration could
-    -- replace raid_invite's, breaking keyword auto-invite / "x givelead").
+
     if raidInviteAddon and raidInviteAddon.OnChatMessage then
         pcall(raidInviteAddon.OnChatMessage, ...)
     end
@@ -745,39 +841,14 @@ end
 
 local _onLoadStarted = false
 
--- Set once an automatic self-reload has fired (see the bottom of OnLoad
--- below). Deliberately NOT reset in OnUnload -- only a genuine full addon
--- reload (which re-executes this whole file from scratch, resetting every
--- module-level local including this one back to false) should allow
--- another auto-reload to be scheduled. This is what stops the self-reload
--- from ever looping: after it fires once, OnLoad's own re-entry (via the
--- OnUnload+OnLoad call inside the scheduled callback below) sees this
--- already true and does not schedule a second one.
+
 local _autoRebuildDone = false
 
--- Forward-declared (rather than "local function OnLoad()" / "local function
--- OnUnload()") so each can reference the other by name from inside its own
--- body -- needed below, where OnLoad schedules a callback that calls both
--- OnUnload() and OnLoad() again, and OnUnload is defined further down in
--- this file (a plain "local function" wouldn't see a sibling declared later
--- in the same chunk).
+
 local OnLoad, OnUnload
 
 function OnLoad()
-    -- Guard against a duplicate OnLoad call. Observed in the wild: the
-    -- game client's own scripts/x2ui/addons/addons.lua occasionally hits
-    -- "attempt to call field 'callback' (a nil value)" and, as a side
-    -- effect, re-fires addon load hooks without unloading first. Every
-    -- OnLoad in this addon used to create a brand new eluDisplayWindow,
-    -- tripOverlay, eluBtn, and re-run every sub-module's OnLoad on top of
-    -- what already existed -- doubling this addon's window count in one
-    -- shot (confirmed via the client's own "[ADDONS] High memory usage"
-    -- diagnostic: Elu_Tracker windows went 30 -> 60 in about 5 seconds,
-    -- immediately followed by a failed memory allocation and a crash).
-    -- This guard makes OnLoad a no-op if it's already loaded. It also
-    -- checks _onLoadStarted (set right below) rather than just
-    -- eluDisplayWindow, so a duplicate OnLoad landing before eluDisplayWindow
-    -- is actually assigned a few lines down is caught too.
+
     if eluDisplayWindow or _onLoadStarted then
         return
     end
@@ -829,7 +900,10 @@ function OnLoad()
     rangeMeterAddon = require("Elu_Tracker/range_meter")
     quickEquipAddon = require("Elu_Tracker/quick_equip")
     lootTrackerAddon = require("Elu_Tracker/loot")
+    eluFunctionsToolsAddon = require("Elu_Tracker/elu_functions_tools")
 
+
+    if eluFunctionsToolsAddon and eluFunctionsToolsAddon.OnLoad then eluFunctionsToolsAddon.OnLoad() end
 
     local tabInfo = {
         {
@@ -911,9 +985,6 @@ function OnLoad()
     end
     eluBtn:SetHandler("OnLeave", eluBtn.OnLeave)
 
-    -- tripOverlay itself is no longer built here -- see BuildTripOverlay()
-    -- above, which now runs lazily the first time "Toggle Trip Counter" is
-    -- actually clicked.
 
     packsAddon:OnLoad()
     guildCheckAddon:OnLoad()
@@ -929,23 +1000,11 @@ function OnLoad()
     if quickEquipAddon and quickEquipAddon.OnLoad then quickEquipAddon:OnLoad() end
     if lootTrackerAddon and lootTrackerAddon.OnLoad then lootTrackerAddon:OnLoad() end
 
+
     api.On("UPDATE", OnUpdate)
     api.On("CHAT_MESSAGE", OnChatMessage)
 
-    -- Buttons/skins built the instant the client starts loading (a fresh
-    -- game launch) have been reported rendering oversized -- some
-    -- engine-side sizing/scale state apparently isn't right yet at that
-    -- exact moment. A mid-session manual reload always fixes it, but
-    -- simply waiting before the first build (tried at 500ms, then 3s) did
-    -- not -- so whatever's wrong isn't fixed by time passing on its own,
-    -- it specifically takes tearing the addon down and building it again.
-    -- Since a manual /reloadui reliably works, this reproduces that
-    -- automatically: once, a few seconds after this first load, silently
-    -- run the exact same OnUnload() + OnLoad() a user would trigger by
-    -- hand. _autoRebuildDone (declared above, never reset by OnUnload)
-    -- ensures this can only ever fire once per genuine fresh load of this
-    -- file -- OnLoad's own re-entry from inside this callback sees it
-    -- already true and skips scheduling another one, so this can't loop.
+
     if not _autoRebuildDone then
         api:DoIn(3000, function()
             if _autoRebuildDone or not eluDisplayWindow then
@@ -959,9 +1018,7 @@ function OnLoad()
 end
 
 function OnUnload()
-    -- Reset so a future OnLoad (relog, or a fresh addon load) isn't
-    -- permanently blocked by this guard. Deliberately does NOT reset
-    -- _autoRebuildDone -- see its declaration above.
+
     _onLoadStarted = false
 
     if packsAddon then packsAddon:OnUnload(); packsAddon = nil end
@@ -977,6 +1034,7 @@ function OnUnload()
     if rangeMeterAddon and rangeMeterAddon.OnUnload then rangeMeterAddon.OnUnload(); rangeMeterAddon = nil end
     if quickEquipAddon and quickEquipAddon.OnUnload then quickEquipAddon:OnUnload(); quickEquipAddon = nil end
     if lootTrackerAddon and lootTrackerAddon.OnUnload then lootTrackerAddon:OnUnload(); lootTrackerAddon = nil end
+    if eluFunctionsToolsAddon and eluFunctionsToolsAddon.OnUnload then eluFunctionsToolsAddon.OnUnload(); eluFunctionsToolsAddon = nil end
 
     if eluDisplayWindow then
         eluDisplayWindow:Show(false)
@@ -984,24 +1042,13 @@ function OnUnload()
         eluDisplayWindow = nil
     end
 
-    -- Freeing eluDisplayWindow above also frees every tab's cached content
-    -- (children are freed along with their parent), but these four
-    -- module-level locals would otherwise keep pointing at those now-freed
-    -- widgets. Without resetting them here, the next OnLoad's first tab
-    -- open would hand back a dangling reference instead of building fresh.
     _commerceWnd = nil
     _fishingWnd = nil
     _lootWnd = nil
     _miscWnd = nil
     _guildCheckWnd = nil
 
-    -- This one is a separate top-level window (not a child of
-    -- eluDisplayWindow, so freeing that above doesn't reach it) -- previously
-    -- never freed here because OnUnload only ever ran right before a true
-    -- /reloadui, which resets this local along with everything else by
-    -- re-executing the whole file. The auto-reload below is the first
-    -- caller that runs OnUnload+OnLoad within the same session, so this
-    -- needs its own explicit cleanup now too.
+
     if _fishingSettingsWnd then
         _fishingSettingsWnd:Show(false)
         pcall(function() api.Interface:Free(_fishingSettingsWnd) end)
@@ -1019,7 +1066,12 @@ function OnUnload()
         pcall(function() api.Interface:Free(eluBtn) end)
         eluBtn = nil
     end
-    
+
+    if _toggleFuncTooltip then
+        pcall(function() api.Interface:Free(_toggleFuncTooltip) end)
+        _toggleFuncTooltip = nil
+    end
+
     api.On("UPDATE", function() return end)
     api.On("CHAT_MESSAGE", function() return end)
 end

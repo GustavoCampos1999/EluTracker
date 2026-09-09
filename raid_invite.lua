@@ -11,6 +11,38 @@ local api = require("api")
 
 local raid_invite = {}
 
+-- Same fix, same root cause, as guild_check.lua's and range_meter.lua's
+-- stepper buttons: BUTTON_BASIC.DEFAULT's native skin has a fixed minimum
+-- render size well beyond a 30x25 box, so these small "<"/">" pagination
+-- buttons render visually oversized regardless of :SetExtent(). Not caused
+-- by any addon edit -- it's how the client has always rendered
+-- BUTTON_BASIC.DEFAULT at small sizes. Swapped in the addon's own smaller
+-- nine-slice skin (copied verbatim from stopwatch.lua's proven-working
+-- BSCBTN, same texture/coords) instead, only for these pagination arrows --
+-- every other button in this file keeps BUTTON_BASIC.DEFAULT unchanged
+-- since it isn't small enough to trigger this.
+local RAID_SMALL_BTN_SKIN = {
+    path = "ui/common/default.dds",
+    fontColor = {
+        normal = { 0.407843, 0.266667, 0.0705882, 1 },
+        pushed = { 0.407843, 0.266667, 0.0705882, 1 },
+        highlight = { 0.603922, 0.376471, 0.0627451, 1 },
+        disabled = { 0.360784, 0.360784, 0.360784, 1 },
+    },
+    coords = {
+        normal = { 727, 247, 60, 25 },
+        disable = { 788, 273, 60, 25 },
+        over = { 727, 273, 60, 25 },
+        click = { 788, 247, 60, 25 },
+    },
+    fontInset = { top = 0, right = 11, left = 11, bottom = 0 },
+    width = 30,
+    height = 24,
+    autoResize = true,
+    drawableType = "ninePart",
+    coordsKey = "btn",
+}
+
 -- State
 local state = {
     keyword = "",
@@ -775,10 +807,9 @@ local function BuildSidePanel(parent)
             wnd.pageLbl = pageLbl
 
             local prevBtn = wnd:CreateChildWidget("button", "prevBtn", 0, true)
-            prevBtn:SetExtent(30, 25)
             prevBtn:AddAnchor("RIGHT", pageLbl, "LEFT", -10, 0)
             prevBtn:SetText("<")
-            api.Interface:ApplyButtonSkin(prevBtn, BUTTON_BASIC.DEFAULT)
+            api.Interface:ApplyButtonSkin(prevBtn, RAID_SMALL_BTN_SKIN)
             prevBtn:SetHandler("OnClick", function()
                 if wnd.page > 1 then
                     wnd.page = wnd.page - 1
@@ -787,10 +818,9 @@ local function BuildSidePanel(parent)
             end)
 
             local nextBtn = wnd:CreateChildWidget("button", "nextBtn", 0, true)
-            nextBtn:SetExtent(30, 25)
             nextBtn:AddAnchor("LEFT", pageLbl, "RIGHT", 10, 0)
             nextBtn:SetText(">")
-            api.Interface:ApplyButtonSkin(nextBtn, BUTTON_BASIC.DEFAULT)
+            api.Interface:ApplyButtonSkin(nextBtn, RAID_SMALL_BTN_SKIN)
             nextBtn:SetHandler("OnClick", function()
                 local t = (wnd.listType == 1 and state.whitelist or (wnd.listType == 2 and state.blacklist or state.fastBlacklist))
                 local maxPage = math.ceil(#t / 5)
@@ -856,16 +886,14 @@ local function BuildSidePanel(parent)
                     ApplyTextColor(pageLbl, FONT_COLOR.DEFAULT)
 
                     local prevBtn = exportWnd:CreateChildWidget("button", "prevBtn", 0, true)
-                    prevBtn:SetExtent(30, 25)
                     prevBtn:AddAnchor("RIGHT", pageLbl, "LEFT", -10, 0)
                     prevBtn:SetText("<")
-                    api.Interface:ApplyButtonSkin(prevBtn, BUTTON_BASIC.DEFAULT)
+                    api.Interface:ApplyButtonSkin(prevBtn, RAID_SMALL_BTN_SKIN)
 
                     local nextBtn = exportWnd:CreateChildWidget("button", "nextBtn", 0, true)
-                    nextBtn:SetExtent(30, 25)
                     nextBtn:AddAnchor("LEFT", pageLbl, "RIGHT", 10, 0)
                     nextBtn:SetText(">")
-                    api.Interface:ApplyButtonSkin(nextBtn, BUTTON_BASIC.DEFAULT)
+                    api.Interface:ApplyButtonSkin(nextBtn, RAID_SMALL_BTN_SKIN)
 
                     local closeBtn = exportWnd:CreateChildWidget("button", "closeBtn", 0, true)
                     closeBtn:SetExtent(80, 30)

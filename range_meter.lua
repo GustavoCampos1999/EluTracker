@@ -4,6 +4,36 @@ local settings = settingsManager.Settings.rangeMeterSettings
 local SaveSettings = settingsManager.SaveSettings
 
 local range_meter = {}
+
+-- Same fix as guild_check.lua's stepper buttons and the same root cause:
+-- BUTTON_BASIC.DEFAULT's native skin has a fixed minimum render size well
+-- beyond a 20x20 box, so a tiny stepper button using it renders visually
+-- oversized regardless of :SetExtent(). Not caused by any addon edit (this
+-- file is otherwise byte-for-byte identical to upstream) -- it's how the
+-- client has always rendered BUTTON_BASIC.DEFAULT at small sizes. Swapped
+-- in the addon's own smaller nine-slice skin (copied verbatim from
+-- stopwatch.lua's proven-working BSCBTN, same texture/coords) instead.
+local SMALL_BTN_SKIN = {
+    path = "ui/common/default.dds",
+    fontColor = {
+        normal = { 0.407843, 0.266667, 0.0705882, 1 },
+        pushed = { 0.407843, 0.266667, 0.0705882, 1 },
+        highlight = { 0.603922, 0.376471, 0.0627451, 1 },
+        disabled = { 0.360784, 0.360784, 0.360784, 1 },
+    },
+    coords = {
+        normal = { 727, 247, 60, 25 },
+        disable = { 788, 273, 60, 25 },
+        over = { 727, 273, 60, 25 },
+        click = { 788, 247, 60, 25 },
+    },
+    fontInset = { top = 0, right = 11, left = 11, bottom = 0 },
+    width = 30,
+    height = 24,
+    autoResize = true,
+    drawableType = "ninePart",
+    coordsKey = "btn",
+}
 local canvas = nil
 local rangeLabel = nil
 local dynWnd = nil
@@ -135,10 +165,9 @@ function range_meter.CreateUI(wndParent)
         lbl.style:SetColor(0.2, 0.2, 0.2, 1)
 
         local btnMinus = grp:CreateChildWidget("button", name.."Minus", 0, true)
-        btnMinus:SetExtent(20, 20)
         btnMinus:AddAnchor("LEFT", lbl, "RIGHT", 5, 0)
         btnMinus:SetText("-")
-        api.Interface:ApplyButtonSkin(btnMinus, BUTTON_BASIC.DEFAULT)
+        api.Interface:ApplyButtonSkin(btnMinus, SMALL_BTN_SKIN)
 
         local valLbl = grp:CreateChildWidget("label", name.."Val", 0, true)
         valLbl:SetAutoResize(true)
@@ -147,10 +176,9 @@ function range_meter.CreateUI(wndParent)
         valLbl.style:SetColor(0.2, 0.2, 0.2, 1)
 
         local btnPlus = grp:CreateChildWidget("button", name.."Plus", 0, true)
-        btnPlus:SetExtent(20, 20)
         btnPlus:AddAnchor("LEFT", valLbl, "RIGHT", 5, 0)
         btnPlus:SetText("+")
-        api.Interface:ApplyButtonSkin(btnPlus, BUTTON_BASIC.DEFAULT)
+        api.Interface:ApplyButtonSkin(btnPlus, SMALL_BTN_SKIN)
 
         local currentVal = initVal
         local function UpdateValue(newVal)

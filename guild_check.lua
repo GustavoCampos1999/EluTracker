@@ -6,6 +6,43 @@ local api = require("api")
 
 local guild_check = {}
 
+-- ROOT CAUSE of the oversized "-"/"+" stepper buttons below: BUTTON_BASIC.
+-- DEFAULT is the client's native button skin, and its nine-slice texture
+-- has a fixed minimum render size well beyond the 20x20 box these steppers
+-- ask for -- the client renders the skin at its own natural size instead of
+-- shrinking it to fit, so a tiny stepper button ends up visually huge
+-- compared to its declared box. This isn't something any addon Lua edit
+-- caused (confirmed: this file is byte-for-byte identical to the upstream
+-- GitHub source everywhere else) -- it's how BUTTON_BASIC.DEFAULT has
+-- always rendered small buttons in this client.
+--
+-- The addon's own stopwatch.lua already solves exactly this problem for
+-- its Start/Stop/Reset buttons with a custom, smaller nine-slice skin
+-- table (there called BSCBTN) instead of BUTTON_BASIC.DEFAULT. Copied
+-- verbatim here (same texture, same coords, same proven-working values --
+-- not guessed) for the same reason.
+local SMALL_BTN_SKIN = {
+    path = "ui/common/default.dds",
+    fontColor = {
+        normal = { 0.407843, 0.266667, 0.0705882, 1 },
+        pushed = { 0.407843, 0.266667, 0.0705882, 1 },
+        highlight = { 0.603922, 0.376471, 0.0627451, 1 },
+        disabled = { 0.360784, 0.360784, 0.360784, 1 },
+    },
+    coords = {
+        normal = { 727, 247, 60, 25 },
+        disable = { 788, 273, 60, 25 },
+        over = { 727, 273, 60, 25 },
+        click = { 788, 247, 60, 25 },
+    },
+    fontInset = { top = 0, right = 11, left = 11, bottom = 0 },
+    width = 30,
+    height = 24,
+    autoResize = true,
+    drawableType = "ninePart",
+    coordsKey = "btn",
+}
+
 local f1Window = nil
 local f1Bg = nil
 local f1Label = nil
@@ -332,22 +369,20 @@ function guild_check.CreateUI(container)
         ApplyTextColor(lbl, FONT_COLOR.DEFAULT)
         
         local btnMinus = grp:CreateChildWidget("button", name.."Minus", 0, true)
-        btnMinus:SetExtent(20, 20)
         btnMinus:AddAnchor("LEFT", lbl, "RIGHT", 5, 0)
         btnMinus:SetText("-")
-        ApplyButtonSkin(btnMinus, BUTTON_BASIC.DEFAULT)
-        
+        ApplyButtonSkin(btnMinus, SMALL_BTN_SKIN)
+
         local valLbl = grp:CreateChildWidget("label", name.."Val", 0, true)
         valLbl:SetAutoResize(true)
         valLbl:SetText(tostring(initVal))
         valLbl:AddAnchor("LEFT", btnMinus, "RIGHT", 5, 0)
         ApplyTextColor(valLbl, FONT_COLOR.DEFAULT)
-        
+
         local btnPlus = grp:CreateChildWidget("button", name.."Plus", 0, true)
-        btnPlus:SetExtent(20, 20)
         btnPlus:AddAnchor("LEFT", valLbl, "RIGHT", 5, 0)
         btnPlus:SetText("+")
-        ApplyButtonSkin(btnPlus, BUTTON_BASIC.DEFAULT)
+        ApplyButtonSkin(btnPlus, SMALL_BTN_SKIN)
         
         local currentVal = initVal
         local function UpdateValue(newVal)
