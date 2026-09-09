@@ -84,3 +84,9 @@ The regrade log can be opened in two different ways: by navigating to the **Misc
 - **Ctrl + Click a Preset:** Opens a context menu with **Replace** (overwrite the preset with your currently equipped gear, same name), **Rename**, and **Delete**.
 - **Shift + Drag to Reorder:** Hold Shift and drag a preset to change its position among the others.
 - **Shift + Drag the Bar:** Hold Shift and drag empty space on the bar itself to reposition the whole Quick Equip window.
+
+### 10. Elu Functions Tools
+*Two quick-toggle buttons, shown/hidden together with the **Misc** tab's "Toggle Func" button. Hidden by default on a fresh install; your choice is saved across reload/relog like every other Elu Tracker setting.*
+- **Portals:** Temporarily lets you use other players' portals for 10 seconds, then automatically re-enables the "Only Use My Portal" safety setting.
+- **Skin:** Toggles the client's "All Players with Default Appearances" option on or off — useful for improving performance (FPS) during large-scale RvR battles.
+- **Shift + Drag:** Hold Shift and drag either button to move the pair together; they always move as one unit.
