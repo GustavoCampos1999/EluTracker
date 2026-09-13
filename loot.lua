@@ -59,7 +59,32 @@ local LABOR_USED_TIMER_RATE = 300
 
 local sessionClockRefreshTimer = 0
 local SESSION_CLOCK_REFRESH_RATE = 1000
+
+-- BUG FOUND: the live session clock used to accumulate the `dt` passed into
+-- OnUpdate every tick ("lootTrackerSessionTimer = lootTrackerSessionTimer +
+-- dt"), and every profit/kills-per-hour figure on the live overlay was
+-- computed from that same accumulated value. On this client, that ran the
+-- clock roughly 2x real speed -- a real 30-minute farming session showed up
+-- as ~1h on the overlay, and profit/kills per hour were understated by
+-- half to match. stopwatch.lua's own OnUpdate never had this problem
+-- because it was written to NOT trust dt for elapsed time at all -- it
+-- tracks a wall-clock start timestamp (api.Time:GetUiMsec()) and computes
+-- elapsed as a plain timestamp difference every time it needs one instead.
+-- This session clock now uses that same proven approach:
+--   lootTrackerSessionTimer -- elapsed ms banked from all PREVIOUS running
+--                              segments (i.e. frozen at whatever it was the
+--                              last time the session was paused, ended, or
+--                              first started). Still persisted to disk as
+--                              savedSessionTimer, same as before.
+--   sessionSegmentStartMs   -- api.Time:GetUiMsec() timestamp of when the
+--                              CURRENT running segment began (session
+--                              start, resume, or restoring an
+--                              already-running session on reload).
+-- GetLiveSessionElapsedMs() (below, near OnUpdate) adds the two together
+-- only while actually running, exactly mirroring swElapsedMs/startTimeMs/
+-- swRunning in stopwatch.lua.
 local lootTrackerSessionTimer = 0
+local sessionSegmentStartMs = 0
 local sessionPaused
 
 local displayRefreshCounter = 0
@@ -273,6 +298,9 @@ local function startLootTrackerSession()
     endLootTrackerSession()
 
     currentSession = sessionToStart
+    -- New running segment starts right now -- see the comment on
+    -- sessionSegmentStartMs near the top of this file.
+    sessionSegmentStartMs = api.Time:GetUiMsec()
 end
 
 local function addItemToSession(itemId, itemCount)
@@ -667,6 +695,19 @@ local function isLootWindowOpen()
     return false
 end
 
+-- See the comment on lootTrackerSessionTimer/sessionSegmentStartMs near the
+-- top of this file -- this is the single source of truth for "how much
+-- time has this session actually been running", used both for the overlay
+-- display and for the per-hour math, so the two can never drift apart from
+-- each other again.
+local function GetLiveSessionElapsedMs()
+    local elapsed = lootTrackerSessionTimer
+    if currentSession ~= nil and sessionPaused ~= true then
+        elapsed = elapsed + (api.Time:GetUiMsec() - sessionSegmentStartMs)
+    end
+    return elapsed
+end
+
 local function OnUpdate(dt)
     if isLootWindowOpen() then
         if displayRefreshCounter + dt > DISPLAY_REFRESH_MS then
@@ -687,9 +728,10 @@ local function OnUpdate(dt)
 
     if lootTrackerOverlay ~= nil and sessionClockRefreshTimer + dt > SESSION_CLOCK_REFRESH_RATE then
         sessionClockRefreshTimer = 0
-        lootTrackerOverlay.timerLabel:SetText(displayOverlayTimeString(lootTrackerSessionTimer / 1000))
+        local liveElapsedMs = GetLiveSessionElapsedMs()
+        lootTrackerOverlay.timerLabel:SetText(displayOverlayTimeString(liveElapsedMs / 1000))
         if currentSession ~= nil then
-            local sessionSeconds = lootTrackerSessionTimer / 1000
+            local sessionSeconds = liveElapsedMs / 1000
             local profitPerHour = safeDiv(currentSession["profitTotal"], sessionSeconds) * 3600
             local killsPerHour = safeDiv(currentSession["kills"], sessionSeconds) * 3600
             local silverPerLabor = safeDiv(currentSession["profitTotal"] * 100, currentSession["laborSpent"])
@@ -704,16 +746,16 @@ local function OnUpdate(dt)
         end
 
         if currentSession ~= nil and sessionPaused ~= true then
-            currentSession.savedSessionTimer = lootTrackerSessionTimer
+            -- Save the FULL live elapsed (banked time plus the current
+            -- running segment), not just the banked lootTrackerSessionTimer
+            -- -- otherwise a reload mid-segment would silently drop
+            -- whatever time has elapsed since the segment started.
+            currentSession.savedSessionTimer = liveElapsedMs
             EluTrackerSettings.activeLootSession = currentSession
             SaveEluTrackerSettings()
         end
     end
     sessionClockRefreshTimer = sessionClockRefreshTimer + dt
-
-    if currentSession ~= nil and sessionPaused ~= true then
-        lootTrackerSessionTimer = lootTrackerSessionTimer + dt
-    end
 end
 
 --- Session Scroll List Functions
@@ -940,6 +982,10 @@ local function BuildLootTrackerOverlay()
     local overlaySettings = EluTrackerSettings.lootOverlay or { x = 0, y = 0, visible = false }
 
     lootTrackerOverlay = api.Interface:CreateEmptyWindow("lootTrackerOverlay", "UIParent")
+    -- Card stays at its original 220x80 -- only the two buttons themselves
+    -- get smaller/tidier below (see the comment further down): one row
+    -- instead of two stacked, and shrunk down, so they take up noticeably
+    -- less of the card without changing the card's own size.
     lootTrackerOverlay:SetExtent(220, 80)
     if (overlaySettings.x or 0) == 0 and (overlaySettings.y or 0) == 0 then
         lootTrackerOverlay:AddAnchor("CENTER", "UIParent", 0, 0)
@@ -1010,17 +1056,44 @@ local function BuildLootTrackerOverlay()
     end
     closeBtn:SetHandler("OnClick", closeBtn.OnClick)
 
+    -- Pause/Resume and End, stacked in the same narrow top-right control
+    -- column the original buttons used -- back to stacked (not side by
+    -- side) on request: side by side needed roughly double the width of a
+    -- single button, which reached far enough left to cut into the
+    -- Profit/Kills/Labor text next to it. A single narrower column reaches
+    -- much less far left, so it clears that text -- and each button is a
+    -- bit taller than the original 20px.
+    local overlayBtnW = 54
+    local overlayBtnH = 22
+    local overlayBtnGapV = 3
+    local overlayBtnX = -10
+    local overlayBtnY = 30
+
+    -- BUG FOUND (this is why Pause/End visually overlapped when they were
+    -- briefly side by side): ApplyButtonSkin silently regrows a widget back
+    -- toward its skin's own natural size -- the exact same gotcha already
+    -- documented in elu_functions_tools.lua, which is why every
+    -- *ButtonVisual function over there re-asserts :SetExtent() AFTER
+    -- ApplyButtonSkin, not before. Keeping that ordering here too (skin
+    -- first, size after) even though stacking gives more breathing room
+    -- than the side-by-side layout did, so the same mistake can't quietly
+    -- creep back in later.
     local startBtn = lootTrackerOverlay:CreateChildWidget("button", "startBtn", 0, true)
-    startBtn:AddAnchor("TOPRIGHT", lootTrackerOverlay, -10, 30)
-    startBtn:SetExtent(50, 20)
+    startBtn:AddAnchor("TOPRIGHT", lootTrackerOverlay, overlayBtnX, overlayBtnY)
     ApplyButtonSkin(startBtn, BUTTON_BASIC.DEFAULT)
+    startBtn:SetExtent(overlayBtnW, overlayBtnH)
     startBtn:SetText("Start")
 
     local saveBtn = lootTrackerOverlay:CreateChildWidget("button", "saveBtn", 0, true)
-    saveBtn:AddAnchor("TOPRIGHT", lootTrackerOverlay, -10, 52)
-    saveBtn:SetExtent(50, 20)
+    saveBtn:AddAnchor("TOPRIGHT", lootTrackerOverlay, overlayBtnX, overlayBtnY + overlayBtnH + overlayBtnGapV)
     ApplyButtonSkin(saveBtn, BUTTON_BASIC.DEFAULT)
+    saveBtn:SetExtent(overlayBtnW, overlayBtnH)
     saveBtn:SetText("End")
+    -- Soft red tint on the label only (skin/background stay the same
+    -- BUTTON_BASIC.DEFAULT as Start/Pause/Resume) -- just enough to read as
+    -- the "ends the session" action without looking like a different,
+    -- heavier button style bolted on next to it.
+    ApplyTextColor(saveBtn, {1, 0.45, 0.45, 1})
 
     if currentSession ~= nil then
         saveBtn:Show(true)
@@ -1041,15 +1114,43 @@ local function BuildLootTrackerOverlay()
             saveBtn:Show(true)
             sessionPaused = false
         elseif not sessionPaused then
+            -- Pausing: bank the elapsed time from the segment that's ending
+            -- into lootTrackerSessionTimer (see the comment on it near the
+            -- top of this file) before flipping sessionPaused -- from this
+            -- point on GetLiveSessionElapsedMs() stops adding any more time
+            -- until Resume starts a new segment below.
+            lootTrackerSessionTimer = lootTrackerSessionTimer + (api.Time:GetUiMsec() - sessionSegmentStartMs)
             sessionPaused = true
             startBtn:SetText("Resume")
         else
+            -- Resuming: a new running segment starts right now.
+            sessionSegmentStartMs = api.Time:GetUiMsec()
             sessionPaused = false
             startBtn:SetText("Pause")
         end
     end
     startBtn:SetHandler("OnClick", startBtn.OnClick)
+    -- Same ApplyButtonSkin-then-SetExtent ordering as the creation above --
+    -- ApplyButtonSkin on hover would otherwise regrow startBtn back to its
+    -- natural size on every mouse-over, right back into saveBtn next to it.
+    function startBtn:OnEnter()
+        ApplyButtonSkin(startBtn, BUTTON_BASIC.DEFAULT)
+        startBtn:SetExtent(overlayBtnW, overlayBtnH)
+    end
+    startBtn:SetHandler("OnEnter", startBtn.OnEnter)
+    function startBtn:OnLeave()
+        ApplyButtonSkin(startBtn, BUTTON_BASIC.DEFAULT)
+        startBtn:SetExtent(overlayBtnW, overlayBtnH)
+    end
+    startBtn:SetHandler("OnLeave", startBtn.OnLeave)
 
+    -- ApplyTextColor is a one-shot style override the engine doesn't
+    -- reliably restore on mouse leave (same lesson already learned the hard
+    -- way in elu_functions_tools.lua) -- re-assert it on every hover
+    -- transition so End doesn't silently fade back to the default button
+    -- color the first time someone mouses over it. ApplyTextColor doesn't
+    -- touch the widget's size the way ApplyButtonSkin does, so no
+    -- SetExtent needed here.
     function saveBtn:OnClick()
         endLootTrackerSession()
         startBtn:SetText("Start")
@@ -1057,6 +1158,10 @@ local function BuildLootTrackerOverlay()
         sessionPaused = false
     end
     saveBtn:SetHandler("OnClick", saveBtn.OnClick)
+    function saveBtn:OnEnter() ApplyTextColor(saveBtn, {1, 0.45, 0.45, 1}) end
+    saveBtn:SetHandler("OnEnter", saveBtn.OnEnter)
+    function saveBtn:OnLeave() ApplyTextColor(saveBtn, {1, 0.45, 0.45, 1}) end
+    saveBtn:SetHandler("OnLeave", saveBtn.OnLeave)
 
     --- Add dragable bar across top
     local moveWnd = lootTrackerOverlay:CreateChildWidget("label", "moveWnd", 0, true)
@@ -1124,6 +1229,10 @@ local function OnLoad()
         currentSession = nil
         lootTrackerSessionTimer = 0
     end
+    -- sessionPaused is always forced to false a few lines up regardless of
+    -- what was restored, so whether this is a genuinely resumed session or
+    -- a fresh one, a running segment effectively begins right now.
+    sessionSegmentStartMs = api.Time:GetUiMsec()
 
     -- Initialize the addon-wide loot event window
     eluLootEventWindow = api.Interface:CreateEmptyWindow("eluLootEventWindow", "UIParent")

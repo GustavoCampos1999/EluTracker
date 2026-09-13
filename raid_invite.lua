@@ -355,7 +355,7 @@ end
 function raid_invite.StopEnhancedRecruiting()
     state.enhancedIsActive = false
     state.enhancedKeyword = ""
-    
+
     if widgets.enhancedRecruitBtn then
         widgets.enhancedRecruitBtn:SetText("Start Recruiting")
     end
@@ -364,6 +364,49 @@ function raid_invite.StopEnhancedRecruiting()
     end
     if widgets.enhancedCanvas then
         widgets.enhancedCanvas:Show(false)
+    end
+
+    -- "Do NOT disable auto-invite automatically" (doNotDisableAutoInvite)
+    -- already means, everywhere else in this file (OnLoad above, and the
+    -- leave-raid check in OnUpdate below), "don't let anything automatic
+    -- turn my normal Elu Auto Invite off". StartEnhancedRecruiting()
+    -- unconditionally forces Elu Auto Invite OFF while Quick Auto Invite is
+    -- running -- checkbox or not, always -- because both invite paths
+    -- firing at once would double-invite the same person; that part is by
+    -- design and unchanged. But once Quick Auto Invite STOPS (this
+    -- function -- every stop path in the file funnels through here: the
+    -- recruit button's own toggle-to-stop and the canvas's "Stop" button),
+    -- that reason for Elu Auto Invite being off is gone. So with the
+    -- checkbox on, turn Elu Auto Invite back ON right here, automatically
+    -- -- otherwise the checkbox's own promise ("don't leave my auto-invite
+    -- disabled because of something automatic") would quietly not hold for
+    -- the one automatic disable this file does unconditionally.
+    --
+    -- Guarded on state.inviteMode == 0 so this is a no-op (and logs
+    -- nothing) whenever Elu Auto Invite is already on -- in particular,
+    -- ToggleActive() above already flips state.inviteMode to 1 BEFORE it
+    -- calls this function (turning Elu Auto Invite on manually is what
+    -- stops Quick Auto Invite in that path), so this block correctly does
+    -- nothing there instead of redundantly re-triggering.
+    --
+    -- NOTE: intentionally hardcodes "Turn OFF" below instead of calling
+    -- GetModeString() -- GetModeString is declared with `local function`
+    -- further down this same file, AFTER this function, so it is not yet
+    -- an in-scope local here and would resolve to a nonexistent global
+    -- instead (the exact same class of forward-reference bug the
+    -- SaveSettings comment near the top of this file already documents).
+    -- "Turn OFF" is exactly what GetModeString() returns for inviteMode==1
+    -- anyway, so this stays in sync with it by construction.
+    if state.doNotDisableAutoInvite and state.inviteMode == 0 then
+        state.inviteMode = 1
+        SaveSettings()
+        UpdateFloatingIcon()
+        if widgets.toggleBtn then widgets.toggleBtn:SetText("Turn OFF") end
+        if widgets.statusLbl then
+            widgets.statusLbl:SetText("[ON]")
+            ApplyTextColor(widgets.statusLbl, {0, 1, 0, 1})
+        end
+        LogInfo("Quick Auto Invite stopped -- Elu Auto Invite turned back ON automatically (\"Do NOT disable auto-invite automatically\" is checked).")
     end
 end
 
