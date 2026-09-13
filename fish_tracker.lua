@@ -689,7 +689,13 @@ function fish_tracker:OnUpdate(dt)
                 if strengthContestBuff ~= nil then
                     strengthContestIcon:Show(true)
                     F_SLOT.SetIconBackGround(strengthContestIcon, GetCachedIconPath(5715))
-                    
+                    -- SetIconBackGround appears to auto-size this icon to
+                    -- buff 5715's own native texture, which renders bigger
+                    -- than targetFishIcon's icons. Force it back to match
+                    -- targetFishIcon's actual current size so both skill
+                    -- indicators always look the same size.
+                    strengthContestIcon:SetExtent(targetFishIcon:GetExtent())
+
                     local timeLeftSecs = math.max(0, strengthContestBuff.timeLeft / 1000)
                     strengthContestTimeLabel:SetText(string.format("%.0fs", timeLeftSecs))
                     

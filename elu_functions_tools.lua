@@ -69,10 +69,39 @@ local containerWindow
 local portalsBtn
 local skinBtn
 
-local clockTimer = 0
-local clockResetTime = 10000
+-- Portal button state machine -- three states, not a plain on/off:
+--   PORTAL_SAFE        -- default/normal. "Only Use My Portal" is ON.
+--                         Button shows "Portals". Click -> PORTAL_UNSAFE_TEMP.
+--   PORTAL_UNSAFE_TEMP -- exactly the original button behavior: "Only Use
+--                         My Portal" is OFF and a 10s timer is running that
+--                         will silently put it back to PORTAL_SAFE on its
+--                         own if the button isn't touched again. Button
+--                         shows "UNSAFE". Click again (before the timer
+--                         fires) -> PORTAL_UNSAFE_OFF.
+--   PORTAL_UNSAFE_OFF  -- still unsafe, but the 10s timer is cancelled: it
+--                         now stays this way until clicked again, instead
+--                         of reverting on its own. Button shows "OFF"
+--                         (i.e. "the block on entering other players'
+--                         portals is OFF"). Click -> PORTAL_SAFE.
+local PORTAL_SAFE = "safe"
+local PORTAL_UNSAFE_TEMP = "unsafe_temp"
+local PORTAL_UNSAFE_OFF = "unsafe_off"
 
-local isUnsafePortalsEnabled
+local portalMode = PORTAL_SAFE
+local portalClockTimer = 0
+local PORTAL_CLOCK_RESET_TIME = 10000
+
+-- True only while the CURRENT unsafe/off state was actually caused by this
+-- module (a click that moved PORTAL_SAFE -> PORTAL_UNSAFE_TEMP, or that ->
+-- PORTAL_UNSAFE_OFF). False whenever portalMode is just MIRRORING an
+-- already-unsafe real setting found on load without this module ever
+-- touching it (see the OnLoad "else" branch below). That distinction is
+-- what SetVisible needs, below: turning Tool Functions off must clean up
+-- after what THIS module made unsafe (no button is left visible to fix it
+-- once the window hides), but must never silently overwrite a setting the
+-- player configured on their own, entirely outside this addon, that this
+-- module was only ever mirroring.
+local unsafeCausedByAddon = false
 
 -- Hoisted so the *ButtonVisual functions below can reach them -- needed to
 -- re-assert the button size on every state update, see the comment on that
@@ -92,19 +121,39 @@ local FRAME_PADDING = 4
 local _onLoadStarted = false
 
 -- ===== Portals button =====
--- Briefly flips "Only Use My Portal" off so you can step through someone
--- else's portal, then OnUpdate below automatically flips it back on after
--- clockResetTime (10s).
-local function toggleUnsafePortalsOption()
-	local currentValue = api.Option:GetOnlyUseMyPortalSetting()
-
-	if currentValue == 0 then
-		api.Option:SetOnlyUseMyPortalSetting(1)
-		isUnsafePortalsEnabled = true
-	else
-		api.Option:SetOnlyUseMyPortalSetting(0)
-		isUnsafePortalsEnabled = false
+-- Sets the real "Only Use My Portal" client setting directly (not a
+-- read-then-flip toggle -- see the OnLoad comment below for why a
+-- read-and-flip approach caused real bugs). This is the only place in the
+-- whole module that writes this setting, and it (like the rest of the
+-- state machine above) is only ever reached while Tool Functions is
+-- enabled -- see the guard in OnLoad below: with Tool Functions off (its
+-- default), this module never touches the real setting at all.
+local function setPortalRestriction(isSafe)
+	local target = isSafe and 1 or 0
+	local ok, err = pcall(function() api.Option:SetOnlyUseMyPortalSetting(target) end)
+	if not ok then
+		-- This used to fail completely silently (bare pcall, result
+		-- discarded) -- if the setter ever throws (wrong signature, option
+		-- system not ready yet, etc.) every single call site here would
+		-- quietly do NOTHING and there would be no way to tell from in-game
+		-- behavior alone. Logged now so a failure is provable instead of
+		-- guessed at.
+		Dbg("setPortalRestriction(" .. tostring(isSafe) .. "): SetOnlyUseMyPortalSetting(" .. tostring(target) .. ") THREW: " .. tostring(err))
+		return
 	end
+	-- Read the real setting straight back so the debug log has hard proof
+	-- the write actually stuck, instead of just hoping it did. If a future
+	-- report says "the checkbox in Game Settings still doesn't match", this
+	-- readBack line is what tells the difference between two very different
+	-- problems: (a) readBack doesn't match target -> the setter call itself
+	-- isn't taking, a real bug here; (b) readBack DOES match target but the
+	-- on-screen checkbox still looks stale -> the native Options panel
+	-- simply isn't re-reading the value live while it's already open (a
+	-- client panel-refresh quirk, fixed by closing and reopening that
+	-- panel) -- nothing this module can do about that from over here, since
+	-- it never touches that panel's own widgets.
+	local readOk, readBack = pcall(function() return api.Option:GetOnlyUseMyPortalSetting() end)
+	Dbg("setPortalRestriction(" .. tostring(isSafe) .. "): wrote " .. tostring(target) .. ", readBack=" .. tostring(readOk and readBack or ("ERROR:" .. tostring(readBack))))
 end
 
 -- ===== Skin button: on/off toggle for real costumes vs. the client's
@@ -157,15 +206,18 @@ end
 
 local function updatePortalsButtonVisual()
 	if portalsBtn == nil then return end
-	if isUnsafePortalsEnabled == false then
-		portalsBtn:SetText("UNSAFE")
-		pcall(function() ApplyTextColor(portalsBtn, {1, 0.3, 0.3, 1}) end)
-	else
+	if portalMode == PORTAL_SAFE then
 		portalsBtn:SetText("Portals")
 		-- Re-apply the button's own default skin instead of forcing a raw
 		-- color -- this restores the exact look it had before it was ever
 		-- recolored, instead of a slightly-off forced white.
 		pcall(function() ApplyButtonSkin(portalsBtn, BUTTON_BASIC.DEFAULT) end)
+	elseif portalMode == PORTAL_UNSAFE_TEMP then
+		portalsBtn:SetText("UNSAFE")
+		pcall(function() ApplyTextColor(portalsBtn, {1, 0.3, 0.3, 1}) end)
+	else -- PORTAL_UNSAFE_OFF
+		portalsBtn:SetText("OFF")
+		pcall(function() ApplyTextColor(portalsBtn, {1, 0.3, 0.3, 1}) end)
 	end
 	portalsBtn:SetExtent(portalsW, buttonH)
 end
@@ -253,24 +305,23 @@ end
 
 -- Exposed as M.OnUpdate below and driven by Elu_Tracker/main.lua's own
 -- top-level OnUpdate(dt), NOT by calling api.On("UPDATE", ...) directly in
--- here. api.On("UPDATE"/"CHAT_MESSAGE", ...) replaces whatever handler was
--- registered before it -- exactly the bug main.lua's own OnChatMessage
--- comment already documents for CHAT_MESSAGE ("whichever module loaded last
--- silently took over the event for everyone else"). Registering our own
--- UPDATE handler here would silently break Elu_Tracker's main OnUpdate
--- (packs/fishing/guild check/etc. all stop ticking) depending on load
--- order, instead of stacking alongside it -- so this module has exactly one
--- entry point for UPDATE, called explicitly by the owner.
+-- here (api.On would replace whatever UPDATE handler main.lua already
+-- registered -- see main.lua's own OnChatMessage comment for the same
+-- class of bug with CHAT_MESSAGE). This only ever does anything in
+-- PORTAL_UNSAFE_TEMP -- the original 10s-then-auto-safe behavior -- and is
+-- a no-op in PORTAL_SAFE and PORTAL_UNSAFE_OFF (the persistent-unsafe state
+-- has no timer by design: it only leaves on a click, see OnClick below).
 local function OnUpdate(dt)
-	if isUnsafePortalsEnabled == false then
-		if clockTimer + dt > clockResetTime then
-			toggleUnsafePortalsOption()
-			isUnsafePortalsEnabled = true
-			clockTimer = 0
-			api.Log:Info("[Elu Functions Tools] Other player portals are now disabled.")
+	if portalMode == PORTAL_UNSAFE_TEMP then
+		portalClockTimer = portalClockTimer + dt
+		if portalClockTimer > PORTAL_CLOCK_RESET_TIME then
+			portalMode = PORTAL_SAFE
+			portalClockTimer = 0
+			unsafeCausedByAddon = false
+			setPortalRestriction(true)
+			api.Log:Info("[Elu Functions Tools] Other players' portals are disabled again (safe).")
 			updatePortalsButtonVisual()
 		end
-		clockTimer = clockTimer + dt
 	end
 end
 
@@ -287,9 +338,38 @@ local function SetVisible(v)
 		return
 	end
 	local shouldShow = v and true or false
+
+	-- BUG FOUND: this function used to only Show/Hide the window -- it never
+	-- touched portalMode or the real setting at all. That meant turning
+	-- Tool Functions OFF while the Portals button was sitting in
+	-- PORTAL_UNSAFE_TEMP or PORTAL_UNSAFE_OFF hid the only control for that
+	-- setting and left the player unsafe indefinitely, with no way to fix
+	-- it short of turning Tool Functions back on and clicking Portals
+	-- again. Fixed by forcing safe here, right before hiding -- but ONLY
+	-- when unsafeCausedByAddon is true, i.e. only when THIS module is what
+	-- made it unsafe in the first place. If portalMode is unsafe purely
+	-- because OnLoad mirrored an already-unsafe real setting the player set
+	-- on their own (Tool Functions was off at load time, see OnLoad's
+	-- "else" branch above), unsafeCausedByAddon is false and this leaves
+	-- that setting alone, exactly as it should.
+	if not shouldShow and portalMode ~= PORTAL_SAFE and unsafeCausedByAddon then
+		Dbg("SetVisible(false): portalMode was " .. tostring(portalMode) .. " (addon-caused), forcing back to safe before hiding")
+		portalMode = PORTAL_SAFE
+		portalClockTimer = 0
+		unsafeCausedByAddon = false
+		setPortalRestriction(true)
+		api.Log:Info("[Elu Functions Tools] Tool Functions turned off -- other players' portals are disabled again (safe).")
+		updatePortalsButtonVisual()
+	end
+
 	containerWindow:Show(shouldShow)
 	if shouldShow then
 		containerWindow:Raise()
+		-- Re-assert both buttons' current state the moment they become
+		-- visible again, in case anything about the underlying settings
+		-- changed while this window was hidden.
+		updatePortalsButtonVisual()
+		updateSkinButtonVisual()
 	end
 	settings.visible = shouldShow
 	saveSettings()
@@ -307,15 +387,50 @@ local function OnLoad()
 	loadSettings()
 	Dbg("settings after loadSettings(): x=" .. tostring(settings.x) .. " y=" .. tostring(settings.y) .. " visible=" .. tostring(settings.visible))
 
-	-- Safety net: if the portal restriction was somehow left disabled from a
-	-- previous session, force it back to the safe default (1) on load
-	-- instead of silently starting the session unsafe.
-	local ogValue = api.Option:GetOnlyUseMyPortalSetting() or 1
-	api.Log:Info("[Elu Functions Tools] Original 'Only Use My Portal' setting value: " .. tostring(ogValue))
-	if ogValue == 0 then
-		toggleUnsafePortalsOption()
+	-- BUG FOUND (this is almost certainly why players saw portals go unsafe
+	-- on an update even with Tool Functions off, its default): this safety
+	-- net used to run unconditionally on every load, AND it read the real
+	-- setting once into ogValue but then called toggleUnsafePortalsOption(),
+	-- which re-reads the setting a SECOND time and just flips whatever it
+	-- finds. If that second read landed on a different value than the
+	-- first -- this client's option system isn't always finished
+	-- initializing this early in OnLoad, the same class of load-order quirk
+	-- documented elsewhere in this addon (GetScreenWidth/Height vs
+	-- GetParent():GetExtent(), the combo box OnSelect-never-fires bug,
+	-- etc.) -- an already-safe setting (1) could get toggled straight to
+	-- UNSAFE (0) with zero clicks, purely from loading/updating the addon.
+	--
+	-- Fixed two ways: (1) this whole block now only runs when Tool
+	-- Functions is enabled (settings.visible, loaded just above) -- with it
+	-- off, the real setting is never touched, matching what it should
+	-- always have done; (2) when it IS enabled and needs to force safe, it
+	-- calls setPortalRestriction() directly with the ONE value already read
+	-- into ogValue, instead of a read-then-flip helper that re-reads and
+	-- decides on its own.
+	local ogValue = api.Option:GetOnlyUseMyPortalSetting()
+	if settings.visible then
+		api.Log:Info("[Elu Functions Tools] Original 'Only Use My Portal' setting value: " .. tostring(ogValue))
+		if ogValue == 0 then
+			setPortalRestriction(true)
+		end
+		portalMode = PORTAL_SAFE
+		portalClockTimer = 0
+		unsafeCausedByAddon = false
+	else
+		-- Tool Functions is off: don't touch the real setting at all --
+		-- just mirror whatever it currently is, so the button (built below,
+		-- but hidden) already shows the right state if the player enables
+		-- Tool Functions later without a reload in between. There's no
+		-- timer running to explain an unsafe value found here, so it maps
+		-- to the persistent PORTAL_UNSAFE_OFF state rather than the
+		-- temporary one.
+		portalMode = (ogValue == 0) and PORTAL_UNSAFE_OFF or PORTAL_SAFE
+		-- unsafeCausedByAddon stays false here on purpose (see its own
+		-- comment near the top of the file): this is purely mirroring a
+		-- real setting the player configured on their own -- this module
+		-- hasn't caused anything -- so SetVisible(false) must never later
+		-- "clean up" and overwrite it.
 	end
-	isUnsafePortalsEnabled = true
 
 	containerWindow = api.Interface:CreateEmptyWindow("eluFunctionsToolsWindow", "UIParent")
 	containerWindow:SetExtent(portalsW + buttonGap + skinW + FRAME_PADDING * 2, buttonH + FRAME_PADDING * 2)
@@ -345,9 +460,31 @@ local function OnLoad()
 	portalsBtn:EnableDrag(true)
 	function portalsBtn:OnClick()
 		if api.Input:IsShiftKeyDown() then return end
-		toggleUnsafePortalsOption()
-		isUnsafePortalsEnabled = false
-		api.Log:Info("[Elu Functions Tools] You can use other player's portals for 10 seconds.")
+		-- Three-way cycle -- see the PORTAL_* state comment near the top of
+		-- this file. Portals(safe) -> click -> UNSAFE(10s timer) -> click
+		-- again (before it fires) -> OFF(persistent, no timer) -> click ->
+		-- back to Portals(safe). Left alone, UNSAFE reverts to Portals on
+		-- its own after 10s exactly like the button always did (see
+		-- OnUpdate above) -- clicking again while UNSAFE is what's new: it
+		-- cancels that timer and leaves the restriction OFF indefinitely
+		-- instead of auto-reverting.
+		if portalMode == PORTAL_SAFE then
+			portalMode = PORTAL_UNSAFE_TEMP
+			portalClockTimer = 0
+			unsafeCausedByAddon = true
+			setPortalRestriction(false)
+			api.Log:Info("[Elu Functions Tools] You can use other players' portals for 10 seconds.")
+		elseif portalMode == PORTAL_UNSAFE_TEMP then
+			portalMode = PORTAL_UNSAFE_OFF
+			-- unsafeCausedByAddon stays true -- still the same addon-caused
+			-- unsafe state, just with the auto-revert timer cancelled.
+			api.Log:Info("[Elu Functions Tools] Portal restriction left OFF -- click Portals again to turn it back on.")
+		else -- PORTAL_UNSAFE_OFF
+			portalMode = PORTAL_SAFE
+			unsafeCausedByAddon = false
+			setPortalRestriction(true)
+			api.Log:Info("[Elu Functions Tools] Other players' portals are disabled again (safe).")
+		end
 		updatePortalsButtonVisual()
 	end
 	portalsBtn:SetHandler("OnClick", portalsBtn.OnClick)
