@@ -55,8 +55,18 @@ local PACK_SLOT_CHECK_MS = 100
 
 local PACK_TIMER_8HRS_IN_SECS = 28800
 
-local pageSize = 20 
+local pageSize = 20
 local maxPage
+
+-- 2026-09-15: raised from a hardcoded 160 (8 pages) to 10 pages, and named
+-- so both places that enforced the old cap (saveCurrentSessionToFile and
+-- the OnLoad backfill below) move together. See
+-- analise_crashes_elu_tracker.md: this cap was already silently evicting
+-- the oldest sessions on this account (file was exactly at 160/160,
+-- missing everything before 29/08 despite lifetimeGold showing much more
+-- history existed) -- lifetimeGold/lifetimePacks below are what keep the
+-- all-time totals correct regardless of this cap.
+local MAX_SESSIONS = pageSize * 10
 
 function split(s, sep)
     local fields = {}
@@ -248,6 +258,38 @@ local function saveCurrentSessionToFile()
     end 
     currentSession["costTotal"] = "Unknown"
 
+    -- Lifetime counters, tracked by DELTA against what THIS session has
+    -- already contributed (countedProfit/countedPackCount, stashed right on
+    -- the session object), not by re-adding its current total.
+    --
+    -- 2026-09-15 bug fix: the increment used to live entirely inside the
+    -- "if not found" block below, which only runs on a session's very FIRST
+    -- save (startPackTurnInSession -> addPackToSession -> here). Every
+    -- LATER pack added to that same session (addPackToSession keeps calling
+    -- this as packCount/refundTotal/profitTotal keep growing, until the 45s
+    -- timeout) called this again with "found" now true, so those later
+    -- increases were never added to lifetimeGold/lifetimePacks at all --
+    -- silently undercounting every session with more than one pack turned
+    -- in. Moved outside the found-check and switched to delta-tracking so
+    -- it's correct whether this is a brand new session or the Nth update to
+    -- one already in progress. This does NOT retroactively fix the totals
+    -- already saved on disk (that undercount is baked into the current
+    -- lifetimeGold/lifetimePacks, and separately, real history was already
+    -- evicted by the old 160 cap -- see analise_crashes_elu_tracker.md) --
+    -- it only stops it from getting worse going forward.
+    if pastSessions.lifetimeGold == nil then
+        pastSessions.lifetimeGold = getTotalGoldMadeFromPacks()
+        pastSessions.lifetimePacks = getTotalPacksTurnedIn()
+    end
+
+    local newProfit = type(currentSession.profitTotal) == "number" and currentSession.profitTotal or 0
+    pastSessions.lifetimeGold = pastSessions.lifetimeGold + (newProfit - (currentSession.countedProfit or 0))
+    currentSession.countedProfit = newProfit
+
+    local newPackCount = tonumber(currentSession.packCount) or 0
+    pastSessions.lifetimePacks = pastSessions.lifetimePacks + (newPackCount - (currentSession.countedPackCount or 0))
+    currentSession.countedPackCount = newPackCount
+
     local found = false
     if pastSessions.sessions then
         for i, s in ipairs(pastSessions.sessions) do
@@ -257,24 +299,15 @@ local function saveCurrentSessionToFile()
             end
         end
     end
-    
+
     if not found then
-        if pastSessions.lifetimeGold == nil then
-            pastSessions.lifetimeGold = getTotalGoldMadeFromPacks()
-            pastSessions.lifetimePacks = getTotalPacksTurnedIn()
-        end
         table.insert(pastSessions["sessions"], 1, currentSession)
-        
-        if type(currentSession.profitTotal) == "number" then
-            pastSessions.lifetimeGold = pastSessions.lifetimeGold + currentSession.profitTotal
-        end
-        pastSessions.lifetimePacks = pastSessions.lifetimePacks + (tonumber(currentSession.packCount) or 1)
-        
-        while #pastSessions.sessions > 160 do
+
+        while #pastSessions.sessions > MAX_SESSIONS do
             table.remove(pastSessions.sessions)
         end
     end
-    
+
     api.File:Write(pastSessionsFilename, pastSessions)
 
     local sessionScrollList = commerceWindow and commerceWindow.sessionScrollList
@@ -660,7 +693,7 @@ local function OnLoad()
                 sumPacks = sumPacks + (tonumber(s.packCount) or 1)
             end
             
-            while #pastSessions.sessions > 160 do
+            while #pastSessions.sessions > MAX_SESSIONS do
                 table.remove(pastSessions.sessions)
             end
         end

@@ -43,6 +43,12 @@ local RAID_SMALL_BTN_SKIN = {
     coordsKey = "btn",
 }
 
+local RAID_TINY_BTN_SKIN = {}
+for k, v in pairs(RAID_SMALL_BTN_SKIN) do RAID_TINY_BTN_SKIN[k] = v end
+RAID_TINY_BTN_SKIN.fontInset = { top = 0, right = 0, left = 0, bottom = 0 }
+RAID_TINY_BTN_SKIN.width = 20
+RAID_TINY_BTN_SKIN.height = 20
+
 -- State
 local state = {
     keyword = "",
@@ -59,6 +65,14 @@ local state = {
     giveleadWhitelistOnly = false,
     doNotDisableAutoInvite = false,
     whitelistBypassPrivate = true,
+    -- 2026-09-15: which private channels the master whitelistBypassPrivate
+    -- checkbox above actually applies to (gear icon next to it, see
+    -- BuildSidePanel). All 3 default ON so behavior is unchanged from
+    -- before this existed -- whitelistBypassPrivate alone used to bypass
+    -- all three unconditionally.
+    whitelistBypassGuild = true,
+    whitelistBypassFamily = true,
+    whitelistBypassWhisper = true,
         clearedKeywordV2 = false,
     enhancedIsActive = false,
     enhancedKeyword = "",
@@ -152,6 +166,9 @@ local function LoadSettings()
         if data.giveleadWhitelistOnly ~= nil then state.giveleadWhitelistOnly = data.giveleadWhitelistOnly end
         if data.doNotDisableAutoInvite ~= nil then state.doNotDisableAutoInvite = data.doNotDisableAutoInvite end
         if data.whitelistBypassPrivate ~= nil then state.whitelistBypassPrivate = data.whitelistBypassPrivate end
+        if data.whitelistBypassGuild ~= nil then state.whitelistBypassGuild = data.whitelistBypassGuild end
+        if data.whitelistBypassFamily ~= nil then state.whitelistBypassFamily = data.whitelistBypassFamily end
+        if data.whitelistBypassWhisper ~= nil then state.whitelistBypassWhisper = data.whitelistBypassWhisper end
                 if data.whitelist ~= nil then state.whitelist = data.whitelist end
         if data.blacklist ~= nil then state.blacklist = data.blacklist end
         if data.floatingIconPos ~= nil then state.floatingIconPos = data.floatingIconPos end
@@ -194,6 +211,9 @@ function SaveSettings()
         giveleadWhitelistOnly = state.giveleadWhitelistOnly,
         doNotDisableAutoInvite = state.doNotDisableAutoInvite,
         whitelistBypassPrivate = state.whitelistBypassPrivate,
+        whitelistBypassGuild = state.whitelistBypassGuild,
+        whitelistBypassFamily = state.whitelistBypassFamily,
+        whitelistBypassWhisper = state.whitelistBypassWhisper,
                 whitelist = state.whitelist,
         blacklist = state.blacklist,
         floatingIconPos = state.floatingIconPos,
@@ -312,9 +332,20 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
     if not allowed then return end
     
     if state.inviteMode == 1 then
-        local bypass = state.whitelistBypassPrivate and not isPublic
+        -- 2026-09-15: bypass is now per-channel-type (gear next to "Disable
+        -- whitelist in private chat" -- Family/Guild/Whisper each have their
+        -- own on/off, all defaulting to ON so this behaves exactly like
+        -- before for anyone who never opens the gear). The master
+        -- whitelistBypassPrivate checkbox still gates all of it: when it's
+        -- off, nobody bypasses the whitelist, same as always.
+        local bypass = false
+        if state.whitelistBypassPrivate and not isPublic then
+            if isGuild then bypass = state.whitelistBypassGuild end
+            if isFamily then bypass = state.whitelistBypassFamily end
+            if isWhisper then bypass = state.whitelistBypassWhisper end
+        end
         if not bypass and not IsWhitelisted(speakerName) then
-            return -- Only whitelisted can be invited if whitelist mode is ON, unless bypassing private channels
+            return -- Only whitelisted can be invited if whitelist mode is ON, unless bypassing this private channel
         end
     end
     
@@ -355,7 +386,7 @@ end
 function raid_invite.StopEnhancedRecruiting()
     state.enhancedIsActive = false
     state.enhancedKeyword = ""
-
+    
     if widgets.enhancedRecruitBtn then
         widgets.enhancedRecruitBtn:SetText("Start Recruiting")
     end
@@ -611,9 +642,21 @@ local function BuildSidePanel(parent)
             state[stateKey] = cb:GetChecked()
             SaveSettings()
             if id == "cbIcon" then UpdateFloatingIcon() end
-            
+            if id == "cbWhiteBypass" then
+                -- The gear (Family/Guild/Whisper picker) only makes sense
+                -- while the master checkbox is on -- hide it, and close the
+                -- popup if it happened to be open, the moment it's turned off.
+                if widgets.privateBypassGearBtn then
+                    widgets.privateBypassGearBtn:Show(state.whitelistBypassPrivate)
+                end
+                if not state.whitelistBypassPrivate and widgets.privateBypassPopup then
+                    widgets.privateBypassPopup:Show(false)
+                    if widgets.privateBypassOverlay then widgets.privateBypassOverlay:Show(false) end
+                end
+            end
+
         end)
-        
+
         return cb
     end
     
@@ -723,11 +766,133 @@ local function BuildSidePanel(parent)
     widgets.giveleadCombo = giveleadCombo
 
     CreateCheckbox("cbWhiteBypass", "Disable whitelist in private chat", 250, "whitelistBypassPrivate", 36)
-    
+
     local q2 = W_ICON.CreateGuideIconWidget(panel)
     q2:AddAnchor("LEFT", panel.cbWhiteBypassLbl, "RIGHT", 5, 0)
     AddTooltip(q2, "Guild, Family & Whisper\n\nIf checked, players typing the keyword in these chats will be invited instantly, even if they are NOT in your Whitelist.")
+
+    -- Gear: pick WHICH of Guild/Family/Whisper actually bypass the
+    -- whitelist (whitelistBypassGuild/Family/Whisper in state, all default
+    -- ON). Only shown while the master checkbox above is checked -- see the
+    -- "cbWhiteBypass" branch in CreateCheckbox's OnCheckChanged, which
+    -- shows/hides this button and closes the popup below when the master
+    -- gets unchecked.
+    local function CreateBypassPopup()
+        if widgets.privateBypassPopup then return widgets.privateBypassPopup end
+
+        local overlay = api.Interface:CreateWidget("button", "eluBypassOverlay", "UIParent")
+        overlay:Show(false)
+        widgets.privateBypassOverlay = overlay
+
+        local popup = api.Interface:CreateEmptyWindow("eluRaidPrivateBypassPopup", "UIParent")
+        popup:SetExtent(190, 150)
+        popup:Show(false)
+        widgets.privateBypassPopup = popup
+
+        local pBg = popup:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+        pBg:SetTextureInfo("bg_quest")
+        pBg:SetColor(0, 0, 0, 0.95)
+        pBg:AddAnchor("TOPLEFT", popup, 0, 0)
+        pBg:AddAnchor("BOTTOMRIGHT", popup, 0, 0)
+
+        local pTitle = popup:CreateChildWidget("label", "pTitle", 0, true)
+        pTitle:SetExtent(170, 20)
+        pTitle:AddAnchor("TOP", popup, 0, 10)
+        pTitle.style:SetAlign(ALIGN.CENTER)
+        pTitle:SetText("Bypass whitelist in:")
+        ApplyTextColor(pTitle, {1, 0.8, 0.2, 1})
+
+        local pCloseBtn = popup:CreateChildWidget("button", "pCloseBtn", 0, true)
+        pCloseBtn:SetExtent(16, 16)
+        pCloseBtn:AddAnchor("TOPRIGHT", popup, -5, 5)
+        pCloseBtn:SetText("X")
+        pCloseBtn.style:SetAlign(ALIGN.CENTER)
+        ApplyTextColor(pCloseBtn, FONT_COLOR.RED)
+        pCloseBtn:SetHandler("OnClick", function() 
+            popup:Show(false)
+            if widgets.privateBypassOverlay then widgets.privateBypassOverlay:Show(false) end
+        end)
+
+        overlay:SetHandler("OnClick", function()
+            popup:Show(false)
+            overlay:Show(false)
+        end)
+
+        local function CreatePopupCheckbox(id, text, yOffset, stateKey)
+            local cb = popup:CreateChildWidget("checkbutton", id, 0, true)
+            cb:SetExtent(18, 17)
+            cb:AddAnchor("TOPLEFT", popup, 20, yOffset)
+
+            local bg1 = cb:CreateImageDrawable("ui/button/check_button.dds", "background")
+            bg1:SetExtent(18, 17)
+            bg1:AddAnchor("CENTER", cb, 0, 0)
+            bg1:SetCoords(0, 0, 18, 17)
+            cb:SetNormalBackground(bg1)
+
+            local bg2 = cb:CreateImageDrawable("ui/button/check_button.dds", "background")
+            bg2:SetExtent(18, 17)
+            bg2:AddAnchor("CENTER", cb, 0, 0)
+            bg2:SetCoords(18, 0, 18, 17)
+            cb:SetCheckedBackground(bg2)
+
+            local lbl = popup:CreateChildWidget("label", id .. "Lbl", 0, true)
+            lbl:SetAutoResize(true)
+            lbl:SetHeight(20)
+            lbl:SetText(text)
+            lbl:AddAnchor("LEFT", cb, "RIGHT", 5, 0)
+            lbl.style:SetAlign(ALIGN.CENTER)
+            ApplyTextColor(lbl, {1, 1, 1, 1})
+
+            cb:SetChecked(state[stateKey], false)
+            cb:SetHandler("OnCheckChanged", function()
+                state[stateKey] = cb:GetChecked()
+                SaveSettings()
+            end)
+        end
+
+        CreatePopupCheckbox("cbBypassFamily", "Family", 45, "whitelistBypassFamily")
+        CreatePopupCheckbox("cbBypassGuild", "Guild", 75, "whitelistBypassGuild")
+        CreatePopupCheckbox("cbBypassWhisper", "Whispers", 105, "whitelistBypassWhisper")
+
+        return popup
+    end
+
+    local gearBtn = panel:CreateChildWidget("button", "privateBypassGearBtn", 0, true)
+    gearBtn:SetExtent(24, 16)
+    gearBtn:AddAnchor("LEFT", q2, "RIGHT", 6, 0)
     
+    local gearLbl = gearBtn:CreateChildWidget("label", "gearLbl", 0, true)
+    gearLbl:SetExtent(24, 16)
+    gearLbl:AddAnchor("CENTER", gearBtn, 0, 0)
+    gearLbl:SetText("[ + ]")
+    gearLbl.style:SetAlign(ALIGN.CENTER)
+    ApplyTextColor(gearLbl, {1, 0.8, 0.2, 1})
+    
+    gearBtn:Show(state.whitelistBypassPrivate)
+    widgets.privateBypassGearBtn = gearBtn
+
+    gearBtn:SetHandler("OnClick", function()
+        local popup = CreateBypassPopup()
+        local overlay = widgets.privateBypassOverlay
+        if not popup:IsVisible() then
+            if overlay then
+                overlay:SetExtent(api.Interface:GetScreenWidth(), api.Interface:GetScreenHeight())
+                overlay:AddAnchor("TOPLEFT", "UIParent", 0, 0)
+                overlay:Show(true)
+                overlay:Raise()
+            end
+            popup:RemoveAllAnchors()
+            popup:AddAnchor("TOPLEFT", gearBtn, "BOTTOMLEFT", -20, 5)
+            popup:Show(true)
+            popup:Raise()
+        else
+            popup:Show(false)
+            if overlay then overlay:Show(false) end
+        end
+    end)
+
+    AddTooltip(gearBtn, "Choose which private channels bypass the Whitelist.\nAll 3 are ON by default.")
+
     local blBtn = panel:CreateChildWidget("button", "blBtn", 0, true)
     blBtn:SetExtent(120, 30)
     blBtn:AddAnchor("TOPLEFT", panel, 20, 290)
@@ -763,7 +928,7 @@ local function BuildSidePanel(parent)
         local wnd = widgets.listWindow
         if not wnd then
             wnd = api.Interface:CreateWindow("eluRList_" .. tostring(math.random(10000, 99999)), "Manage List", 0, 0)
-            wnd:SetExtent(300, 460)
+            wnd:SetExtent(300, 500)
             wnd:AddAnchor("CENTER", "UIParent", 0, 0)
 
     if wnd.titleBar and wnd.titleBar.bg then
@@ -884,6 +1049,22 @@ local function BuildSidePanel(parent)
             importBtn:SetText("Import")
             api.Interface:ApplyButtonSkin(importBtn, BUTTON_BASIC.DEFAULT)
             AddTooltip(importBtn, "Load a list from a friend or backup.\n\nYou can paste a text code, or import directly from a '.lua' file in your ArcheAge Addon folder.\n(Importing only ADDS names, it never deletes yours!)")
+            
+            local inviteAllBtn = wnd:CreateChildWidget("button", "inviteAllBtn", 0, true)
+            inviteAllBtn:SetExtent(120, 30)
+            inviteAllBtn:SetText("Invite All")
+            api.Interface:ApplyButtonSkin(inviteAllBtn, BUTTON_BASIC.DEFAULT)
+            AddTooltip(inviteAllBtn, "Automatically invite everyone in your Whitelist to the raid.")
+            inviteAllBtn:SetHandler("OnClick", function()
+                if not state.whitelist then return end
+                for _, name in ipairs(state.whitelist) do
+                    if not RecentlyInvited(name) then
+                        api.Team:InviteToTeam(name, false)
+                        MarkInvited(name)
+                    end
+                end
+                api.Log:Info("[Elu Auto Invite] Invited everyone from your whitelist!")
+            end)
             
             local exportWnd = nil
             local exportWidgets = nil
@@ -1116,6 +1297,7 @@ local function BuildSidePanel(parent)
             
             wnd.exportBtn = exportBtn
             wnd.importBtn = importBtn
+            wnd.inviteAllBtn = inviteAllBtn
             
             local function RefreshList()
                 local t = (wnd.listType == 1 and state.whitelist or (wnd.listType == 2 and state.blacklist or state.fastBlacklist))
@@ -1142,6 +1324,7 @@ local function BuildSidePanel(parent)
                 if wnd.listType == 3 then
                     wnd.exportBtn:Show(false)
                     wnd.importBtn:Show(false)
+                    if wnd.inviteAllBtn then wnd.inviteAllBtn:Show(false) end
                 else
                     wnd.importBtn:RemoveAllAnchors()
                     wnd.importBtn:AddAnchor("BOTTOMLEFT", wnd, "BOTTOM", 5, -20)
@@ -1149,6 +1332,14 @@ local function BuildSidePanel(parent)
                     wnd.exportBtn:AddAnchor("BOTTOMRIGHT", wnd, "BOTTOM", -5, -20)
                     wnd.exportBtn:Show(true)
                     wnd.importBtn:Show(true)
+                    
+                    if wnd.listType == 1 and wnd.inviteAllBtn then
+                        wnd.inviteAllBtn:RemoveAllAnchors()
+                        wnd.inviteAllBtn:AddAnchor("BOTTOM", wnd, "BOTTOM", 0, -55)
+                        wnd.inviteAllBtn:Show(true)
+                    elseif wnd.inviteAllBtn then
+                        wnd.inviteAllBtn:Show(false)
+                    end
                 end
             end
             wnd.RefreshList = RefreshList
@@ -1509,6 +1700,10 @@ function raid_invite.OnUnload()
         widgets.importWnd:Show(false)
         pcall(function() api.Interface:Free(widgets.importWnd) end)
     end
+    if widgets.privateBypassPopup then
+        widgets.privateBypassPopup:Show(false)
+        pcall(function() api.Interface:Free(widgets.privateBypassPopup) end)
+    end
     if widgets.floatingIcon then
         widgets.floatingIcon:Show(false)
         pcall(function() api.Interface:Free(widgets.floatingIcon) end)
@@ -1535,6 +1730,8 @@ function raid_invite.OnUnload()
     widgets.listWindow = nil
     widgets.exportWnd = nil
     widgets.importWnd = nil
+    widgets.privateBypassPopup = nil
+    widgets.privateBypassGearBtn = nil
     widgets.floatingIcon = nil
     widgets.fKeywordLbl = nil
     widgets.ToggleListWindow = nil

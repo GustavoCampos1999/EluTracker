@@ -27,8 +27,18 @@ local function DataSetFunc(subItem, data, setValue)
 end
 
 local function LayoutSetFunc(frame, rowIndex, colIndex, subItem)
-    if subItem.bg then subItem.bg:SetColor(1, 1, 1, 0) end
-    
+    -- Guard fixed 2026-09-14: this used to check "subItem.bg", a field this
+    -- function never actually sets (see subItem.customBg below) and no
+    -- "return" followed it either, so it was dead code -- every single
+    -- relayout of a row (every RefreshList(), i.e. every new loss logged
+    -- and every time the log window is opened) created a brand new
+    -- background drawable + textbox on top of whatever was already there,
+    -- never freeing the old ones. Same bug class, same fix, as the
+    -- (correctly guarded) SessionsColumnLayoutSetFunc in loot.lua/
+    -- fishing.lua/packs.lua: check the field this function itself sets, and
+    -- bail out before creating anything if the row was already built.
+    if subItem.customBg then return end
+
     local rowBg = subItem:CreateColorDrawable(0.93, 0.90, 0.83, 1, "background")
     rowBg:AddAnchor("TOPLEFT", subItem, 0, 0)
     rowBg:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)

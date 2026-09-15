@@ -54,8 +54,8 @@ local MAX_MEMORY = 3288 -- see BASELINE_MAX_MEMORY / RecalibrateFromLearning bel
 -- ever a single writer for the whole file.
 local config = {
     enabled = false,
-	thresholds = { 2989, 3089 }, -- [1] = yellow starts, [2] = orange starts (see MAX_MEMORY comment above)
-    critical = 3189,
+	thresholds = { 3100, 3150 }, -- [1] = yellow starts, [2] = orange starts (see MAX_MEMORY comment above and CRITICAL_PERCENT below -- recalculated from these at every load anyway, kept here only as the fallback default)
+    critical = 3200,
 	showLiveUsage = false,
 	warnOffsetX = 400,
 	warnOffsetY = 100,
@@ -169,7 +169,20 @@ local CEILING_MARGIN = 100
 local MAX_LEARN_HISTORY = 8
 local LEARN_CRITICAL_MAX = 3800  -- sanity ceiling: never stop warning entirely
 local BASELINE_MAX_MEMORY = 3288 -- avg of the 4 confirmed real crash dumps on this pc (3262/3332/3288/3270 MB, all the same exception address -- the 32-bit client's address-space ceiling)
-local CRITICAL_PERCENT = 0.97    -- critical always fires at this fraction of MAX_MEMORY
+
+-- Retuned 2026-09-15: alerts were firing hundreds of MB before there was
+-- any real risk -- e.g. the 14/09 gameplay review (see
+-- analise_crashes_elu_tracker.md, sec. 9) found a totally ordinary, never-
+-- crashed session peaking at 3044MB, which the old 0.97 (yellow at 2989,
+-- critical at 3189) would already have flagged as yellow AND critical.
+-- Raised so critical sits at ~3200MB: only ~62MB below the LOWEST of the 4
+-- confirmed real crashes (3262MB, see BASELINE_MAX_MEMORY) -- still enough
+-- runway to relog (memory climbs slowly per the observed data, nowhere
+-- near 60MB inside one 5s poll), but no longer alerting during clearly
+-- normal play. thresholds' spacing below critical was tightened to match
+-- (100/50 instead of 200/100) so yellow/orange move with it instead of
+-- sitting way out in front like before.
+local CRITICAL_PERCENT = 0.9732  -- critical always fires at this fraction of MAX_MEMORY -- yields ~3200 against the 3288 baseline
 
 -- The bar an inferred crash's last-known MB has to clear to be recorded
 -- into crashFloor at all (otherwise: network drop, alt-F4, power cut, task
@@ -233,9 +246,9 @@ end
 -- critical without crashing) is trusted to push the ceiling up, and
 -- nothing pulls it back down anymore. See the 2026-09-07 comment above
 -- learnState for why the old down-drifting version was retired.
--- thresholds keep the same spacing below critical as before (100 and 200
--- MB below), so the whole gradient still shifts together if the ceiling
--- ever rises.
+-- thresholds keep a fixed spacing below critical (50 and 100 MB below,
+-- retuned 2026-09-15 -- see the comment above CRITICAL_PERCENT), so the
+-- whole gradient still shifts together if the ceiling ever rises.
 local function RecalibrateFromLearning()
     local ceiling = BASELINE_MAX_MEMORY
 
@@ -251,7 +264,10 @@ local function RecalibrateFromLearning()
 
     MAX_MEMORY = ceiling
     config.critical = math.floor(ceiling * CRITICAL_PERCENT + 0.5)
-    config.thresholds = { config.critical - 200, config.critical - 100 }
+    -- 100/50 MB below critical (was 200/100) -- see the 2026-09-15 comment
+    -- above CRITICAL_PERCENT for why the whole gradient was pulled in
+    -- closer to the real danger zone instead of starting so far ahead of it.
+    config.thresholds = { config.critical - 100, config.critical - 50 }
     -- pcall'd like every other I/O call in this section: this now runs from
     -- OnUnload (before window cleanup and SaveLearnState below it) and from
     -- require-time. If SaveEluTrackerSettings ever threw here unprotected,

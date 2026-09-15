@@ -47,6 +47,14 @@ local DISPLAY_REFRESH_MS = 60000
 local pageSize = 20
 local maxPage
 
+-- 2026-09-15: cap the detailed session list at 10 pages so it can't grow
+-- forever, WITHOUT losing the all-time totals -- see lifetimeGold/
+-- lifetimeFish below (getTotalGoldMadeFromFishing/getTotalFishSold), which
+-- are tracked as running counters independent of how many session rows are
+-- actually kept on screen, so "Total Gold from Fishing" / "Total Fish Sold"
+-- never shrink even as old rows get pruned.
+local MAX_SESSIONS = pageSize * 10
+
 local function ConvertColor(color) return color / 255 end 
 
 local FISH_IDS = {
@@ -135,23 +143,31 @@ end
 
 local function getTotalGoldMadeFromFishing()
     local totalGold = 0
-    if pastSessions == nil or pastSessions["sessions"] == nil then return totalGold end
-    for _, sessionObject in pairs(pastSessions["sessions"]) do 
-        if type(sessionObject.profitTotal) == "number" then 
+    if pastSessions == nil then return totalGold end
+    -- lifetimeGold, once present, IS the all-time total -- kept correct by
+    -- saveCurrentSessionToFile() below even after old sessions get pruned
+    -- off the visible list. Only fall back to summing the (possibly
+    -- already-pruned) visible sessions if it hasn't been computed yet.
+    if pastSessions.lifetimeGold ~= nil then return pastSessions.lifetimeGold end
+    if pastSessions["sessions"] == nil then return totalGold end
+    for _, sessionObject in pairs(pastSessions["sessions"]) do
+        if type(sessionObject.profitTotal) == "number" then
             totalGold = totalGold + sessionObject.profitTotal
-        end 
-    end 
+        end
+    end
     return totalGold
-end 
+end
 
 local function getTotalFishSold()
     local totalFish = 0
-    if pastSessions == nil or pastSessions["sessions"] == nil then return totalFish end
-    for _, sessionObject in pairs(pastSessions["sessions"]) do 
+    if pastSessions == nil then return totalFish end
+    if pastSessions.lifetimeFish ~= nil then return pastSessions.lifetimeFish end
+    if pastSessions["sessions"] == nil then return totalFish end
+    for _, sessionObject in pairs(pastSessions["sessions"]) do
         if type(sessionObject.packCount) == "number" then
             totalFish = totalFish + sessionObject.packCount
         end
-    end 
+    end
     return totalFish
 end
 
@@ -201,15 +217,37 @@ local function fillSessionTableData(itemScrollList, pageIndex)
 end
 
 local function saveCurrentSessionToFile()
-    if pastSessions == nil then pastSessions = { sessions = {} } end 
+    if pastSessions == nil then pastSessions = { sessions = {} } end
     if not pastSessions.sessions then pastSessions.sessions = {} end
-    
+
     if tonumber(currentSession["coinTypeId"]) == 0 then
         currentSession["profitTotal"] = (tonumber(currentSession["refundTotal"]) or 0) / 10000
-    else 
+    else
         currentSession["profitTotal"] = 0
-    end 
-    
+    end
+
+    -- Lifetime counters, tracked by DELTA against what THIS session has
+    -- already contributed (countedProfit/countedFish, stashed directly on
+    -- the session object) rather than by re-adding its current total every
+    -- save. A session can be saved many times as more fish get added to it
+    -- (addFishToSession -> saveCurrentSessionToFile on every catch until the
+    -- ~17s timeout), so re-adding the full total each time would massively
+    -- over-count; only adding on the very first save (like packs.lua used
+    -- to, see the fix there and analise_crashes_elu_tracker.md) would
+    -- under-count instead. Tracking the delta is correct either way, and
+    -- getTotalGoldMadeFromFishing()/getTotalFishSold() seed the counter
+    -- from the current session list the first time this runs.
+    if pastSessions.lifetimeGold == nil then pastSessions.lifetimeGold = getTotalGoldMadeFromFishing() end
+    if pastSessions.lifetimeFish == nil then pastSessions.lifetimeFish = getTotalFishSold() end
+
+    local newProfit = tonumber(currentSession.profitTotal) or 0
+    pastSessions.lifetimeGold = pastSessions.lifetimeGold + (newProfit - (currentSession.countedProfit or 0))
+    currentSession.countedProfit = newProfit
+
+    local newFishCount = tonumber(currentSession.packCount) or 0
+    pastSessions.lifetimeFish = pastSessions.lifetimeFish + (newFishCount - (currentSession.countedFish or 0))
+    currentSession.countedFish = newFishCount
+
     local found = false
     for i, s in ipairs(pastSessions.sessions) do
         if s == currentSession then
@@ -217,11 +255,18 @@ local function saveCurrentSessionToFile()
             break
         end
     end
-    
+
     if not found then
         table.insert(pastSessions.sessions, 1, currentSession)
+        -- Cap the detailed list at 10 pages (MAX_SESSIONS) -- oldest first,
+        -- since new sessions are always inserted at position 1. The totals
+        -- above are already updated by this point and don't reference the
+        -- sessions list at all, so pruning here never touches them.
+        while #pastSessions.sessions > MAX_SESSIONS do
+            table.remove(pastSessions.sessions)
+        end
     end
-    
+
     api.File:Write(pastSessionsFilename, pastSessions)
     
     if fishingWindow and fishingWindow.sessionScrollList then
@@ -577,6 +622,32 @@ local function OnLoad()
         if maxPage == nil then maxPage = 1 end
     else
         maxPage = math.ceil(#pastSessions.sessions / pageSize)
+    end
+
+    -- One-time correction, 2026-09-15: this file already had lifetimeGold/
+    -- lifetimeFish fields sitting in it from some earlier version, but they
+    -- were never actually maintained by any code in this file (grep found
+    -- no reader/writer for them anywhere) and did not match the real sum of
+    -- the saved sessions (checked directly: file had lifetimeGold=2876,
+    -- lifetimeFish=95, but the 48 sessions on disk summed to ~3192g / 63
+    -- fish). Since no sessions have ever been pruned from this file (no cap
+    -- existed until MAX_SESSIONS above), summing what's currently on disk
+    -- is still the exact true total -- so this recomputes it once, marks it
+    -- verified, and from then on saveCurrentSessionToFile()'s delta-based
+    -- updates keep it correct even after pruning starts.
+    if pastSessions and not pastSessions.lifetimeVerified then
+        local sumGold = 0
+        local sumFish = 0
+        if pastSessions.sessions then
+            for _, s in ipairs(pastSessions.sessions) do
+                if type(s.profitTotal) == "number" then sumGold = sumGold + s.profitTotal end
+                sumFish = sumFish + (tonumber(s.packCount) or 1)
+            end
+        end
+        pastSessions.lifetimeGold = sumGold
+        pastSessions.lifetimeFish = sumFish
+        pastSessions.lifetimeVerified = true
+        api.File:Write(pastSessionsFilename, pastSessions)
     end
 
     function eluFishingEventWindow:OnEvent(event, ...)
