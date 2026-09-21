@@ -31,9 +31,15 @@ local ALT_SLOTS = { [11] = true, [13] = true, [17] = true }
 local settings = {
     enabled = false,
     x = 200,
-    y = 400,
+    y = 40,
     gear_sets = {}
 }
+
+-- Default on-screen position used by the reset button in the Misc tab.
+-- Defined as constants so CreateUI and renderGearSetUI always agree on
+-- what "default" means without duplicating the numbers.
+local DEFAULT_X = 200
+local DEFAULT_Y = 40
 
 local function SaveQuickEquipSettings()
     EluTrackerSettings.quickEquip = settings
@@ -632,8 +638,8 @@ function renderGearSetUI()
     previousGeneration.indicator = dragIndicator
     dragIndicator = nil
 
-    local canvas_x = settings.x or 200
-    local canvas_y = settings.y or 40
+    local canvas_x = settings.x or DEFAULT_X
+    local canvas_y = settings.y or DEFAULT_Y
     local canvasId = getUniqueWidgetId("bar")
 
     mainCanvas = api.Interface:CreateEmptyWindow(canvasId, "UIParent")
@@ -995,6 +1001,41 @@ function quick_equip_addon.CreateUI(wndParent)
         setEnabled(self:GetChecked())
     end
     enableCheck:SetHandler("OnCheckChanged", enableCheck.OnCheckChanged)
+
+    -- ===== Reset position button =====
+    -- Small native reset arrow button to the right of the label. Clicking it
+    -- snaps the bar back to the default position (DEFAULT_X, DEFAULT_Y) and saves.
+    local resetPosBtn = container:CreateChildWidget("button", "quickEquipResetPosBtn", 0, true)
+    resetPosBtn:AddAnchor("LEFT", enableLbl, "RIGHT", 12, 0)
+    api.Interface:ApplyButtonSkin(resetPosBtn, BUTTON_BASIC.RESET)
+
+    function resetPosBtn:OnEnter()
+        local x, y = self:GetOffset()
+        api.Interface:SetTooltipOnPos("Resets the Quick Equip bar to its default position\nif it gets lost off-screen.", container, x, y + 25)
+    end
+    function resetPosBtn:OnLeave()
+        local x, y = self:GetOffset()
+        api.Interface:SetTooltipOnPos(nil, container, x, y + 25)
+    end
+    resetPosBtn:SetHandler("OnEnter", resetPosBtn.OnEnter)
+    resetPosBtn:SetHandler("OnLeave", resetPosBtn.OnLeave)
+
+    function resetPosBtn:OnClick()
+        settings.x = DEFAULT_X
+        settings.y = DEFAULT_Y
+        SaveQuickEquipSettings()
+        -- If the bar is currently enabled (and therefore rendered), move it
+        -- to the new position immediately without requiring a relog.
+        if settings.enabled and mainCanvas then
+            mainCanvas:RemoveAllAnchors()
+            mainCanvas:AddAnchor("TOPLEFT", "UIParent", DEFAULT_X, DEFAULT_Y)
+        elseif settings.enabled then
+            -- Bar was enabled but mainCanvas is gone (rare edge case);
+            -- re-render it from scratch so it appears at the default spot.
+            renderGearSetUI()
+        end
+    end
+    resetPosBtn:SetHandler("OnClick", resetPosBtn.OnClick)
 
     return container
 end
