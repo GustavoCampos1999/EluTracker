@@ -91,6 +91,10 @@ local displayRefreshCounter = 0
 local DISPLAY_REFRESH_MS = 60000
 
 local pageSize = 20 --> number of sessions on page
+-- Cap matches packs.lua's MAX_SESSIONS (pageSize * 10) -- previously hardcoded
+-- to 160 here while packs used 200, which meant loot sessions were being
+-- silently evicted 40 entries sooner than pack sessions.
+local MAX_SESSIONS = pageSize * 10
 local maxPage
 
 -- helpers
@@ -265,7 +269,7 @@ local function saveCurrentSessionToFile()
     -- Insert it into the top position (to sort by most recent)
     table.insert(pastSessions["sessions"], 1, currentSession)
 
-    while #pastSessions.sessions > 160 do
+    while #pastSessions.sessions > MAX_SESSIONS do
         table.remove(pastSessions.sessions)
     end
     api.File:Write(pastSessionsFilename, pastSessions)

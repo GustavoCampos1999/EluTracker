@@ -207,17 +207,6 @@ local function CreateCommerceWindow(wndParent)
     resetPriceBtn:AddAnchor("RIGHT", setPriceBtn, "LEFT", -5, 0)
     api.Interface:ApplyButtonSkin(resetPriceBtn, ELU_SMALL_BTN_SKIN)
 
-    -- One-shot measurement, not a guess: confirms next test whether the
-    -- skin swap above actually shrank these buttons. Written once, here,
-    -- rather than guessing again from a screenshot.
-    pcall(function()
-        local w1, h1 = setPriceBtn:GetExtent()
-        local w2, h2 = resetPriceBtn:GetExtent()
-        api.File:Write("elu_commerce_btn_debug.lua", {
-            "setPriceBtn actual GetExtent() after ELU_SMALL_BTN_SKIN = " .. tostring(w1) .. "x" .. tostring(h1),
-            "resetPriceBtn actual GetExtent() after ELU_SMALL_BTN_SKIN = " .. tostring(w2) .. "x" .. tostring(h2),
-        })
-    end)
 
     function resetPriceBtn:OnClick()
         local dataFile = api.File:Read("elu_commerce_prices.txt")
@@ -670,22 +659,6 @@ local function CreateMiscWindow(wndParent)
     ApplyButtonSkin(toggleFuncBtn, BUTTON_BASIC.DEFAULT)
     toggleFuncBtn:SetExtent(140, 25)
 
-    -- File-based debug trace for this button, kept from before the merge --
-    -- still useful for confirming a click actually fired and what
-    -- IsVisible()/SetVisible() reported, without needing to catch a chat
-    -- message live.
-    local ELU_TOGGLE_DEBUG_FILE = "elu_tracker_toggle_debug.lua"
-    local eluToggleDebugLog = {}
-    local eluToggleDbgSeq = 0
-    local function EluToggleDbg(msg)
-        eluToggleDbgSeq = eluToggleDbgSeq + 1
-        table.insert(eluToggleDebugLog, "#" .. eluToggleDbgSeq .. " " .. tostring(msg))
-        while #eluToggleDebugLog > 100 do
-            table.remove(eluToggleDebugLog, 1)
-        end
-        pcall(function() api.File:Write(ELU_TOGGLE_DEBUG_FILE, eluToggleDebugLog) end)
-    end
-
     local function RefreshToggleFuncBtnText()
         if eluFunctionsToolsAddon and eluFunctionsToolsAddon.IsVisible then
             local ok, isVisible = pcall(eluFunctionsToolsAddon.IsVisible)
@@ -711,20 +684,13 @@ local function CreateMiscWindow(wndParent)
     -- does.
     function toggleFuncBtn:OnClick()
         if not (eluFunctionsToolsAddon and eluFunctionsToolsAddon.IsVisible and eluFunctionsToolsAddon.SetVisible) then
-            EluToggleDbg("OnClick: eluFunctionsToolsAddon module not available")
             api.Log:Err("[Elu Tracker] Elu Functions Tools module not available.")
             RefreshToggleFuncBtnText()
             return
         end
         local ok, isVisible = pcall(eluFunctionsToolsAddon.IsVisible)
-        EluToggleDbg("OnClick: IsVisible() pcall ok=" .. tostring(ok) .. " isVisible=" .. tostring(isVisible))
         local reqValue = not (ok and isVisible)
-        local setOk, setErr = pcall(eluFunctionsToolsAddon.SetVisible, reqValue)
-        if setOk then
-            EluToggleDbg("OnClick: SetVisible(" .. tostring(reqValue) .. ") pcall ok=true")
-        else
-            EluToggleDbg("OnClick: SetVisible(" .. tostring(reqValue) .. ") pcall FAILED err=" .. tostring(setErr))
-        end
+        pcall(eluFunctionsToolsAddon.SetVisible, reqValue)
         RefreshToggleFuncBtnText()
     end
     toggleFuncBtn:SetHandler("OnClick", toggleFuncBtn.OnClick)
@@ -764,11 +730,6 @@ local function CreateMiscWindow(wndParent)
             tooltip:Show(false)
         end)
     end)
-    if iconOk then
-        EluToggleDbg("(?) help icon + tooltip built OK")
-    else
-        EluToggleDbg("(?) help icon FAILED, Toggle Func still works normally: " .. tostring(iconErr))
-    end
 
     local sectionGap = 15
     local lastSection = toolsRow

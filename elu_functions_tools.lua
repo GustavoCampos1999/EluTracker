@@ -47,23 +47,6 @@ local DEFAULT_Y = 80
 -- previous session overrides this.
 local settings = { x = DEFAULT_X, y = DEFAULT_Y, visible = false }
 
--- ===== Debug logging =====
--- File-based (not chat-log) so it can be inspected after the fact without
--- catching a message live: writes a bounded, numbered trace to
--- Addon/elu_functions_tools_debug.lua. Every call is pcall-wrapped so a
--- logging failure can never break the addon itself.
-local DEBUG_FILE = "elu_functions_tools_debug.lua"
-local DEBUG_MAX_LINES = 200
-local debugLog = {}
-local _dbgSeq = 0
-local function Dbg(msg)
-	_dbgSeq = _dbgSeq + 1
-	table.insert(debugLog, "#" .. _dbgSeq .. " " .. tostring(msg))
-	while #debugLog > DEBUG_MAX_LINES do
-		table.remove(debugLog, 1)
-	end
-	pcall(function() api.File:Write(DEBUG_FILE, debugLog) end)
-end
 
 local containerWindow
 local portalsBtn
@@ -132,28 +115,8 @@ local function setPortalRestriction(isSafe)
 	local target = isSafe and 1 or 0
 	local ok, err = pcall(function() api.Option:SetOnlyUseMyPortalSetting(target) end)
 	if not ok then
-		-- This used to fail completely silently (bare pcall, result
-		-- discarded) -- if the setter ever throws (wrong signature, option
-		-- system not ready yet, etc.) every single call site here would
-		-- quietly do NOTHING and there would be no way to tell from in-game
-		-- behavior alone. Logged now so a failure is provable instead of
-		-- guessed at.
-		Dbg("setPortalRestriction(" .. tostring(isSafe) .. "): SetOnlyUseMyPortalSetting(" .. tostring(target) .. ") THREW: " .. tostring(err))
 		return
 	end
-	-- Read the real setting straight back so the debug log has hard proof
-	-- the write actually stuck, instead of just hoping it did. If a future
-	-- report says "the checkbox in Game Settings still doesn't match", this
-	-- readBack line is what tells the difference between two very different
-	-- problems: (a) readBack doesn't match target -> the setter call itself
-	-- isn't taking, a real bug here; (b) readBack DOES match target but the
-	-- on-screen checkbox still looks stale -> the native Options panel
-	-- simply isn't re-reading the value live while it's already open (a
-	-- client panel-refresh quirk, fixed by closing and reopening that
-	-- panel) -- nothing this module can do about that from over here, since
-	-- it never touches that panel's own widgets.
-	local readOk, readBack = pcall(function() return api.Option:GetOnlyUseMyPortalSetting() end)
-	Dbg("setPortalRestriction(" .. tostring(isSafe) .. "): wrote " .. tostring(target) .. ", readBack=" .. tostring(readOk and readBack or ("ERROR:" .. tostring(readBack))))
 end
 
 -- ===== Skin button: on/off toggle for real costumes vs. the client's
@@ -258,16 +221,11 @@ local SANE_COORD_LIMIT = 10000
 local function loadSettings()
 	local ok, data = pcall(function() return api.File:Read(SETTINGS_FILE) end)
 	if ok and type(data) == "table" then
-		Dbg("loadSettings: raw file contents x=" .. tostring(data.x) .. " y=" .. tostring(data.y) .. " visible=" .. tostring(data.visible))
 		if type(data.x) == "number" and math.abs(data.x) <= SANE_COORD_LIMIT then
 			settings.x = data.x
-		elseif data.x ~= nil then
-			Dbg("loadSettings: ignoring out-of-range saved x=" .. tostring(data.x) .. ", keeping default " .. tostring(DEFAULT_X))
 		end
 		if type(data.y) == "number" and math.abs(data.y) <= SANE_COORD_LIMIT then
 			settings.y = data.y
-		elseif data.y ~= nil then
-			Dbg("loadSettings: ignoring out-of-range saved y=" .. tostring(data.y) .. ", keeping default " .. tostring(DEFAULT_Y))
 		end
 		-- Deliberately NOT "settings.visible = data.visible or false" -- the
 		-- explicit nil-check is what guarantees a file saved before this
@@ -280,7 +238,6 @@ end
 local function savePosition()
 	if containerWindow == nil then return end
 	local x, y = containerWindow:GetOffset()
-	Dbg("savePosition: GetOffset() after drag = x=" .. tostring(x) .. " y=" .. tostring(y))
 	if x and y then
 		settings.x = x
 		settings.y = y
@@ -333,10 +290,7 @@ local function IsVisible()
 end
 
 local function SetVisible(v)
-	if containerWindow == nil then
-		Dbg("SetVisible(" .. tostring(v) .. ") called but containerWindow is nil")
-		return
-	end
+	if containerWindow == nil then return end
 	local shouldShow = v and true or false
 
 	-- BUG FOUND: this function used to only Show/Hide the window -- it never
@@ -353,7 +307,6 @@ local function SetVisible(v)
 	-- "else" branch above), unsafeCausedByAddon is false and this leaves
 	-- that setting alone, exactly as it should.
 	if not shouldShow and portalMode ~= PORTAL_SAFE and unsafeCausedByAddon then
-		Dbg("SetVisible(false): portalMode was " .. tostring(portalMode) .. " (addon-caused), forcing back to safe before hiding")
 		portalMode = PORTAL_SAFE
 		portalClockTimer = 0
 		unsafeCausedByAddon = false
@@ -365,27 +318,18 @@ local function SetVisible(v)
 	containerWindow:Show(shouldShow)
 	if shouldShow then
 		containerWindow:Raise()
-		-- Re-assert both buttons' current state the moment they become
-		-- visible again, in case anything about the underlying settings
-		-- changed while this window was hidden.
 		updatePortalsButtonVisual()
 		updateSkinButtonVisual()
 	end
 	settings.visible = shouldShow
 	saveSettings()
-	Dbg("SetVisible(" .. tostring(v) .. ") -> Show(" .. tostring(shouldShow) .. ") done; IsVisible() after=" .. tostring(containerWindow:IsVisible()))
 end
 
 local function OnLoad()
-	Dbg("OnLoad called (containerWindow=" .. tostring(containerWindow) .. " _onLoadStarted=" .. tostring(_onLoadStarted) .. ")")
-	if containerWindow or _onLoadStarted then
-		Dbg("OnLoad aborted early (duplicate call guard)")
-		return
-	end
+	if containerWindow or _onLoadStarted then return end
 	_onLoadStarted = true
 
 	loadSettings()
-	Dbg("settings after loadSettings(): x=" .. tostring(settings.x) .. " y=" .. tostring(settings.y) .. " visible=" .. tostring(settings.visible))
 
 	-- BUG FOUND (this is almost certainly why players saw portals go unsafe
 	-- on an update even with Tool Functions off, its default): this safety
@@ -525,11 +469,9 @@ local function OnLoad()
 	if settings.visible == true then
 		containerWindow:Raise()
 	end
-	Dbg("OnLoad Show(" .. tostring(settings.visible == true) .. ") done; IsVisible() now=" .. tostring(containerWindow:IsVisible()))
 end
 
 local function OnUnload()
-	Dbg("OnUnload called")
 	_onLoadStarted = false
 
 	-- Always persist here, unconditionally, even though SetVisible already

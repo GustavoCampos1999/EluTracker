@@ -1,8 +1,3 @@
-local DEBUG = true
-local function DebugLog(msg)
-
-end
-
 local settingsManager = require('Elu_Tracker/settings_manager')
 local EluTrackerSettings = settingsManager.Settings
 local SaveEluTrackerSettings = settingsManager.SaveSettings
@@ -353,7 +348,6 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
     local existingMemberIndex = api.Team:GetMemberIndexByName(speakerName)
     if not existingMemberIndex and not RecentlyInvited(speakerName) then
         LogInfo("Inviting " .. speakerName)
-        DebugLog("Inviting player: " .. tostring(speakerName))
         api.Team:InviteToTeam(speakerName, false)
         MarkInvited(speakerName)
     end
