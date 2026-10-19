@@ -19,6 +19,8 @@ local rangeMeterAddon = require("Elu_Tracker/range_meter")
 local quickEquipAddon = require("Elu_Tracker/quick_equip")
 local lootTrackerAddon = require("Elu_Tracker/loot")
 local eluFunctionsToolsAddon = require("Elu_Tracker/elu_functions_tools")
+local chatLanguageAddon = require("Elu_Tracker/chat_language")
+local speedometerAddon = require("Elu_Tracker/speedometer")
 
 local ELU_SMALL_BTN_SKIN = {
     path = "ui/common/default.dds",
@@ -151,6 +153,8 @@ local function OnUpdate(dt)
     if quickEquipAddon and quickEquipAddon.OnUpdate then quickEquipAddon:OnUpdate(dt) end
     if lootTrackerAddon and lootTrackerAddon.OnUpdate then lootTrackerAddon.OnUpdate(dt) end
     if eluFunctionsToolsAddon and eluFunctionsToolsAddon.OnUpdate then eluFunctionsToolsAddon.OnUpdate(dt) end
+    if speedometerAddon and speedometerAddon.OnUpdate then speedometerAddon.OnUpdate(dt) end
+    if chatLanguageAddon and chatLanguageAddon.OnUpdate then chatLanguageAddon.OnUpdate(dt) end
 
     if eluDisplayWindow then
         local isVis = eluDisplayWindow:IsVisible()
@@ -617,10 +621,10 @@ local function CreateMiscWindow(wndParent)
     title.style:SetFontSize(FONT_SIZE.XXLARGE)
     ApplyTextColor(title, FONT_COLOR.TITLE)
     title:SetText("Tools")
-    title:AddAnchor("TOP", wnd, 0, 35)
+    title:AddAnchor("TOP", wnd, 0, 20)
     local toolsRow = wnd:CreateChildWidget("emptywidget", "toolsRow", 0, true)
     toolsRow:SetExtent(500, 30)
-    toolsRow:AddAnchor("TOP", title, "BOTTOM", 0, 20)
+    toolsRow:AddAnchor("TOP", title, "BOTTOM", 0, 12)
 
     local toggleBtn = toolsRow:CreateChildWidget("button", "toggleBtn", 0, true)
     toggleBtn:SetText("Toggle Trip Counter")
@@ -731,7 +735,7 @@ local function CreateMiscWindow(wndParent)
         end)
     end)
 
-    local sectionGap = 15
+    local sectionGap = 10
     local lastSection = toolsRow
 
     local quickEquipSection
@@ -742,6 +746,26 @@ local function CreateMiscWindow(wndParent)
         quickEquipSection:RemoveAllAnchors()
         quickEquipSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, sectionGap)
         lastSection = quickEquipSection
+    end
+
+    local speedometerSection
+    if speedometerAddon and speedometerAddon.CreateUI then
+        speedometerSection = speedometerAddon.CreateUI(wnd)
+    end
+    if speedometerSection then
+        speedometerSection:RemoveAllAnchors()
+        speedometerSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, 4)
+        lastSection = speedometerSection
+    end
+
+    local chatLanguageSection
+    if chatLanguageAddon and chatLanguageAddon.CreateUI then
+        chatLanguageSection = chatLanguageAddon.CreateUI(wnd)
+    end
+    if chatLanguageSection then
+        chatLanguageSection:RemoveAllAnchors()
+        chatLanguageSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, 4)
+        lastSection = chatLanguageSection
     end
 
     local crashSection
@@ -777,7 +801,7 @@ local function CreateMiscWindow(wndParent)
     local lpBtn = wnd:CreateChildWidget("button", "lpBtn", 0, true)
     lpBtn:SetText("Open Regrade Log")
     lpBtn:SetExtent(200, 30)
-    lpBtn:AddAnchor("TOP", lastSection, "BOTTOM", 0, sectionGap + 5)
+    lpBtn:AddAnchor("TOP", lastSection, "BOTTOM", 0, sectionGap)
     api.Interface:ApplyButtonSkin(lpBtn, BUTTON_BASIC.DEFAULT)
     function lpBtn:OnClick()
         if lossPornAddon and lossPornAddon.Toggle then
@@ -790,13 +814,16 @@ local function CreateMiscWindow(wndParent)
     return wnd
 end
 
-local function OnChatMessage(...)
+local function OnChatMessage(a1, a2, a3, a4, a5, a6, a7, a8, a9)
 
     if raidInviteAddon and raidInviteAddon.OnChatMessage then
-        pcall(raidInviteAddon.OnChatMessage, ...)
+        pcall(raidInviteAddon.OnChatMessage, a1, a2, a3, a4, a5, a6, a7, a8, a9)
     end
     if crashAlertAddon and crashAlertAddon.HandleChatCommand then
-        pcall(crashAlertAddon.HandleChatCommand, ...)
+        pcall(crashAlertAddon.HandleChatCommand, a1, a2, a3, a4, a5, a6, a7, a8, a9)
+    end
+    if chatLanguageAddon and chatLanguageAddon.OnChatMessage then
+        pcall(chatLanguageAddon.OnChatMessage, a1, a2, a3, a4, a5, a6, a7, a8, a9)
     end
 end
 
@@ -862,9 +889,13 @@ function OnLoad()
     quickEquipAddon = require("Elu_Tracker/quick_equip")
     lootTrackerAddon = require("Elu_Tracker/loot")
     eluFunctionsToolsAddon = require("Elu_Tracker/elu_functions_tools")
+    chatLanguageAddon = require("Elu_Tracker/chat_language")
+    speedometerAddon = require("Elu_Tracker/speedometer")
 
 
     if eluFunctionsToolsAddon and eluFunctionsToolsAddon.OnLoad then eluFunctionsToolsAddon.OnLoad() end
+    if chatLanguageAddon and chatLanguageAddon.OnLoad then chatLanguageAddon.OnLoad() end
+    if speedometerAddon and speedometerAddon.OnLoad then speedometerAddon.OnLoad() end
 
     local tabInfo = {
         {
@@ -996,6 +1027,8 @@ function OnUnload()
     if quickEquipAddon and quickEquipAddon.OnUnload then quickEquipAddon:OnUnload(); quickEquipAddon = nil end
     if lootTrackerAddon and lootTrackerAddon.OnUnload then lootTrackerAddon:OnUnload(); lootTrackerAddon = nil end
     if eluFunctionsToolsAddon and eluFunctionsToolsAddon.OnUnload then eluFunctionsToolsAddon.OnUnload(); eluFunctionsToolsAddon = nil end
+    if chatLanguageAddon and chatLanguageAddon.OnUnload then chatLanguageAddon.OnUnload(); chatLanguageAddon = nil end
+    if speedometerAddon and speedometerAddon.OnUnload then speedometerAddon.OnUnload(); speedometerAddon = nil end
 
     if eluDisplayWindow then
         eluDisplayWindow:Show(false)

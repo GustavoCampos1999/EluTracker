@@ -16,6 +16,8 @@ A highly comprehensive and self-sufficient productivity, utility, and recruitmen
 - **Everyday Tools** including a built-in Stopwatch and Trip Counter.
 - **Quick Equip** gear-set swapper, letting you save and instantly re-equip full loadouts with one click.
 - **Elu Functions Tools**, draggable quick-toggle buttons for a temporary portal-safety bypass and the client's Default Player Appearances option, handy for RvR performance.
+- **Speedometer** displaying your real-time movement speed (`m/s`) on screen, with Shift + Drag repositioning.
+- **Chat Language Indicator**, an always-on-top `H` / `N` HUD box showing your active spoken continent dialect (Haranya or Nuia), with customizable size and opacity.
 
 ## Acknowledgments & Credits
 Elu Tracker is a standalone project heavily expanded from its original scope. While the overall addon has evolved independently, the Packs and Loss Regrade algorithms were originally inspired by and adapted from *Your Paystub* and *LossPorn*, created by **Michaelqt**. 
@@ -90,3 +92,16 @@ The regrade log can be opened in two different ways: by navigating to the **Misc
 - **Portals:** Temporarily lets you use other players' portals for 10 seconds, then automatically re-enables the "Only Use My Portal" safety setting.
 - **Skin:** Toggles the client's "All Players with Default Appearances" option on or off — useful for improving performance (FPS) during large-scale RvR battles.
 - **Shift + Drag:** Hold Shift and drag either button to move the pair together; they always move as one unit.
+
+### 11. Speedometer
+*A real-time movement speed HUD indicator (`m/s`), adapted from BetterArcheAge and integrated into the **Misc** tab right below Quick Equip. Disabled by default on a fresh install; your choice and custom position are saved across reload/relog like every other Elu Tracker setting.*
+- **Live Movement Speed:** Continuously calculates and displays your character's current speed in `m/s`.
+- **Shift + Drag:** Hold Shift and drag the Speedometer to move it anywhere on the screen.
+- **Reset Position:** Includes a quick reset arrow button in the **Misc** tab to restore its default screen position.
+
+### 12. Chat Language Indicator (H / N)
+*A compact, always-on-top HUD box that displays your currently active continent dialect (`H` for Haranya or `N` for Nuia) right in front of the chat window. Controlled from the **Misc** tab right below the Speedometer, with all settings and the last selected language persisted across game sessions.*
+- **Dialect Detection:** Automatically updates to an orange **H** when switching to `/haranya` or a blue **N** when switching to `/nuia` (displays `?` until a dialect is first detected), and remembers your last active language even after closing the game.
+- **Hover Tooltip:** Hovering the mouse over the indicator displays a tooltip with the full language name (**Haranya** or **Nuia**).
+- **Shift + Drag & Reset Position:** Hold Shift and drag the indicator to position it anywhere (such as beside your chat input bar), or click the reset arrow button in the **Misc** tab to bring it to a clearly visible spot on the screen.
+- **Customizable Size & Opacity:** Click the gear icon next to the toggle in the **Misc** tab to customize **Font Size** (which dynamically scales both the letter and its box), **Letter Opacity**, and **Box Opacity**, or restore default values with **Reset Defaults**.

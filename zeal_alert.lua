@@ -78,7 +78,7 @@ end
 
 function zeal_alert.CreateUI(wndParent)
     local container = wndParent:CreateChildWidget("emptywidget", "zealAlertContainer", 0, true)
-    container:SetExtent(500, 135)
+    container:SetExtent(500, 115)
     container:AddAnchor("TOP", wndParent, 0, 385) -- fallback position; main.lua re-anchors this under the previous Misc section
     
     local title = container:CreateChildWidget("label", "title", 0, true)

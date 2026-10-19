@@ -68,6 +68,13 @@ local FISH_IDS = {
     [27610] = true, [27609] = true, [27608] = true, -- Arowana
 }
 
+local PINK_FISH_IDS = {
+    [30422] = true, -- Small Pink Marlin
+    [30428] = true, -- Medium Pink Marlin
+    [30429] = true, -- Gargantuan Pink Marlin
+    [31691] = true, -- Pink Pufferfish
+}
+
 local function isAFish(itemArg)
     if not itemArg then return false end
     local nameToCheck = ""
@@ -635,18 +642,23 @@ local function OnLoad()
     -- is still the exact true total -- so this recomputes it once, marks it
     -- verified, and from then on saveCurrentSessionToFile()'s delta-based
     -- updates keep it correct even after pruning starts.
-    if pastSessions and not pastSessions.lifetimeVerified then
+    if pastSessions and (not pastSessions.lifetimeVerified or (not pastSessions.lifetimePinkSynced and pastSessions.sessions and #pastSessions.sessions < MAX_SESSIONS)) then
         local sumGold = 0
         local sumFish = 0
         if pastSessions.sessions then
             for _, s in ipairs(pastSessions.sessions) do
-                if type(s.profitTotal) == "number" then sumGold = sumGold + s.profitTotal end
-                sumFish = sumFish + (tonumber(s.packCount) or 1)
+                local p = tonumber(s.profitTotal) or 0
+                local c = tonumber(s.packCount) or 1
+                sumGold = sumGold + p
+                sumFish = sumFish + c
+                s.countedProfit = p
+                s.countedFish = c
             end
         end
         pastSessions.lifetimeGold = sumGold
         pastSessions.lifetimeFish = sumFish
         pastSessions.lifetimeVerified = true
+        pastSessions.lifetimePinkSynced = true
         api.File:Write(pastSessionsFilename, pastSessions)
     end
 
@@ -787,9 +799,22 @@ local function OnLoad()
             elseif actionToPerform == "clear" then
                 for i = #pastSessions.sessions, 1, -1 do
                     local s = pastSessions.sessions[i]
-                    local fishInfo = api.Item:GetItemInfoByType(tonumber(s.packId) or 0)
-                    local fishName = fishInfo and string.lower(fishInfo.name) or ""
-                    if string.find(fishName, "pink marlin") or string.find(fishName, "marlim rosa") or string.find(fishName, "marlin rosa") or string.find(fishName, "pink pufferfish") or string.find(fishName, "gargantuan") then
+                    local packIdNum = tonumber(s.packId) or 0
+                    local fishInfo = api.Item:GetItemInfoByType(packIdNum)
+                    local fishName = fishInfo and fishInfo.name and string.lower(fishInfo.name) or ""
+                    if PINK_FISH_IDS[packIdNum] or string.find(fishName, "pink marlin") or string.find(fishName, "marlim rosa") or string.find(fishName, "marlin rosa") or string.find(fishName, "pink pufferfish") or string.find(fishName, "baiacu rosa") or string.find(fishName, "gargantuan") then
+                        local removedProfit = tonumber(s.countedProfit) or tonumber(s.profitTotal) or 0
+                        local removedFish = tonumber(s.countedFish) or tonumber(s.packCount) or 1
+                        if pastSessions.lifetimeGold ~= nil then
+                            pastSessions.lifetimeGold = math.max(0, pastSessions.lifetimeGold - removedProfit)
+                        end
+                        if pastSessions.lifetimeFish ~= nil then
+                            pastSessions.lifetimeFish = math.max(0, pastSessions.lifetimeFish - removedFish)
+                        end
+                        if currentSession == s then
+                            currentSession = nil
+                            sessionTimeoutCounter = 0
+                        end
                         table.remove(pastSessions.sessions, i)
                         changed = true
                     end
@@ -797,10 +822,16 @@ local function OnLoad()
             end
 
             if changed then
+                maxPage = math.ceil(#pastSessions.sessions / pageSize)
+                if maxPage < 1 then maxPage = 1 end
                 api.File:Write(pastSessionsFilename, pastSessions)
                 refreshStatisticsLabels()
                 if fishingWindow.sessionScrollList then
-                    fillSessionTableData(fishingWindow.sessionScrollList, fishingWindow.sessionScrollList.pageControl:GetCurrentPageIndex() or 1)
+                    local currentPage = fishingWindow.sessionScrollList.pageControl:GetCurrentPageIndex() or 1
+                    if currentPage > maxPage then currentPage = maxPage end
+                    fishingWindow.sessionScrollList.pageControl.maxPage = maxPage
+                    fillSessionTableData(fishingWindow.sessionScrollList, currentPage)
+                    fishingWindow.sessionScrollList.pageControl:SetCurrentPage(currentPage, true)
                 end
             end
         end
