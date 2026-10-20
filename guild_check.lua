@@ -168,11 +168,18 @@ end
 
 local lastTargetId = nil
 local lastTargetGuild = nil
+local guildRefreshTimer = 0
 
-local function refreshGuildText()
+local function refreshGuildText(forceInfo)
     local targetId = api.Unit:GetUnitId("target")
     
     if targetId then
+        -- Same target as last time: only re-query unit info every 500ms
+        -- (the guild name can arrive late) instead of every frame.
+        if not forceInfo and targetId == lastTargetId then
+            return
+        end
+
         local info = nil
         if api.Unit.UnitInfo then info = api.Unit:UnitInfo("target") end
         if not info and api.Unit.GetUnitInfoById then info = api.Unit:GetUnitInfoById(targetId) end
@@ -188,6 +195,7 @@ local function refreshGuildText()
         
         lastTargetId = targetId
         lastTargetGuild = guildName
+        guildRefreshTimer = 0
         
         if guildName and guildName ~= "" then
             currentGuildText = guildName
@@ -208,8 +216,20 @@ end
 
 function guild_check:OnUpdate(dt)
     if not settings.enabled then return end
+
+    -- Target id lookup is cheap and runs each frame to catch target changes;
+    -- the heavier unit-info refresh for an unchanged target runs every 500ms
+    -- only while no guild name has been found yet.
+    local forceInfo = false
+    if lastTargetId ~= nil and not currentGuildText then
+        guildRefreshTimer = guildRefreshTimer + (type(dt) == "number" and dt or 0)
+        if guildRefreshTimer >= 500 then
+            guildRefreshTimer = 0
+            forceInfo = true
+        end
+    end
     
-    local success, err = pcall(refreshGuildText)
+    local success, err = pcall(refreshGuildText, forceInfo)
     if not success then
     end
 end
@@ -329,10 +349,10 @@ end
 function guild_check.CreateUI(container)
     local title = container:CreateChildWidget("label", "title", 0, true)
     title:SetAutoResize(true)
-    title:SetText("Guild Check Settings")
+    title:SetText("Guild Settings")
     title.style:SetFontSize(22)
     ApplyTextColor(title, FONT_COLOR.TITLE)
-    title:AddAnchor("TOP", container, 0, 25)
+    title:AddAnchor("TOP", container, 0, 40)
 
     local function CreateFancyCheck(parent, name, lblText)
         local chk = parent:CreateChildWidget("checkbutton", name, 0, true)

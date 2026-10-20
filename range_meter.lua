@@ -41,6 +41,20 @@ local dynChk, t1Edit, t2Edit, alphaGrp = nil, nil, nil, nil
 
 local POSITIONS = { "Top", "Bottom", "Left", "Right" }
 
+local cachedTargetId = nil
+local cachedTargetValid = true
+local targetInfoRetryTimer = 0
+local lastRoundedDist10 = nil
+local lateHookRegistered = false
+
+-- Keeps the range label above every other addon HUD (e.g. TrackThatPlease).
+function range_meter.RaiseOnTop()
+    if canvas and canvas:IsVisible() then
+        pcall(function() canvas:Raise() end)
+        if rangeLabel then pcall(function() rangeLabel:Raise() end) end
+    end
+end
+
 local function GetPositionIndex(posStr)
     for i, v in ipairs(POSITIONS) do
         if v == posStr then return i end
@@ -64,15 +78,21 @@ function range_meter.OnUpdate(dt)
         return
     end
 
-    local info = nil
-    if api.Unit.UnitInfo then info = api.Unit:UnitInfo("target") end
-    if not info and api.Unit.GetUnitInfoById then info = api.Unit:GetUnitInfoById(targetId) end
-
-    if info then
-        if info.type ~= "character" and info.type ~= "npc" and info.type ~= "monster" then
-            canvas:Show(false)
-            return
+    -- Cache target type validity per targetId (avoid per-frame unit info lookups)
+    if targetId ~= cachedTargetId then
+        cachedTargetId = targetId
+        cachedTargetValid = true
+        targetInfoRetryTimer = 0
+        local info = nil
+        if api.Unit.UnitInfo then info = api.Unit:UnitInfo("target") end
+        if not info and api.Unit.GetUnitInfoById then info = api.Unit:GetUnitInfoById(targetId) end
+        if info and info.type ~= "character" and info.type ~= "npc" and info.type ~= "monster" then
+            cachedTargetValid = false
         end
+    end
+    if not cachedTargetValid then
+        canvas:Show(false)
+        return
     end
     
     local sX, sY, sZ = api.Unit:GetUnitScreenPosition("target")
@@ -89,7 +109,11 @@ function range_meter.OnUpdate(dt)
 
     if dist < 0 then dist = 0 end
 
-    rangeLabel:SetText(string.format("%.1fm", dist))
+    local dist10 = math.floor(dist * 10 + 0.5)
+    if dist10 ~= lastRoundedDist10 then
+        lastRoundedDist10 = dist10
+        rangeLabel:SetText(string.format("%.1fm", dist))
+    end
 
     if settings.useDynamicColor then
         if dist <= (settings.threshold1 or 28) then
@@ -123,7 +147,7 @@ function range_meter.OnUpdate(dt)
     end
     
     canvas:Show(true)
-    
+    range_meter.RaiseOnTop()
 end
 
 
@@ -482,6 +506,7 @@ function range_meter.OnLoad()
     canvas:Clickable(false)
     
     rangeLabel = canvas:CreateChildWidget("label", "rLabel", 0, true)
+    pcall(function() rangeLabel:Clickable(false) end)
     rangeLabel:Show(true)
         rangeLabel:SetAutoResize(true)
     rangeLabel:AddAnchor("CENTER", canvas, 0, 0)
@@ -492,6 +517,19 @@ function range_meter.OnLoad()
     
     if rangeLabel.style.SetShadow then
         rangeLabel.style:SetShadow(true)
+    end
+
+    cachedTargetId = nil
+    lastRoundedDist10 = nil
+
+    -- Late UPDATE hook: registered 500ms after load so it runs AFTER the
+    -- UPDATE callbacks of addons loaded later (e.g. TrackThatPlease), which
+    -- re-anchor their canvases every frame. Registered only once.
+    if not lateHookRegistered then
+        lateHookRegistered = true
+        api:DoIn(500, function()
+            api.On("UPDATE", function() range_meter.RaiseOnTop() end)
+        end)
     end
 end
 

@@ -73,7 +73,12 @@ local state = {
     enhancedKeyword = "",
     eluFilterMode = 2,
     enhancedFilterMode = 2, fastBlacklist = {},
-    qaiCanvasPos = nil
+    qaiCanvasPos = nil,
+    -- Raid Settings (Guild/Raid tab): master switch for the normal Elu Auto
+    -- Invite module (Quick Auto Invite is NOT affected) and the custom
+    -- "x givelead" command text.
+    moduleEnabled = true,
+    giveleadCommand = "x givelead"
 }
 
 local widgets = {}
@@ -174,6 +179,8 @@ local function LoadSettings()
         if data.eluFilterMode ~= nil then state.eluFilterMode = data.eluFilterMode end
         if data.enhancedFilterMode ~= nil then state.enhancedFilterMode = data.enhancedFilterMode end; if data.fastBlacklist ~= nil then state.fastBlacklist = data.fastBlacklist end
         if data.qaiCanvasPos ~= nil then state.qaiCanvasPos = data.qaiCanvasPos end
+        if data.moduleEnabled ~= nil then state.moduleEnabled = (data.moduleEnabled ~= false) end
+        if type(data.giveleadCommand) == "string" and data.giveleadCommand ~= "" then state.giveleadCommand = data.giveleadCommand end
     end
     
     local function SanitizeList(t)
@@ -218,7 +225,9 @@ function SaveSettings()
         clearedKeywordV2 = state.clearedKeywordV2,
         eluFilterMode = state.eluFilterMode,
         enhancedFilterMode = state.enhancedFilterMode, fastBlacklist = state.fastBlacklist,
-        qaiCanvasPos = state.qaiCanvasPos
+        qaiCanvasPos = state.qaiCanvasPos,
+        moduleEnabled = state.moduleEnabled,
+        giveleadCommand = state.giveleadCommand
     }
     EluTrackerSettings.raidInvite = data
     SaveEluTrackerSettings()
@@ -264,7 +273,9 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
         if giveMode then giveMode = (state.giveleadWhitelistOnly and 3 or 2) else giveMode = 1 end
     end
     
-    if giveMode > 1 and (channelId == 5 or channelId == -3 or channelId == 7) and (msgLower == "x givelead" or (keywordLower ~= "" and msgLower == keywordLower .. " givelead")) then
+    local giveCmd = string.lower(tostring(state.giveleadCommand or "x givelead"))
+    if giveCmd == "" then giveCmd = "x givelead" end
+    if state.moduleEnabled and giveMode > 1 and (channelId == 5 or channelId == -3 or channelId == 7) and (msgLower == giveCmd or (keywordLower ~= "" and msgLower == keywordLower .. " givelead")) then
         local formattedSpeaker = FormatName(speakerName)
         if giveMode == 2 or (giveMode == 3 and IsWhitelisted(formattedSpeaker)) then
             LogInfo("Giving leadership to " .. formattedSpeaker)
@@ -299,7 +310,7 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
         end
     end
     
-    if state.inviteMode == 0 then return end
+    if state.inviteMode == 0 or not state.moduleEnabled then return end
     if keywordLower == "" then return end
     
     local eluMatch = false
@@ -356,7 +367,7 @@ end
 -- UI
 local function UpdateFloatingIcon()
     if widgets.floatingIcon then
-        widgets.floatingIcon:Show(state.showFloatingIcon)
+        widgets.floatingIcon:Show(state.showFloatingIcon and state.moduleEnabled)
         widgets.floatingIcon:SetExtent(55, 40)
         
         if widgets.fBgOn and widgets.fBgOff then
@@ -729,11 +740,12 @@ local function BuildSidePanel(parent)
     widgets.eluFilterCombo = eluFilterCombo
     
     local giveleadLabel = panel:CreateChildWidget("label", "giveleadLabel", 0, true)
-    giveleadLabel:SetText("'x givelead':")
+    giveleadLabel:SetText("'" .. tostring(state.giveleadCommand or "x givelead") .. "':")
     giveleadLabel:SetExtent(75, 20)
     giveleadLabel:AddAnchor("TOPLEFT", panel, 57, 210)
     ApplyTextColor(giveleadLabel, {1,1,1,1})
     giveleadLabel.style:SetAlign(ALIGN.LEFT)
+    widgets.giveleadLabel = giveleadLabel
     
     local giveleadCombo = api.Interface:CreateComboBox(panel)
     giveleadCombo:SetExtent(105, 25)
@@ -1379,6 +1391,103 @@ local function BuildSidePanel(parent)
     widgets.ToggleListWindow = ToggleListWindow
 end
 
+function raid_invite.SetModuleEnabled(enabled)
+    state.moduleEnabled = enabled and true or false
+    if not state.moduleEnabled then
+        if state.inviteMode ~= 0 then
+            state.inviteMode = 0
+            if widgets.toggleBtn then widgets.toggleBtn:SetText("Turn ON") end
+            if widgets.statusLbl then
+                widgets.statusLbl:SetText("[OFF]")
+                ApplyTextColor(widgets.statusLbl, {1, 0, 0, 1})
+            end
+        end
+        state.isSidePanelOpen = false
+        if widgets.sidePanel then widgets.sidePanel:Show(false) end
+        if widgets.floatingIcon then widgets.floatingIcon:Show(false) end
+        if widgets.toggleSideBtn then widgets.toggleSideBtn:Show(false) end
+    else
+        if widgets.toggleSideBtn then widgets.toggleSideBtn:Show(true) end
+        UpdateFloatingIcon()
+    end
+    SaveSettings()
+end
+
+-- "Raid Settings" block shown under "Guild Settings" in the Guild/Raid tab.
+function raid_invite.CreateTabUI(container, anchorWidget)
+    LoadSettings()
+
+    local box = container:CreateChildWidget("emptywidget", "raidSettingsBox", 0, true)
+    box:SetExtent(500, 130)
+    box:AddAnchor("TOPLEFT", container, "TOPLEFT", 50, 440)
+
+    local title = box:CreateChildWidget("label", "raidTitle", 0, true)
+    title:SetAutoResize(true)
+    title:SetText("Raid Settings")
+    title.style:SetFontSize(22)
+    ApplyTextColor(title, FONT_COLOR.TITLE)
+    title:AddAnchor("TOP", box, 0, 0)
+
+    local chk = box:CreateChildWidget("checkbutton", "raidModuleCheck", 0, true)
+    chk:SetExtent(18, 17)
+    chk:AddAnchor("TOPLEFT", box, 100, 45)
+    local function skin(setter, x)
+        local bg = chk:CreateImageDrawable("ui/button/check_button.dds", "background")
+        bg:SetExtent(18, 17)
+        bg:AddAnchor("CENTER", chk, 0, 0)
+        bg:SetCoords(x, 0, 18, 17)
+        chk[setter](chk, bg)
+    end
+    skin("SetNormalBackground", 0)
+    skin("SetCheckedBackground", 18)
+
+    local chkLbl = box:CreateChildWidget("label", "raidModuleCheckLbl", 0, true)
+    chkLbl:SetAutoResize(true)
+    chkLbl:SetText("Enable Elu Auto Invite (does not affect Quick Auto Invite)")
+    chkLbl:AddAnchor("LEFT", chk, "RIGHT", 5, 0)
+    ApplyTextColor(chkLbl, FONT_COLOR.DEFAULT)
+
+    chk:SetChecked(state.moduleEnabled, false)
+    chk:SetHandler("OnCheckChanged", function()
+        raid_invite.SetModuleEnabled(chk:GetChecked())
+    end)
+
+    local cmdLbl = box:CreateChildWidget("label", "raidGiveleadLbl", 0, true)
+    cmdLbl:SetAutoResize(true)
+    cmdLbl:SetText("Givelead Command:")
+    cmdLbl:AddAnchor("TOPLEFT", box, 100, 80)
+    ApplyTextColor(cmdLbl, FONT_COLOR.DEFAULT)
+
+    local edit = W_CTRL.CreateEdit("raidGiveleadEdit", box)
+    edit:SetExtent(130, 25)
+    edit:SetMaxTextLength(40)
+    edit:AddAnchor("LEFT", cmdLbl, "RIGHT", 8, 0)
+    edit:SetText(state.giveleadCommand or "x givelead")
+
+    local function applyCmd(text)
+        text = tostring(text or ""):gsub("^%s*(.-)%s*$", "%1")
+        if text == "" then text = "x givelead" end
+        state.giveleadCommand = text
+        edit:SetText(text)
+        if widgets.giveleadLabel then widgets.giveleadLabel:SetText("'" .. text .. "':") end
+        SaveSettings()
+    end
+
+    local saveBtn = box:CreateChildWidget("button", "raidGiveleadSave", 0, true)
+    saveBtn:SetText("Save")
+    saveBtn:AddAnchor("LEFT", edit, "RIGHT", 6, 0)
+    api.Interface:ApplyButtonSkin(saveBtn, RAID_SMALL_BTN_SKIN)
+    saveBtn:SetHandler("OnClick", function() applyCmd(edit:GetText()) end)
+
+    local resetBtn = box:CreateChildWidget("button", "raidGiveleadReset", 0, true)
+    resetBtn:SetText("Reset")
+    resetBtn:AddAnchor("LEFT", saveBtn, "RIGHT", 4, 0)
+    api.Interface:ApplyButtonSkin(resetBtn, RAID_SMALL_BTN_SKIN)
+    resetBtn:SetHandler("OnClick", function() applyCmd("x givelead") end)
+
+    return box
+end
+
 function raid_invite.OnLoad()
     LoadSettings()
     if not state.doNotDisableAutoInvite and state.inviteMode ~= 0 then
@@ -1405,11 +1514,12 @@ function raid_invite.OnLoad()
         widgets.sidePanel:Show(state.isSidePanelOpen)
     end)
     widgets.toggleSideBtn = toggleSideBtn
+    toggleSideBtn:Show(state.moduleEnabled)
     
     local fIcon = api.Interface:CreateEmptyWindow("eluRaidFloatingIcon", "UIParent")
     fIcon:SetExtent(55, 40)
     fIcon:AddAnchor("TOPLEFT", "UIParent", state.floatingIconPos[1], state.floatingIconPos[2])
-    fIcon:Show(state.showFloatingIcon)
+    fIcon:Show(state.showFloatingIcon and state.moduleEnabled)
     
     local fBgOn = fIcon:CreateImageDrawable("Addon/Elu_Tracker/auto_on.png", "background")
     fBgOn:SetExtent(55, 40)
@@ -1581,12 +1691,34 @@ function raid_invite.OnLoad()
     cancel_button:AddAnchor("BOTTOM", canvas, 0, -10)
     api.Interface:ApplyButtonSkin(cancel_button, BUTTON_BASIC.DEFAULT)
     
+    local function DisableExternalAutoInviteAddons()
+        -- api.GetSettings(id) returns the live settings table of another
+        -- addon; switching its recruiting flags off stops it immediately.
+        local ids = { "xonme", "Actually_Useable_X_Up", "Autoinvite_member", "auto_invite", "x_up" }
+        for _, id in ipairs(ids) do
+            pcall(function()
+                local ext = api.GetSettings and api.GetSettings(id) or nil
+                if type(ext) == "table" then
+                    local was = (ext.is_recruiting == true) or (ext.autoInviting == true) or (ext.isActive == true)
+                    if was then
+                        ext.is_recruiting = false
+                        ext.autoInviting = false
+                        ext.isActive = false
+                        if api.SaveSettings then api.SaveSettings() end
+                        LogInfo("Disabled external auto-invite addon: " .. id)
+                    end
+                end
+            end)
+        end
+    end
+
     local function StartEnhancedRecruiting()
         local msg = textfield:GetText()
         if not msg or msg == "" then
             LogErr("Please enter a recruit message.")
             return
         end
+        DisableExternalAutoInviteAddons()
         state.enhancedIsActive = true
         state.enhancedKeyword = msg
         recruit_button:SetText("Stop")
@@ -1632,7 +1764,14 @@ function raid_invite.OnLoad()
     end
 end
 
+local raidCheckTimer = 0
+
 function raid_invite.OnUpdate(dt)
+    -- Throttled: raid membership only needs checking a few times per second.
+    raidCheckTimer = raidCheckTimer + (type(dt) == "number" and dt or 0)
+    if raidCheckTimer < 300 then return end
+    raidCheckTimer = 0
+
     -- Leaving raid logic
     local inRaid = false
     if api.Unit ~= nil and api.Unit.GetUnitId ~= nil then
@@ -1746,6 +1885,7 @@ function raid_invite.OnUnload()
     widgets.kwInput = nil
     widgets.eluFilterCombo = nil
     widgets.giveleadCombo = nil
+    widgets.giveleadLabel = nil
     widgets.enhancedCanvasLbl = nil
 end
 

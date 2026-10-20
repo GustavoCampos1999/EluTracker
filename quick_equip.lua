@@ -1226,6 +1226,7 @@ end
 
 function quick_equip_addon:OnUnload()
     enableCheckWidget = nil
+    currentCharKey = nil
     destroyBarUI()
 end
 
@@ -1234,12 +1235,14 @@ end
 -- every sub-module funnels through there instead of registering its own
 -- api.On("UPDATE", ...)).
 function quick_equip_addon:OnUpdate(dt)
-    charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
-    if charCheckTimer >= 500 then
-        charCheckTimer = 0
-        SyncCharacterStateIfNeeded()
+    if currentCharKey == nil then
+        charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
+        if charCheckTimer >= 500 then
+            charCheckTimer = 0
+            SyncCharacterStateIfNeeded()
+        end
     end
-    updateDragIndicator()
+    if dragState then updateDragIndicator() end
 end
 
 return quick_equip_addon

@@ -100,10 +100,6 @@ local function getTimeString()
 end
 
 local function OnUpdate(dt)
-    if clockTimer + dt > clockResetTime then
-		clockTimer = 0
-    end 
-    clockTimer = clockTimer + dt
 end 
 
 local function handleRegradeEvent(characterName, resultCode, itemLink, oldGrade, newGrade)
@@ -187,7 +183,6 @@ local function handleRegradeEvent(characterName, resultCode, itemLink, oldGrade,
             table.remove(settings.sessionLogs, #settings.sessionLogs)
         end
         
-        SaveSettings()
         ui.RefreshList()
     end
 end
@@ -205,7 +200,6 @@ local function OnLoad()
 
     if not LossPornSessionWiped then
         settings.sessionLogs = {}
-        SaveSettings()
         LossPornSessionWiped = true
     end
 

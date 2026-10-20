@@ -63,6 +63,8 @@ local _onLoadStarted = false
 local lastScreenH = 0
 local checkScreenTimer = 0
 local raiseTimer = 0
+local shiftClickable = false
+local hoverShown = false
 local charCheckTimer = 0
 local currentCharKey = nil
 local savedCharacters = {}
@@ -400,10 +402,9 @@ local function IsSystemChannel(channelId)
     return false
 end
 
-local function ScanAllArgsForExactMatch(a1, a2, a3, a4, a5, a6, a7, a8, a9)
-    local list = { a1, a2, a3, a4, a5, a6, a7, a8, a9 }
+local function ScanAllArgsForExactMatch(...)
     for i = 1, 9 do
-        local v = list[i]
+        local v = select(i, ...)
         if type(v) == "string" and v ~= "" then
             local exact = DetectExactSystemLanguageChange(v)
             if exact then
@@ -469,9 +470,8 @@ local function HandleRawEvent(event, a1, a2, a3, a4, a5, a6, a7, a8, a9)
         end
     end
 
-    local list = { a1, a2, a3, a4, a5, a6, a7, a8, a9 }
     for i = 1, 9 do
-        local v = list[i]
+        local v = select(i, a1, a2, a3, a4, a5, a6, a7, a8, a9)
         if type(v) == "string" and v ~= "" then
             local detected = DetectLanguageFromText(v, true)
             if detected then
@@ -878,11 +878,42 @@ local function SyncCharacterStateIfNeeded()
     end
 end
 
+-- Windows/frames that must always stay in front of the indicator.
+local BLOCKING_UIC_NAMES = {
+    "BAG", "BANK", "COFFER", "CHARACTER_INFO", "OPTION_FRAME", "SYSTEM_CONFIG_FRAME",
+    "GAME_EXIT_FRAME", "SLAVE_EQUIPMENT", "RAID_MANAGER", "COMMUNITY_WINDOW",
+    "ENCHANT_WINDOW", "ABILITY_CHANGE", "MAIL_BOX", "MAIL", "AUCTION", "AUCTION_WINDOW",
+    "TRADE", "STORE", "CRAFT", "WORLD_MAP", "QUEST_LIST", "SKILL_WINDOW", "ABILITY_WINDOW",
+}
+
+local function IsBlockingWindowOpen()
+    if type(UIC) == "table" and ADDON and ADDON.GetContent then
+        for i = 1, #BLOCKING_UIC_NAMES do
+            local id = UIC[BLOCKING_UIC_NAMES[i]]
+            if id ~= nil then
+                local ok, vis = pcall(function()
+                    local w = ADDON:GetContent(id)
+                    return w and w.IsVisible and w:IsVisible()
+                end)
+                if ok and vis then return true end
+            end
+        end
+    end
+    local okE, eluVis = pcall(function()
+        return eluDisplayWindow and eluDisplayWindow:IsVisible()
+    end)
+    if okE and eluVis then return true end
+    if settingsPopupWnd and settingsPopupWnd:IsVisible() then return true end
+    return false
+end
+
 local function OnUpdate(dt)
-    charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
-    if charCheckTimer >= 500 then
-        charCheckTimer = 0
-        SyncCharacterStateIfNeeded()
+    if currentCharKey == nil then
+        charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
+        if charCheckTimer >= 500 then
+            charCheckTimer = 0
+            SyncCharacterStateIfNeeded()
+        end
     end
 
     if not indicatorWnd then return end
@@ -898,11 +929,36 @@ local function OnUpdate(dt)
         indicatorWnd:Show(true)
     end
 
-    -- Periodically raise the indicator so it always stays in front of the chat window
+    -- Click-through: only clickable while Shift is held (Shift + drag to move).
+    local shift = api.Input:IsShiftKeyDown() and true or false
+    if shift ~= shiftClickable then
+        shiftClickable = shift
+        pcall(function() indicatorWnd:Clickable(shift) end)
+        if dragOverlay then pcall(function() dragOverlay:Clickable(shift) end) end
+    end
+
+    -- Hover tooltip driven by mouse position (works while click-through).
+    if not shift then
+        local mx, my = api.Input:GetMousePos()
+        local ox, oy = indicatorWnd:GetOffset()
+        local w, h = indicatorWnd:GetExtent()
+        local inside = false
+        if mx and my and ox and oy and w and h then
+            inside = mx >= ox and mx <= ox + w and my >= oy and my <= oy + h
+        end
+        if inside ~= hoverShown then
+            hoverShown = inside
+            if inside then ShowHoverTooltip() else HideHoverTooltip() end
+        end
+    end
+
+    -- Keep in front of the chat window, but never above game windows.
     raiseTimer = raiseTimer + (type(dt) == "number" and dt or 0)
     if raiseTimer >= 250 then
         raiseTimer = 0
-        pcall(function() indicatorWnd:Raise() end)
+        if not IsBlockingWindowOpen() then
+            pcall(function() indicatorWnd:Raise() end)
+        end
         if tooltipWnd and tooltipWnd:IsVisible() then
             pcall(function() tooltipWnd:Raise() end)
         end
@@ -930,8 +986,10 @@ local function OnLoad()
     local boxSize = math.max(28, fontSize + 12)
 
     indicatorWnd = api.Interface:CreateEmptyWindow("eluChatLanguageWnd", "UIParent")
-    -- Keep on the "tooltip" UI layer so it always renders in front of the chat window
-    pcall(function() indicatorWnd:SetUILayer("tooltip") end)
+    -- "normal" layer: in front of the chat window (via Raise) but never above
+    -- Inventory/Bank/Menu windows. Click-through unless Shift is held.
+    pcall(function() indicatorWnd:SetUILayer("normal") end)
+    pcall(function() indicatorWnd:Clickable(false) end)
     indicatorWnd:SetExtent(boxSize, boxSize)
     ApplyPosition()
 
@@ -957,6 +1015,8 @@ local function OnLoad()
     dragOverlay:AddAnchor("TOPLEFT", indicatorWnd, 0, 0)
     dragOverlay:AddAnchor("BOTTOMRIGHT", indicatorWnd, 0, 0)
     dragOverlay:Show(true)
+    pcall(function() dragOverlay:Clickable(false) end)
+    shiftClickable = false
 
     -- Hover tooltip displaying "Nuia" or "Haranya" right above the indicator
     tooltipWnd = api.Interface:CreateWidget("emptywidget", "eluChatLangTooltip", "UIParent")
@@ -1007,8 +1067,8 @@ local function OnLoad()
     eventWnd:SetHandler("OnEvent", eventWnd.OnEvent)
 
     local eventsToWatch = {
-        "CHAT_MESSAGE",
-        "CHAT_MSG_SYSTEM",
+        -- CHAT_MESSAGE is dispatched centrally by main.lua; CHAT_MSG_SYSTEM
+        -- is not a valid event (logged a warning on every load).
         "SYS_MSG",
         "SYSTEM_MESSAGE",
         "NOTICE_MESSAGE",
@@ -1030,6 +1090,8 @@ end
 local function OnUnload()
     _onLoadStarted = false
     SaveState()
+    currentCharKey = nil
+    hoverShown = false
 
     enableCheckWidget = nil
     sizeStepper = nil

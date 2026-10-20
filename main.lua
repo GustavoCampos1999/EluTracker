@@ -1,7 +1,7 @@
 local elu_tracker_addon = {
 	name = "Elu Tracker",
 	author = "Eludelu",
-	version = "5.0.0",
+	version = "5.2.3",
 	desc = "Commerce, Fishing and Tools."
 }
 
@@ -99,6 +99,10 @@ end
 
 local bagFrameFixed = false
 local function OnUpdate(dt)
+    -- Range finder and chat-language icon first: top priority HUD elements.
+    if rangeMeterAddon and rangeMeterAddon.OnUpdate then rangeMeterAddon.OnUpdate(dt) end
+    if chatLanguageAddon and chatLanguageAddon.OnUpdate then chatLanguageAddon.OnUpdate(dt) end
+
     priceUpdateTimer = priceUpdateTimer + (type(dt) == "number" and dt or 0)
     if priceUpdateTimer > 2000 then 
         priceUpdateTimer = 0
@@ -149,12 +153,10 @@ local function OnUpdate(dt)
     if zealAlertAddon and zealAlertAddon.OnUpdate then
         zealAlertAddon:OnUpdate(dt)
     end
-    if rangeMeterAddon and rangeMeterAddon.OnUpdate then rangeMeterAddon.OnUpdate(dt) end
     if quickEquipAddon and quickEquipAddon.OnUpdate then quickEquipAddon:OnUpdate(dt) end
     if lootTrackerAddon and lootTrackerAddon.OnUpdate then lootTrackerAddon.OnUpdate(dt) end
     if eluFunctionsToolsAddon and eluFunctionsToolsAddon.OnUpdate then eluFunctionsToolsAddon.OnUpdate(dt) end
     if speedometerAddon and speedometerAddon.OnUpdate then speedometerAddon.OnUpdate(dt) end
-    if chatLanguageAddon and chatLanguageAddon.OnUpdate then chatLanguageAddon.OnUpdate(dt) end
 
     if eluDisplayWindow then
         local isVis = eluDisplayWindow:IsVisible()
@@ -407,6 +409,9 @@ local function CreateGuildCheckWindow(wndParent)
 
     if guildCheckAddon and guildCheckAddon.CreateUI then
         guildCheckAddon.CreateUI(wnd)
+    end
+    if raidInviteAddon and raidInviteAddon.CreateTabUI then
+        pcall(raidInviteAddon.CreateTabUI, wnd)
     end
 
     _guildCheckWnd = wnd
@@ -831,6 +836,7 @@ local _onLoadStarted = false
 
 
 local _autoRebuildDone = false
+local _eventsRegistered = false
 
 
 local OnLoad, OnUnload
@@ -915,13 +921,13 @@ function OnLoad()
         },
         {
             validationCheckFunc = function() return true end,
-            title = "Misc.",
-            subWindowConstructor = function(parent) return CreateMiscWindow(parent) end
+            title = "Guild/Raid",
+            subWindowConstructor = function(parent) CreateGuildCheckWindow(parent) end
         },
         {
             validationCheckFunc = function() return true end,
-            title = "Guild Check",
-            subWindowConstructor = function(parent) CreateGuildCheckWindow(parent) end
+            title = "Misc.",
+            subWindowConstructor = function(parent) return CreateMiscWindow(parent) end
         }
     }
     
@@ -993,8 +999,13 @@ function OnLoad()
     if lootTrackerAddon and lootTrackerAddon.OnLoad then lootTrackerAddon:OnLoad() end
 
 
-    api.On("UPDATE", OnUpdate)
-    api.On("CHAT_MESSAGE", OnChatMessage)
+    -- api.On is additive in this engine: register only once, even though the
+    -- 3s auto-rebuild below runs OnUnload()/OnLoad() again.
+    if not _eventsRegistered then
+        _eventsRegistered = true
+        api.On("UPDATE", function(dt) if OnUpdate then OnUpdate(dt) end end)
+        api.On("CHAT_MESSAGE", function(...) OnChatMessage(...) end)
+    end
 
 
     if not _autoRebuildDone then
@@ -1066,8 +1077,8 @@ function OnUnload()
         _toggleFuncTooltip = nil
     end
 
-    api.On("UPDATE", function() return end)
-    api.On("CHAT_MESSAGE", function() return end)
+    -- UPDATE/CHAT_MESSAGE handlers stay registered once (see OnLoad); the
+    -- module locals they use are nil'd above and guarded.
 end
 
 

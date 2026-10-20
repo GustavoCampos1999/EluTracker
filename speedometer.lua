@@ -17,6 +17,7 @@ local speedBar = nil
 local speedLabel = nil
 local dragOverlay = nil
 local maxSpeedValue = 50
+local lastRoundedSpeed10 = nil
 
 local settings = {
     enabled = false,
@@ -282,9 +283,16 @@ function speedometer_addon.OnUpdate(dt)
         speedBar:SetMinMaxValues(0, maxSpeedValue)
     end
 
-    canvas:Show(true)
-    speedBar:SetValue(absSpeed10)
-    speedLabel:SetText(string.format("%.1fm/s", speed))
+    if not canvas:IsVisible() then
+        canvas:Show(true)
+        lastRoundedSpeed10 = nil
+    end
+    local rounded = math.floor(absSpeed10 + 0.5)
+    if rounded ~= lastRoundedSpeed10 then
+        lastRoundedSpeed10 = rounded
+        speedBar:SetValue(absSpeed10)
+        speedLabel:SetText(string.format("%.1fm/s", speed))
+    end
 end
 
 function speedometer_addon.OnLoad()

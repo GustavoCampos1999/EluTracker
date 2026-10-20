@@ -11,6 +11,7 @@ EluTrackerSettingsManager.Settings = {
     spotTimers = {},
     stopwatchPos = { x = 0, y = 0 },
     zealSettings = { opacity = 50, sound = true, size = 1.0 },
+    raidInvite = { moduleEnabled = true, giveleadCommand = "x givelead" },
     misc = { enableAltTracking = false, modifierKey = "SHIFT" },
     activeLootSession = {},
     -- Loot Tracker overlay (draggable HUD showing live profit/kills/labor).
@@ -43,7 +44,22 @@ function EluTrackerSettingsManager.LoadSettings()
 end
 
 function EluTrackerSettingsManager.SaveSettings()
-    api.File:Write(ELU_TRACKER_SETTINGS_FILE, EluTrackerSettingsManager.Settings)
+    -- sessionLogs (regrade log) lives in memory only: never written to disk.
+    local lp = EluTrackerSettingsManager.Settings.lossPornSettings
+    local logs = nil
+    if type(lp) == "table" then
+        logs = lp.sessionLogs
+        lp.sessionLogs = nil
+    end
+    -- Legacy top-level gear_sets is dropped once it was claimed by a character.
+    local qe = EluTrackerSettingsManager.Settings.quickEquip
+    if type(qe) == "table" and qe.legacyClaimed then
+        qe.gear_sets = nil
+    end
+    local ok, err = pcall(api.File.Write, api.File, ELU_TRACKER_SETTINGS_FILE, EluTrackerSettingsManager.Settings)
+    if type(lp) == "table" then
+        lp.sessionLogs = logs
+    end
 end
 
 local function MigrateOldSettings()
