@@ -62,8 +62,7 @@ local eventWnd = nil
 local _onLoadStarted = false
 local lastScreenH = 0
 local checkScreenTimer = 0
-local shiftClickable = false
-local hoverShown = false
+local raiseTimer = 0
 local charCheckTimer = 0
 local currentCharKey = nil
 local savedCharacters = {}
@@ -75,9 +74,20 @@ local COLOR_UNKNOWN = { 0.85, 0.85, 0.85, 1.0 } -- Neutral gray/white for "?"
 local function GetCurrentCharKey()
     local charName = nil
     pcall(function()
-        local id = api.Unit:GetUnitId("player")
-        if id then
-            local name = api.Unit:GetUnitNameById(id)
+        if api.Unit and api.Unit.GetUnitId then
+            local id = api.Unit:GetUnitId("player")
+            if id then
+                local name = api.Unit:GetUnitNameById(id)
+                if type(name) == "string" then
+                    name = name:gsub("^%s*(.-)%s*$", "%1")
+                    if name ~= "" then
+                        charName = string.lower(name)
+                    end
+                end
+            end
+        end
+        if not charName and api.Unit and api.Unit.UnitName then
+            local name = api.Unit:UnitName("player")
             if type(name) == "string" then
                 name = name:gsub("^%s*(.-)%s*$", "%1")
                 if name ~= "" then
@@ -87,35 +97,6 @@ local function GetCurrentCharKey()
         end
     end)
     return charName
-end
-
-local function ApplyLoadedFields(src, includeLang)
-    if type(src) ~= "table" then return end
-    if src.enabled ~= nil then
-        state.enabled = (src.enabled == true)
-    end
-    if includeLang and (src.lang == "H" or src.lang == "N" or src.lang == "?") then
-        state.lang = src.lang
-    end
-    if type(src.x) == "number" and src.x >= 0 and src.x <= SANE_COORD_LIMIT and
-       type(src.y) == "number" and src.y >= 0 and src.y <= SANE_COORD_LIMIT then
-        state.x = src.x
-        state.y = src.y
-    end
-    if src.customPos ~= nil and state.x and state.y then
-        state.customPos = (src.customPos == true)
-    else
-        state.customPos = false
-    end
-    if type(src.size) == "number" and src.size >= 10 and src.size <= 40 then
-        state.size = math.floor(src.size + 0.5)
-    end
-    if type(src.alpha) == "number" and src.alpha >= 0.1 and src.alpha <= 1.0 then
-        state.alpha = src.alpha
-    end
-    if type(src.bgAlpha) == "number" and src.bgAlpha >= 0.0 and src.bgAlpha <= 1.0 then
-        state.bgAlpha = src.bgAlpha
-    end
 end
 
 local function SaveState()
@@ -134,7 +115,7 @@ local function SaveState()
         }
     end
 
-    EluTrackerSettings.chatLanguage = {
+    local fileData = {
         enabled = state.enabled,
         lang = state.lang,
         x = state.x,
@@ -145,9 +126,11 @@ local function SaveState()
         bgAlpha = state.bgAlpha,
         characters = savedCharacters,
     }
+
+    EluTrackerSettings.chatLanguage = fileData
     pcall(SaveEluTrackerSettings)
     pcall(function()
-        api.File:Write(STATE_FILE, EluTrackerSettings.chatLanguage)
+        api.File:Write(STATE_FILE, fileData)
     end)
 end
 
@@ -178,30 +161,77 @@ local function LoadState()
             end
         end
 
-        -- Apply shared visual/layout defaults first (position, size, opacity, enabled)
-        ApplyLoadedFields(loaded, false)
+        -- Global defaults for visual controls
+        if loaded.enabled ~= nil then
+            state.enabled = (loaded.enabled == true)
+        end
+        if type(loaded.size) == "number" and loaded.size >= 10 and loaded.size <= 40 then
+            state.size = math.floor(loaded.size + 0.5)
+        end
+        if type(loaded.alpha) == "number" and loaded.alpha >= 0.1 and loaded.alpha <= 1.0 then
+            state.alpha = loaded.alpha
+        end
+        if type(loaded.bgAlpha) == "number" and loaded.bgAlpha >= 0.0 and loaded.bgAlpha <= 1.0 then
+            state.bgAlpha = loaded.bgAlpha
+        end
 
         local ck = GetCurrentCharKey()
         if ck then
             currentCharKey = ck
             local charData = savedCharacters[ck]
             if type(charData) == "table" then
-                ApplyLoadedFields(charData, true)
+                if charData.enabled ~= nil then
+                    state.enabled = (charData.enabled == true)
+                end
+                if charData.lang == "H" or charData.lang == "N" then
+                    state.lang = charData.lang
+                else
+                    state.lang = "?"
+                end
+                if type(charData.x) == "number" and charData.x >= 0 and charData.x <= SANE_COORD_LIMIT and
+                   type(charData.y) == "number" and charData.y >= 0 and charData.y <= SANE_COORD_LIMIT and
+                   charData.customPos == true then
+                    state.x = charData.x
+                    state.y = charData.y
+                    state.customPos = true
+                else
+                    state.x = nil
+                    state.y = nil
+                    state.customPos = false
+                end
+                if type(charData.size) == "number" and charData.size >= 10 and charData.size <= 40 then
+                    state.size = math.floor(charData.size + 0.5)
+                end
+                if type(charData.alpha) == "number" and charData.alpha >= 0.1 and charData.alpha <= 1.0 then
+                    state.alpha = charData.alpha
+                end
+                if type(charData.bgAlpha) == "number" and charData.bgAlpha >= 0.0 and charData.bgAlpha <= 1.0 then
+                    state.bgAlpha = charData.bgAlpha
+                end
             else
-                -- New character profile: inherit visual/layout defaults, start lang at "?" until /nuia or /haranya is used on this character
+                -- New character that never had the addon: start with "?" and default position
                 state.lang = "?"
-                SaveState()
+                state.x = nil
+                state.y = nil
+                state.customPos = false
             end
         else
+            -- At load time before character is known, start with "?" and default position
             state.lang = "?"
+            state.x = nil
+            state.y = nil
+            state.customPos = false
         end
+    else
+        state.lang = "?"
+        state.x = nil
+        state.y = nil
+        state.customPos = false
     end
 end
 
 -- Load immediately at require-time so CreateUI sees saved values
 LoadState()
-
-local IsBlockingWindowOpen
 
 local function GetTooltipTextAndColor()
     if state.lang == "H" then
@@ -285,9 +315,9 @@ end
 
 local function StripChatFormatting(text)
     if type(text) ~= "string" then return "" end
-    local clean = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    local clean = string.lower(text):gsub("|c%x+", ""):gsub("|r", "")
     clean = clean:gsub("^%s*(.-)%s*$", "%1")
-    return string.lower(clean)
+    return clean
 end
 
 -- Checks for the exact red system message emitted by the client when
@@ -304,12 +334,21 @@ local function DetectExactSystemLanguageChange(rawText)
     end
 
     if msgLower:find("language changed to nuia", 1, true) or
-       msgLower:find("nuia continent dialect", 1, true) then
+       msgLower:find("nuia continent dialect", 1, true) or
+       msgLower:find("dialeto do continente de nuia", 1, true) or
+       msgLower:find("dialeto do continente nuia", 1, true) or
+       msgLower:find("dialeto nuia", 1, true) or
+       msgLower:find("idioma alterado para nuia", 1, true) then
         return "N"
     end
 
     if msgLower:find("language changed to haranya", 1, true) or
-       msgLower:find("haranya continent dialect", 1, true) then
+       msgLower:find("haranya continent dialect", 1, true) or
+       msgLower:find("dialeto do continente de haranya", 1, true) or
+       msgLower:find("dialeto do continente haranya", 1, true) or
+       msgLower:find("dialeto haranya", 1, true) or
+       msgLower:find("dialeto harani", 1, true) or
+       msgLower:find("idioma alterado para haranya", 1, true) then
         return "H"
     end
 
@@ -343,10 +382,10 @@ local function DetectLanguageFromText(rawText, requireKeyword)
         return nil
     end
 
-    if msgLower == "/haranya" or msgLower == "!haranya" then
+    if msgLower == "/haranya" or msgLower == "!haranya" or msgLower == "haranya" then
         return "H"
     end
-    if msgLower == "/nuia" or msgLower == "!nuia" then
+    if msgLower == "/nuia" or msgLower == "!nuia" or msgLower == "nuia" then
         return "N"
     end
 
@@ -403,9 +442,10 @@ local function IsSystemChannel(channelId)
     return false
 end
 
-local function ScanAllArgsForExactMatch(...)
+local function ScanAllArgsForExactMatch(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+    local list = { a1, a2, a3, a4, a5, a6, a7, a8, a9 }
     for i = 1, 9 do
-        local v = select(i, ...)
+        local v = list[i]
         if type(v) == "string" and v ~= "" then
             local exact = DetectExactSystemLanguageChange(v)
             if exact then
@@ -471,8 +511,9 @@ local function HandleRawEvent(event, a1, a2, a3, a4, a5, a6, a7, a8, a9)
         end
     end
 
+    local list = { a1, a2, a3, a4, a5, a6, a7, a8, a9 }
     for i = 1, 9 do
-        local v = select(i, a1, a2, a3, a4, a5, a6, a7, a8, a9)
+        local v = list[i]
         if type(v) == "string" and v ~= "" then
             local detected = DetectLanguageFromText(v, true)
             if detected then
@@ -516,7 +557,6 @@ end
 
 local function ShowHoverTooltip()
     if not state.enabled or not tooltipWnd or not indicatorWnd then return end
-    if IsBlockingWindowOpen and IsBlockingWindowOpen() then return end
     UpdateTooltipContent()
     tooltipWnd:Show(true)
     pcall(function() tooltipWnd:Raise() end)
@@ -535,7 +575,9 @@ local function SetEnabled(enabled)
     end
     if indicatorWnd then
         indicatorWnd:Show(state.enabled)
-        if not state.enabled then
+        if state.enabled then
+            pcall(function() indicatorWnd:Raise() end)
+        else
             HideHoverTooltip()
             if settingsPopupWnd then settingsPopupWnd:Show(false) end
         end
@@ -563,6 +605,7 @@ local function StopMoving()
         state.customPos = true
         SaveState()
     end
+    pcall(function() indicatorWnd:Raise() end)
 end
 
 local function WireShiftDragAndTooltip(widget)
@@ -806,6 +849,7 @@ function M.CreateUI(wndParent)
         if indicatorWnd then
             ApplyPosition()
             indicatorWnd:Show(true)
+            pcall(function() indicatorWnd:Raise() end)
         end
     end
     resetPosBtn:SetHandler("OnClick", resetPosBtn.OnClick)
@@ -855,59 +899,37 @@ function M.CreateUI(wndParent)
     return container
 end
 
-local function SyncCharacterStateIfNeeded()
-    local ck = GetCurrentCharKey()
-    if ck and ck ~= currentCharKey then
-        LoadState()
-        if enableCheckWidget then
-            pcall(function() enableCheckWidget:SetChecked(state.enabled, false) end)
-        end
-        if sizeStepper then sizeStepper:SetValue(state.size or 18) end
-        if alphaStepper then alphaStepper:SetValue(math.floor((state.alpha or 1.0) * 10 + 0.5)) end
-        if bgAlphaStepper then bgAlphaStepper:SetValue(math.floor((state.bgAlpha or 0.6) * 10 + 0.5)) end
-        ApplyPosition()
-        UpdateVisual()
-        if indicatorWnd then
-            indicatorWnd:Show(state.enabled)
-        end
-    end
-end
-
--- Windows/frames that must always stay in front of the indicator.
-local BLOCKING_UIC_NAMES = {
-    "BAG", "BANK", "COFFER", "CHARACTER_INFO", "OPTION_FRAME", "SYSTEM_CONFIG_FRAME",
-    "GAME_EXIT_FRAME", "SLAVE_EQUIPMENT", "RAID_MANAGER", "COMMUNITY_WINDOW",
-    "ENCHANT_WINDOW", "ABILITY_CHANGE", "MAIL_BOX", "MAIL", "AUCTION", "AUCTION_WINDOW",
-    "TRADE", "STORE", "CRAFT", "WORLD_MAP", "QUEST_LIST", "SKILL_WINDOW", "ABILITY_WINDOW",
-}
-
-local function IsBlockingWindowOpen()
-    if type(UIC) == "table" and ADDON and ADDON.GetContent then
-        for i = 1, #BLOCKING_UIC_NAMES do
-            local id = UIC[BLOCKING_UIC_NAMES[i]]
-            if id ~= nil then
-                local ok, vis = pcall(function()
-                    local w = ADDON:GetContent(id)
-                    return w and w.IsVisible and w:IsVisible()
-                end)
-                if ok and vis then return true end
-            end
-        end
-    end
-    local okE, eluVis = pcall(function()
-        return eluDisplayWindow and eluDisplayWindow:IsVisible()
-    end)
-    if okE and eluVis then return true end
-    if settingsPopupWnd and settingsPopupWnd:IsVisible() then return true end
-    return false
-end
-
 local function OnUpdate(dt)
-    if currentCharKey == nil then
-        charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
-        if charCheckTimer >= 500 then
-            charCheckTimer = 0
-            SyncCharacterStateIfNeeded()
+    -- Check for character change
+    charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
+    if charCheckTimer >= 500 then
+        charCheckTimer = 0
+        local ck = GetCurrentCharKey()
+        if ck and ck ~= currentCharKey then
+            if currentCharKey and savedCharacters[currentCharKey] then
+                savedCharacters[currentCharKey].enabled = state.enabled
+                savedCharacters[currentCharKey].lang = state.lang
+                savedCharacters[currentCharKey].x = state.x
+                savedCharacters[currentCharKey].y = state.y
+                savedCharacters[currentCharKey].customPos = state.customPos
+                savedCharacters[currentCharKey].size = state.size
+                savedCharacters[currentCharKey].alpha = state.alpha
+                savedCharacters[currentCharKey].bgAlpha = state.bgAlpha
+            end
+            currentCharKey = ck
+            LoadState()
+            if enableCheckWidget then
+                pcall(function() enableCheckWidget:SetChecked(state.enabled, false) end)
+            end
+            if sizeStepper then sizeStepper:SetValue(state.size or 18) end
+            if alphaStepper then alphaStepper:SetValue(math.floor((state.alpha or 1.0) * 10 + 0.5)) end
+            if bgAlphaStepper then bgAlphaStepper:SetValue(math.floor((state.bgAlpha or 0.6) * 10 + 0.5)) end
+            ApplyPosition()
+            UpdateVisual()
+            if indicatorWnd then
+                indicatorWnd:Show(state.enabled)
+                if state.enabled then pcall(function() indicatorWnd:Raise() end) end
+            end
         end
     end
 
@@ -924,26 +946,13 @@ local function OnUpdate(dt)
         indicatorWnd:Show(true)
     end
 
-    -- Click-through: only clickable while Shift is held (Shift + drag to move).
-    local shift = api.Input:IsShiftKeyDown() and true or false
-    if shift ~= shiftClickable then
-        shiftClickable = shift
-        pcall(function() indicatorWnd:Clickable(shift) end)
-        if dragOverlay then pcall(function() dragOverlay:Clickable(shift) end) end
-    end
-
-    -- Hover tooltip driven by mouse position (works while click-through).
-    if not shift then
-        local mx, my = api.Input:GetMousePos()
-        local ox, oy = indicatorWnd:GetOffset()
-        local w, h = indicatorWnd:GetExtent()
-        local inside = false
-        if mx and my and ox and oy and w and h then
-            inside = mx >= ox and mx <= ox + w and my >= oy and my <= oy + h
-        end
-        if inside ~= hoverShown then
-            hoverShown = inside
-            if inside then ShowHoverTooltip() else HideHoverTooltip() end
+    -- Periodically raise the indicator so it always stays in front of the chat window
+    raiseTimer = raiseTimer + (type(dt) == "number" and dt or 0)
+    if raiseTimer >= 250 then
+        raiseTimer = 0
+        pcall(function() indicatorWnd:Raise() end)
+        if tooltipWnd and tooltipWnd:IsVisible() then
+            pcall(function() tooltipWnd:Raise() end)
         end
     end
 
@@ -968,8 +977,9 @@ local function OnLoad()
     local fontSize = state.size or 18
     local boxSize = math.max(28, fontSize + 12)
 
-    indicatorWnd = api.Interface:CreateEmptyWindow("eluChatLanguageWnd")
-    pcall(function() indicatorWnd:Clickable(false) end)
+    indicatorWnd = api.Interface:CreateEmptyWindow("eluChatLanguageWnd", "UIParent")
+    -- Keep on the "tooltip" UI layer so it always renders in front of the chat window
+    pcall(function() indicatorWnd:SetUILayer("tooltip") end)
     indicatorWnd:SetExtent(boxSize, boxSize)
     ApplyPosition()
 
@@ -995,11 +1005,10 @@ local function OnLoad()
     dragOverlay:AddAnchor("TOPLEFT", indicatorWnd, 0, 0)
     dragOverlay:AddAnchor("BOTTOMRIGHT", indicatorWnd, 0, 0)
     dragOverlay:Show(true)
-    pcall(function() dragOverlay:Clickable(false) end)
-    shiftClickable = false
 
     -- Hover tooltip displaying "Nuia" or "Haranya" right above the indicator
-    tooltipWnd = api.Interface:CreateEmptyWindow("eluChatLangTooltip")
+    tooltipWnd = api.Interface:CreateWidget("emptywidget", "eluChatLangTooltip", "UIParent")
+    pcall(function() tooltipWnd:SetUILayer("tooltip") end)
     tooltipWnd:SetExtent(74, 26)
     tooltipWnd:AddAnchor("BOTTOM", indicatorWnd, "TOP", 0, -4)
     tooltipWnd:Show(false)
@@ -1021,6 +1030,7 @@ local function OnLoad()
     tooltipLabel.style:SetAlign(ALIGN.CENTER)
     tooltipLabel.style:SetFontSize(FONT_SIZE.MIDDLE or 13)
     if tooltipLabel.style.SetShadow then tooltipLabel.style:SetShadow(true) end
+    if tooltipLabel.style.SetOutline then tooltipLabel.style:SetOutline(true) end
     if tooltipLabel.Clickable then
         pcall(function() tooltipLabel:Clickable(false) end)
     end
@@ -1046,8 +1056,8 @@ local function OnLoad()
     eventWnd:SetHandler("OnEvent", eventWnd.OnEvent)
 
     local eventsToWatch = {
-        -- CHAT_MESSAGE is dispatched centrally by main.lua; CHAT_MSG_SYSTEM
-        -- is not a valid event (logged a warning on every load).
+        "CHAT_MESSAGE",
+        "CHAT_MSG_SYSTEM",
         "SYS_MSG",
         "SYSTEM_MESSAGE",
         "NOTICE_MESSAGE",
@@ -1070,7 +1080,6 @@ local function OnUnload()
     _onLoadStarted = false
     SaveState()
     currentCharKey = nil
-    hoverShown = false
 
     enableCheckWidget = nil
     sizeStepper = nil

@@ -1235,12 +1235,10 @@ end
 -- every sub-module funnels through there instead of registering its own
 -- api.On("UPDATE", ...)).
 function quick_equip_addon:OnUpdate(dt)
-    if currentCharKey == nil then
-        charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
-        if charCheckTimer >= 500 then
-            charCheckTimer = 0
-            SyncCharacterStateIfNeeded()
-        end
+    charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
+    if charCheckTimer >= 500 then
+        charCheckTimer = 0
+        SyncCharacterStateIfNeeded()
     end
     if dragState then updateDragIndicator() end
 end
