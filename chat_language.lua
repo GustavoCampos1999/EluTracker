@@ -63,12 +63,76 @@ local _onLoadStarted = false
 local lastScreenH = 0
 local checkScreenTimer = 0
 local raiseTimer = 0
+local charCheckTimer = 0
+local currentCharKey = nil
+local savedCharacters = {}
 
 local COLOR_HARANYA = { 1.0, 0.55, 0.0, 1.0 } -- Orange
 local COLOR_NUIA    = { 0.2, 0.65, 1.0, 1.0 } -- Blue
 local COLOR_UNKNOWN = { 0.85, 0.85, 0.85, 1.0 } -- Neutral gray/white for "?"
 
+local function GetCurrentCharKey()
+    local charName = nil
+    pcall(function()
+        local id = api.Unit:GetUnitId("player")
+        if id then
+            local name = api.Unit:GetUnitNameById(id)
+            if type(name) == "string" then
+                name = name:gsub("^%s*(.-)%s*$", "%1")
+                if name ~= "" then
+                    charName = string.lower(name)
+                end
+            end
+        end
+    end)
+    return charName
+end
+
+local function ApplyLoadedFields(src, includeLang)
+    if type(src) ~= "table" then return end
+    if src.enabled ~= nil then
+        state.enabled = (src.enabled == true)
+    end
+    if includeLang and (src.lang == "H" or src.lang == "N" or src.lang == "?") then
+        state.lang = src.lang
+    end
+    if type(src.x) == "number" and src.x >= 0 and src.x <= SANE_COORD_LIMIT and
+       type(src.y) == "number" and src.y >= 0 and src.y <= SANE_COORD_LIMIT then
+        state.x = src.x
+        state.y = src.y
+    end
+    if src.customPos ~= nil and state.x and state.y then
+        state.customPos = (src.customPos == true)
+    else
+        state.customPos = false
+    end
+    if type(src.size) == "number" and src.size >= 10 and src.size <= 40 then
+        state.size = math.floor(src.size + 0.5)
+    end
+    if type(src.alpha) == "number" and src.alpha >= 0.1 and src.alpha <= 1.0 then
+        state.alpha = src.alpha
+    end
+    if type(src.bgAlpha) == "number" and src.bgAlpha >= 0.0 and src.bgAlpha <= 1.0 then
+        state.bgAlpha = src.bgAlpha
+    end
+end
+
 local function SaveState()
+    local ck = currentCharKey or GetCurrentCharKey()
+    if ck then
+        currentCharKey = ck
+        savedCharacters[ck] = {
+            enabled = state.enabled,
+            lang = state.lang,
+            x = state.x,
+            y = state.y,
+            customPos = state.customPos,
+            size = state.size,
+            alpha = state.alpha,
+            bgAlpha = state.bgAlpha,
+        }
+    end
+
     EluTrackerSettings.chatLanguage = {
         enabled = state.enabled,
         lang = state.lang,
@@ -78,6 +142,7 @@ local function SaveState()
         size = state.size,
         alpha = state.alpha,
         bgAlpha = state.bgAlpha,
+        characters = savedCharacters,
     }
     pcall(SaveEluTrackerSettings)
     pcall(function()
@@ -90,37 +155,44 @@ local function LoadState()
     local okFile, fileData = pcall(function()
         return api.File:Read(STATE_FILE)
     end)
-    if okFile and type(fileData) == "table" and (fileData.lang == "H" or fileData.lang == "N" or fileData.customPos ~= nil or fileData.enabled ~= nil) then
+    if okFile and type(fileData) == "table" and (fileData.lang == "H" or fileData.lang == "N" or fileData.customPos ~= nil or fileData.enabled ~= nil or type(fileData.characters) == "table") then
         loaded = fileData
     elseif type(EluTrackerSettings.chatLanguage) == "table" then
         loaded = EluTrackerSettings.chatLanguage
     end
 
     if type(loaded) == "table" then
-        if loaded.enabled ~= nil then
-            state.enabled = (loaded.enabled == true)
+        if type(loaded.characters) == "table" then
+            for k, v in pairs(loaded.characters) do
+                if type(v) == "table" then
+                    savedCharacters[k] = v
+                end
+            end
         end
-        if loaded.lang == "H" or loaded.lang == "N" or loaded.lang == "?" then
-            state.lang = loaded.lang
+        if type(EluTrackerSettings.chatLanguage) == "table" and type(EluTrackerSettings.chatLanguage.characters) == "table" then
+            for k, v in pairs(EluTrackerSettings.chatLanguage.characters) do
+                if type(v) == "table" and not savedCharacters[k] then
+                    savedCharacters[k] = v
+                end
+            end
         end
-        if type(loaded.x) == "number" and loaded.x >= 0 and loaded.x <= SANE_COORD_LIMIT and
-           type(loaded.y) == "number" and loaded.y >= 0 and loaded.y <= SANE_COORD_LIMIT then
-            state.x = loaded.x
-            state.y = loaded.y
-        end
-        if loaded.customPos ~= nil and state.x and state.y then
-            state.customPos = (loaded.customPos == true)
+
+        -- Apply shared visual/layout defaults first (position, size, opacity, enabled)
+        ApplyLoadedFields(loaded, false)
+
+        local ck = GetCurrentCharKey()
+        if ck then
+            currentCharKey = ck
+            local charData = savedCharacters[ck]
+            if type(charData) == "table" then
+                ApplyLoadedFields(charData, true)
+            else
+                -- New character profile: inherit visual/layout defaults, start lang at "?" until /nuia or /haranya is used on this character
+                state.lang = "?"
+                SaveState()
+            end
         else
-            state.customPos = false
-        end
-        if type(loaded.size) == "number" and loaded.size >= 10 and loaded.size <= 40 then
-            state.size = math.floor(loaded.size + 0.5)
-        end
-        if type(loaded.alpha) == "number" and loaded.alpha >= 0.1 and loaded.alpha <= 1.0 then
-            state.alpha = loaded.alpha
-        end
-        if type(loaded.bgAlpha) == "number" and loaded.bgAlpha >= 0.0 and loaded.bgAlpha <= 1.0 then
-            state.bgAlpha = loaded.bgAlpha
+            state.lang = "?"
         end
     end
 end
@@ -785,7 +857,34 @@ function M.CreateUI(wndParent)
     return container
 end
 
+local function SyncCharacterStateIfNeeded()
+    local ck = GetCurrentCharKey()
+    if ck and ck ~= currentCharKey then
+        LoadState()
+        if enableCheckWidget then
+            pcall(function() enableCheckWidget:SetChecked(state.enabled, false) end)
+        end
+        if sizeStepper then sizeStepper:SetValue(state.size or 18) end
+        if alphaStepper then alphaStepper:SetValue(math.floor((state.alpha or 1.0) * 10 + 0.5)) end
+        if bgAlphaStepper then bgAlphaStepper:SetValue(math.floor((state.bgAlpha or 0.6) * 10 + 0.5)) end
+        ApplyPosition()
+        UpdateVisual()
+        if indicatorWnd then
+            indicatorWnd:Show(state.enabled)
+            if state.enabled then
+                pcall(function() indicatorWnd:Raise() end)
+            end
+        end
+    end
+end
+
 local function OnUpdate(dt)
+    charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
+    if charCheckTimer >= 500 then
+        charCheckTimer = 0
+        SyncCharacterStateIfNeeded()
+    end
+
     if not indicatorWnd then return end
 
     if not state.enabled then

@@ -22,9 +22,9 @@ EluTrackerSettingsManager.Settings = {
     -- load for existing players, in loss_porn.lua's OnLoad).
     lossPornSettings = { chatMode = 2, sessionLogs = {} },
     rangeMeterSettings = { enabled = false, fontSize = 16, position = "Top", useDynamicColor = false, threshold1 = 28, threshold2 = 33, c1 = {r=1, g=1, b=1}, c2 = {r=1, g=1, b=1}, c3 = {r=1, g=1, b=1} },
-    quickEquip = { enabled = false, x = 200, y = 400, gear_sets = {} },
+    quickEquip = { enabled = false, x = 200, y = 400, gear_sets = {}, characters = {} },
     speedometer = { enabled = false, x = nil, y = nil, customPos = false },
-    chatLanguage = { enabled = true, lang = "?", x = nil, y = nil, customPos = false, size = 18, alpha = 1.0, bgAlpha = 0.6 }
+    chatLanguage = { enabled = true, lang = "?", x = nil, y = nil, customPos = false, size = 18, alpha = 1.0, bgAlpha = 0.6, characters = {} }
 }
 
 function EluTrackerSettingsManager.LoadSettings()

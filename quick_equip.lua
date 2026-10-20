@@ -41,18 +41,170 @@ local settings = {
 local DEFAULT_X = 200
 local DEFAULT_Y = 40
 
+local currentCharKey = nil
+local charCheckTimer = 0
+local enableCheckWidget = nil
+
+local function GetCurrentCharKey()
+    local charName = nil
+    pcall(function()
+        local id = api.Unit:GetUnitId("player")
+        if id then
+            local name = api.Unit:GetUnitNameById(id)
+            if type(name) == "string" then
+                name = name:gsub("^%s*(.-)%s*$", "%1")
+                if name ~= "" then
+                    charName = string.lower(name)
+                end
+            end
+        end
+    end)
+    return charName
+end
+
+local function CloneGearSets(src)
+    if type(src) ~= "table" then return {} end
+    local copy = {}
+    for i, set in ipairs(src) do
+        if type(set) == "table" then
+            local gearCopy = {}
+            if type(set.gear) == "table" then
+                for j, item in ipairs(set.gear) do
+                    if type(item) == "table" then
+                        gearCopy[j] = {
+                            name = item.name,
+                            grade = item.grade,
+                            slot = item.slot,
+                            alternative = item.alternative,
+                        }
+                    end
+                end
+            end
+            copy[i] = {
+                name = set.name,
+                gear = gearCopy,
+            }
+        end
+    end
+    return copy
+end
+
+-- Checks whether the currently logged-in character owns the legacy gear sets
+-- (by matching equipped or bag items), so migrating pre-existing global sets
+-- gives them to the character that actually owns that gear instead of an alt.
+local function CharacterOwnsLegacySets(legacySets)
+    if type(legacySets) ~= "table" or #legacySets == 0 then
+        return false
+    end
+    local firstSet = legacySets[1]
+    if type(firstSet) ~= "table" or type(firstSet.gear) ~= "table" or #firstSet.gear == 0 then
+        return false
+    end
+    local requiredMatches = math.min(2, #firstSet.gear)
+    local matchCount = 0
+    for _, gItem in ipairs(firstSet.gear) do
+        if type(gItem) == "table" and type(gItem.name) == "string" then
+            local found = false
+            if gItem.slot then
+                local okEq, eqItem = pcall(function()
+                    return api.Equipment:GetEquippedItemTooltipInfo(gItem.slot)
+                end)
+                if okEq and eqItem and eqItem.name == gItem.name then
+                    found = true
+                end
+            end
+            if not found then
+                pcall(function()
+                    for bagSlot = 1, 150 do
+                        local bagItem = api.Bag:GetBagItemInfo(1, bagSlot)
+                        if bagItem and bagItem.name == gItem.name then
+                            found = true
+                            break
+                        end
+                    end
+                end)
+            end
+            if found then
+                matchCount = matchCount + 1
+                if matchCount >= requiredMatches then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function SaveQuickEquipSettings()
-    EluTrackerSettings.quickEquip = settings
+    if type(EluTrackerSettings.quickEquip) ~= "table" then
+        EluTrackerSettings.quickEquip = {}
+    end
+    local qe = EluTrackerSettings.quickEquip
+    if type(qe.characters) ~= "table" then
+        qe.characters = {}
+    end
+
+    local ck = currentCharKey or GetCurrentCharKey()
+    if ck then
+        currentCharKey = ck
+        qe.characters[ck] = {
+            enabled = settings.enabled,
+            x = settings.x,
+            y = settings.y,
+            gear_sets = settings.gear_sets,
+        }
+    end
+    qe.x = settings.x
+    qe.y = settings.y
     SaveEluTrackerSettings()
 end
 
 local function LoadQuickEquipSettings()
     local data = EluTrackerSettings.quickEquip
-    if type(data) == "table" then
-        if data.enabled ~= nil then settings.enabled = data.enabled end
-        if data.x ~= nil then settings.x = data.x end
-        if data.y ~= nil then settings.y = data.y end
-        if type(data.gear_sets) == "table" then settings.gear_sets = data.gear_sets end
+    if type(data) ~= "table" then return end
+    if type(data.characters) ~= "table" then
+        data.characters = {}
+    end
+
+    local ck = GetCurrentCharKey()
+    if ck then
+        currentCharKey = ck
+        local charData = data.characters[ck]
+        if type(charData) == "table" then
+            settings.enabled = (charData.enabled == true)
+            settings.x = charData.x or data.x or DEFAULT_X
+            settings.y = charData.y or data.y or DEFAULT_Y
+            settings.gear_sets = type(charData.gear_sets) == "table" and charData.gear_sets or {}
+        else
+            -- First time this character is seen under per-character storage:
+            -- only migrate legacy top-level gear_sets if this character actually owns those items.
+            local hasUnclaimedLegacy = (not data.legacyClaimed) and type(data.gear_sets) == "table" and #data.gear_sets > 0
+            if hasUnclaimedLegacy and CharacterOwnsLegacySets(data.gear_sets) then
+                settings.enabled = (data.enabled == true)
+                settings.x = data.x or DEFAULT_X
+                settings.y = data.y or DEFAULT_Y
+                settings.gear_sets = CloneGearSets(data.gear_sets)
+                data.legacyClaimed = true
+            else
+                settings.enabled = false
+                settings.x = data.x or DEFAULT_X
+                settings.y = data.y or DEFAULT_Y
+                settings.gear_sets = {}
+            end
+            data.characters[ck] = {
+                enabled = settings.enabled,
+                x = settings.x,
+                y = settings.y,
+                gear_sets = settings.gear_sets,
+            }
+            SaveEluTrackerSettings()
+        end
+    else
+        -- Player unit not ready yet at require-time: load safe defaults until OnLoad/OnUpdate detects character
+        settings.enabled = false
+        settings.x = data.x or DEFAULT_X
+        settings.y = data.y or DEFAULT_Y
+        settings.gear_sets = {}
     end
 end
 
@@ -946,12 +1098,15 @@ end
 -- ===== Misc tab section: just the enable/disable toggle =====
 
 function quick_equip_addon.CreateUI(wndParent)
+    LoadQuickEquipSettings()
+
     local container = wndParent:CreateChildWidget("emptywidget", "quickEquipMiscSection", 0, true)
     container:SetExtent(500, 30)
 
     local enableCheck = container:CreateChildWidget("checkbutton", "quickEquipEnableCheck", 0, true)
     enableCheck:SetExtent(18, 17)
     enableCheck:AddAnchor("TOPLEFT", container, 0, 5) -- temporary; recentered below once the label's width is known
+    enableCheckWidget = enableCheck
 
     local bg1 = enableCheck:CreateImageDrawable("ui/button/check_button.dds", "background")
     bg1:SetExtent(18, 17)
@@ -1042,23 +1197,48 @@ end
 
 -- ===== Lifecycle =====
 
+local function SyncCharacterStateIfNeeded()
+    local ck = GetCurrentCharKey()
+    if ck and ck ~= currentCharKey then
+        LoadQuickEquipSettings()
+        if enableCheckWidget then
+            pcall(function() enableCheckWidget:SetChecked(settings.enabled, false) end)
+        end
+        if settings.enabled then
+            renderGearSetUI()
+        else
+            destroyBarUI()
+        end
+    end
+end
+
 function quick_equip_addon:OnLoad()
     LoadQuickEquipSettings()
+    if enableCheckWidget then
+        pcall(function() enableCheckWidget:SetChecked(settings.enabled, false) end)
+    end
     if settings.enabled then
         renderGearSetUI()
+    else
+        destroyBarUI()
     end
 end
 
 function quick_equip_addon:OnUnload()
+    enableCheckWidget = nil
     destroyBarUI()
 end
 
 -- Called every tick from main.lua's central UPDATE dispatcher (see the
 -- module-level comment at the top of main.lua's own OnUpdate about why
 -- every sub-module funnels through there instead of registering its own
--- api.On("UPDATE", ...)). Only does anything while a shift+drag reorder is
--- in progress; see updateDragIndicator above.
+-- api.On("UPDATE", ...)).
 function quick_equip_addon:OnUpdate(dt)
+    charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
+    if charCheckTimer >= 500 then
+        charCheckTimer = 0
+        SyncCharacterStateIfNeeded()
+    end
     updateDragIndicator()
 end
 
