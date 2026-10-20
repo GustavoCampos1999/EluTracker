@@ -62,7 +62,6 @@ local eventWnd = nil
 local _onLoadStarted = false
 local lastScreenH = 0
 local checkScreenTimer = 0
-local raiseTimer = 0
 local shiftClickable = false
 local hoverShown = false
 local charCheckTimer = 0
@@ -201,6 +200,8 @@ end
 
 -- Load immediately at require-time so CreateUI sees saved values
 LoadState()
+
+local IsBlockingWindowOpen
 
 local function GetTooltipTextAndColor()
     if state.lang == "H" then
@@ -515,6 +516,7 @@ end
 
 local function ShowHoverTooltip()
     if not state.enabled or not tooltipWnd or not indicatorWnd then return end
+    if IsBlockingWindowOpen and IsBlockingWindowOpen() then return end
     UpdateTooltipContent()
     tooltipWnd:Show(true)
     pcall(function() tooltipWnd:Raise() end)
@@ -533,9 +535,7 @@ local function SetEnabled(enabled)
     end
     if indicatorWnd then
         indicatorWnd:Show(state.enabled)
-        if state.enabled then
-            pcall(function() indicatorWnd:Raise() end)
-        else
+        if not state.enabled then
             HideHoverTooltip()
             if settingsPopupWnd then settingsPopupWnd:Show(false) end
         end
@@ -563,7 +563,6 @@ local function StopMoving()
         state.customPos = true
         SaveState()
     end
-    pcall(function() indicatorWnd:Raise() end)
 end
 
 local function WireShiftDragAndTooltip(widget)
@@ -807,7 +806,6 @@ function M.CreateUI(wndParent)
         if indicatorWnd then
             ApplyPosition()
             indicatorWnd:Show(true)
-            pcall(function() indicatorWnd:Raise() end)
         end
     end
     resetPosBtn:SetHandler("OnClick", resetPosBtn.OnClick)
@@ -871,9 +869,6 @@ local function SyncCharacterStateIfNeeded()
         UpdateVisual()
         if indicatorWnd then
             indicatorWnd:Show(state.enabled)
-            if state.enabled then
-                pcall(function() indicatorWnd:Raise() end)
-            end
         end
     end
 end
@@ -952,18 +947,6 @@ local function OnUpdate(dt)
         end
     end
 
-    -- Keep in front of the chat window, but never above game windows.
-    raiseTimer = raiseTimer + (type(dt) == "number" and dt or 0)
-    if raiseTimer >= 250 then
-        raiseTimer = 0
-        if not IsBlockingWindowOpen() then
-            pcall(function() indicatorWnd:Raise() end)
-        end
-        if tooltipWnd and tooltipWnd:IsVisible() then
-            pcall(function() tooltipWnd:Raise() end)
-        end
-    end
-
     if not state.customPos then
         checkScreenTimer = checkScreenTimer + (type(dt) == "number" and dt or 0)
         if checkScreenTimer >= 1000 then
@@ -985,10 +968,7 @@ local function OnLoad()
     local fontSize = state.size or 18
     local boxSize = math.max(28, fontSize + 12)
 
-    indicatorWnd = api.Interface:CreateEmptyWindow("eluChatLanguageWnd", "UIParent")
-    -- "normal" layer: in front of the chat window (via Raise) but never above
-    -- Inventory/Bank/Menu windows. Click-through unless Shift is held.
-    pcall(function() indicatorWnd:SetUILayer("normal") end)
+    indicatorWnd = api.Interface:CreateEmptyWindow("eluChatLanguageWnd")
     pcall(function() indicatorWnd:Clickable(false) end)
     indicatorWnd:SetExtent(boxSize, boxSize)
     ApplyPosition()
@@ -1019,8 +999,7 @@ local function OnLoad()
     shiftClickable = false
 
     -- Hover tooltip displaying "Nuia" or "Haranya" right above the indicator
-    tooltipWnd = api.Interface:CreateWidget("emptywidget", "eluChatLangTooltip", "UIParent")
-    pcall(function() tooltipWnd:SetUILayer("tooltip") end)
+    tooltipWnd = api.Interface:CreateEmptyWindow("eluChatLangTooltip")
     tooltipWnd:SetExtent(74, 26)
     tooltipWnd:AddAnchor("BOTTOM", indicatorWnd, "TOP", 0, -4)
     tooltipWnd:Show(false)

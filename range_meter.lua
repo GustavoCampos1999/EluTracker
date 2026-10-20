@@ -47,9 +47,47 @@ local targetInfoRetryTimer = 0
 local lastRoundedDist10 = nil
 local lateHookRegistered = false
 
--- Keeps the range label above every other addon HUD (e.g. TrackThatPlease).
+-- Game windows that must stay above the range label. While any of them is
+-- open we stop raising the label, so the window opened/clicked last keeps
+-- covering it (same behavior as TrackThatPlease, which never raises).
+local BLOCKING_UIC_NAMES = {
+    "BAG", "BANK", "COFFER", "CHARACTER_INFO", "OPTION_FRAME", "SYSTEM_CONFIG_FRAME",
+    "GAME_EXIT_FRAME", "SLAVE_EQUIPMENT", "RAID_MANAGER", "COMMUNITY_WINDOW",
+    "ENCHANT_WINDOW", "ABILITY_CHANGE", "MAIL_BOX", "MAIL", "AUCTION", "AUCTION_WINDOW",
+    "TRADE", "STORE", "CRAFT", "WORLD_MAP", "QUEST_LIST", "SKILL_WINDOW", "ABILITY_WINDOW",
+}
+local blockingCache = false
+local blockingTimer = 0
+
+local function IsBlockingWindowOpen()
+    if type(UIC) == "table" and ADDON and ADDON.GetContent then
+        for i = 1, #BLOCKING_UIC_NAMES do
+            local id = UIC[BLOCKING_UIC_NAMES[i]]
+            if id ~= nil then
+                local ok, vis = pcall(function()
+                    local w = ADDON:GetContent(id)
+                    return w and w.IsVisible and w:IsVisible()
+                end)
+                if ok and vis then return true end
+            end
+        end
+    end
+    local okE, eluVis = pcall(function()
+        return eluDisplayWindow and eluDisplayWindow:IsVisible()
+    end)
+    return (okE and eluVis) and true or false
+end
+
+-- Keeps the range label above other addon HUDs (e.g. TrackThatPlease), but
+-- only while no game window is open.
 function range_meter.RaiseOnTop()
     if canvas and canvas:IsVisible() then
+        blockingTimer = blockingTimer + 16
+        if blockingTimer >= 250 then
+            blockingTimer = 0
+            blockingCache = IsBlockingWindowOpen()
+        end
+        if blockingCache then return end
         pcall(function() canvas:Raise() end)
         if rangeLabel then pcall(function() rangeLabel:Raise() end) end
     end
@@ -497,10 +535,7 @@ end
 
 
 function range_meter.OnLoad()
-    canvas = api.Interface:CreateEmptyWindow("eluRangeMeter", "UIParent")
-    -- "gameui" layer: stays above addon windows (TrackThatPlease etc)
-    -- but native game windows (Marketplace, Inventory etc) appear on top when clicked
-    canvas:SetUILayer("tooltip")
+    canvas = api.Interface:CreateEmptyWindow("eluRangeMeter")
     canvas:SetExtent(150, 40)
     canvas:Show(false)
     canvas:Clickable(false)
