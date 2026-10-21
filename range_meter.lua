@@ -47,52 +47,6 @@ local targetInfoRetryTimer = 0
 local lastRoundedDist10 = nil
 local lateHookRegistered = false
 
--- Game windows that must stay above the range label. While any of them is
--- open we stop raising the label, so the window opened/clicked last keeps
--- covering it (same behavior as TrackThatPlease, which never raises).
-local BLOCKING_UIC_NAMES = {
-    "BAG", "BANK", "COFFER", "CHARACTER_INFO", "OPTION_FRAME", "SYSTEM_CONFIG_FRAME",
-    "GAME_EXIT_FRAME", "SLAVE_EQUIPMENT", "RAID_MANAGER", "COMMUNITY_WINDOW",
-    "ENCHANT_WINDOW", "ABILITY_CHANGE", "MAIL_BOX", "MAIL", "AUCTION", "AUCTION_WINDOW",
-    "TRADE", "STORE", "CRAFT", "WORLD_MAP", "QUEST_LIST", "SKILL_WINDOW", "ABILITY_WINDOW",
-}
-local blockingCache = false
-local blockingTimer = 0
-
-local function IsBlockingWindowOpen()
-    if type(UIC) == "table" and ADDON and ADDON.GetContent then
-        for i = 1, #BLOCKING_UIC_NAMES do
-            local id = UIC[BLOCKING_UIC_NAMES[i]]
-            if id ~= nil then
-                local ok, vis = pcall(function()
-                    local w = ADDON:GetContent(id)
-                    return w and w.IsVisible and w:IsVisible()
-                end)
-                if ok and vis then return true end
-            end
-        end
-    end
-    local okE, eluVis = pcall(function()
-        return eluDisplayWindow and eluDisplayWindow:IsVisible()
-    end)
-    return (okE and eluVis) and true or false
-end
-
--- Keeps the range label above other addon HUDs (e.g. TrackThatPlease), but
--- only while no game window is open.
-function range_meter.RaiseOnTop()
-    if canvas and canvas:IsVisible() then
-        blockingTimer = blockingTimer + 16
-        if blockingTimer >= 250 then
-            blockingTimer = 0
-            blockingCache = IsBlockingWindowOpen()
-        end
-        if blockingCache then return end
-        pcall(function() canvas:Raise() end)
-        if rangeLabel then pcall(function() rangeLabel:Raise() end) end
-    end
-end
-
 local function GetPositionIndex(posStr)
     for i, v in ipairs(POSITIONS) do
         if v == posStr then return i end
@@ -185,7 +139,6 @@ function range_meter.OnUpdate(dt)
     end
     
     canvas:Show(true)
-    range_meter.RaiseOnTop()
 end
 
 
@@ -557,13 +510,15 @@ function range_meter.OnLoad()
     cachedTargetId = nil
     lastRoundedDist10 = nil
 
-    -- Late UPDATE hook: registered 500ms after load so it runs AFTER the
-    -- UPDATE callbacks of addons loaded later (e.g. TrackThatPlease), which
-    -- re-anchor their canvases every frame. Registered only once.
+    -- Initial one-time raise: placed above TTP buff HUD icons once loaded.
+    -- Never re-raises in OnUpdate, so game windows (Community, Market, Bag, etc.)
+    -- always stay on top naturally, exactly like TrackThatPlease.
     if not lateHookRegistered then
         lateHookRegistered = true
-        api:DoIn(500, function()
-            api.On("UPDATE", function() range_meter.RaiseOnTop() end)
+        api:DoIn(1500, function()
+            if canvas then
+                pcall(function() canvas:Raise() end)
+            end
         end)
     end
 end

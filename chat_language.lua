@@ -62,10 +62,10 @@ local eventWnd = nil
 local _onLoadStarted = false
 local lastScreenH = 0
 local checkScreenTimer = 0
-local raiseTimer = 0
 local charCheckTimer = 0
 local currentCharKey = nil
 local savedCharacters = {}
+local isMoving = false
 
 local COLOR_HARANYA = { 1.0, 0.55, 0.0, 1.0 } -- Orange
 local COLOR_NUIA    = { 0.2, 0.65, 1.0, 1.0 } -- Blue
@@ -559,7 +559,6 @@ local function ShowHoverTooltip()
     if not state.enabled or not tooltipWnd or not indicatorWnd then return end
     UpdateTooltipContent()
     tooltipWnd:Show(true)
-    pcall(function() tooltipWnd:Raise() end)
 end
 
 local function HideHoverTooltip()
@@ -575,9 +574,7 @@ local function SetEnabled(enabled)
     end
     if indicatorWnd then
         indicatorWnd:Show(state.enabled)
-        if state.enabled then
-            pcall(function() indicatorWnd:Raise() end)
-        else
+        if not state.enabled then
             HideHoverTooltip()
             if settingsPopupWnd then settingsPopupWnd:Show(false) end
         end
@@ -587,6 +584,7 @@ end
 local function StartMoving()
     if not indicatorWnd then return end
     if not api.Input:IsShiftKeyDown() then return end
+    isMoving = true
     HideHoverTooltip()
     indicatorWnd:StartMoving()
     api.Cursor:ClearCursor()
@@ -597,6 +595,7 @@ local function StopMoving()
     if not indicatorWnd then return end
     indicatorWnd:StopMovingOrSizing()
     api.Cursor:ClearCursor()
+    isMoving = false
     local x, y = indicatorWnd:GetOffset()
     if type(x) == "number" and type(y) == "number" and
        x >= 0 and x <= SANE_COORD_LIMIT and y >= 0 and y <= SANE_COORD_LIMIT then
@@ -605,7 +604,6 @@ local function StopMoving()
         state.customPos = true
         SaveState()
     end
-    pcall(function() indicatorWnd:Raise() end)
 end
 
 local function WireShiftDragAndTooltip(widget)
@@ -849,7 +847,6 @@ function M.CreateUI(wndParent)
         if indicatorWnd then
             ApplyPosition()
             indicatorWnd:Show(true)
-            pcall(function() indicatorWnd:Raise() end)
         end
     end
     resetPosBtn:SetHandler("OnClick", resetPosBtn.OnClick)
@@ -928,7 +925,6 @@ local function OnUpdate(dt)
             UpdateVisual()
             if indicatorWnd then
                 indicatorWnd:Show(state.enabled)
-                if state.enabled then pcall(function() indicatorWnd:Raise() end) end
             end
         end
     end
@@ -944,16 +940,6 @@ local function OnUpdate(dt)
 
     if not indicatorWnd:IsVisible() then
         indicatorWnd:Show(true)
-    end
-
-    -- Periodically raise the indicator so it always stays in front of the chat window
-    raiseTimer = raiseTimer + (type(dt) == "number" and dt or 0)
-    if raiseTimer >= 250 then
-        raiseTimer = 0
-        pcall(function() indicatorWnd:Raise() end)
-        if tooltipWnd and tooltipWnd:IsVisible() then
-            pcall(function() tooltipWnd:Raise() end)
-        end
     end
 
     if not state.customPos then
@@ -977,9 +963,7 @@ local function OnLoad()
     local fontSize = state.size or 18
     local boxSize = math.max(28, fontSize + 12)
 
-    indicatorWnd = api.Interface:CreateEmptyWindow("eluChatLanguageWnd", "UIParent")
-    -- Keep on the "tooltip" UI layer so it always renders in front of the chat window
-    pcall(function() indicatorWnd:SetUILayer("tooltip") end)
+    indicatorWnd = api.Interface:CreateEmptyWindow("eluChatLanguageWnd")
     indicatorWnd:SetExtent(boxSize, boxSize)
     ApplyPosition()
 
@@ -1007,8 +991,7 @@ local function OnLoad()
     dragOverlay:Show(true)
 
     -- Hover tooltip displaying "Nuia" or "Haranya" right above the indicator
-    tooltipWnd = api.Interface:CreateWidget("emptywidget", "eluChatLangTooltip", "UIParent")
-    pcall(function() tooltipWnd:SetUILayer("tooltip") end)
+    tooltipWnd = api.Interface:CreateEmptyWindow("eluChatLangTooltip")
     tooltipWnd:SetExtent(74, 26)
     tooltipWnd:AddAnchor("BOTTOM", indicatorWnd, "TOP", 0, -4)
     tooltipWnd:Show(false)
@@ -1041,9 +1024,6 @@ local function OnLoad()
 
     UpdateVisual()
     indicatorWnd:Show(state.enabled)
-    if state.enabled then
-        pcall(function() indicatorWnd:Raise() end)
-    end
 
     eventWnd = api.Interface:CreateEmptyWindow("eluChatLanguageEventWnd", "UIParent")
     function eventWnd:OnEvent(event, a1, a2, a3, a4, a5, a6, a7, a8, a9)
@@ -1080,6 +1060,7 @@ local function OnUnload()
     _onLoadStarted = false
     SaveState()
     currentCharKey = nil
+    isMoving = false
 
     enableCheckWidget = nil
     sizeStepper = nil
