@@ -573,26 +573,34 @@ end
         local tooltipIdCounter = 0
     local function AddTooltip(widget, text)
         tooltipIdCounter = tooltipIdCounter + 1
-        local tooltip = api.Interface:CreateWidget("emptywidget", "eluTooltip_" .. tostring(math.random(10000, 99999)) .. "_" .. tostring(tooltipIdCounter), "UIParent")
-        table.insert(tooltipWidgets, tooltip)
-        tooltip:SetExtent(280, 110)
-        tooltip:AddAnchor("BOTTOM", widget, "TOP", 0, -5)
-        tooltip:Show(false)
-        
-        local bg = tooltip:CreateNinePartDrawable("ui/common_new/default.dds", "background")
-        bg:SetTextureInfo("tooltip")
-        bg:AddAnchor("TOPLEFT", tooltip, 0, 0)
-        bg:AddAnchor("BOTTOMRIGHT", tooltip, 0, 0)
-        bg:SetColor(1, 1, 1, 0.95)
-        
-        local lbl = tooltip:CreateChildWidget("textbox", "lbl", 0, true)
-        lbl:AddAnchor("TOPLEFT", tooltip, 10, 10)
-        lbl:AddAnchor("BOTTOMRIGHT", tooltip, -10, -10)
-        lbl.style:SetAlign(ALIGN.CENTER)
-        lbl.style:SetFontSize(14)
-        lbl:SetAutoWordwrap(true)
-        lbl:SetText(text)
-        ApplyTextColor(lbl, {1, 1, 1, 1}) -- White text for tooltip
+        local tooltip = tooltipWidgets[tooltipIdCounter]
+        if not tooltip then
+            tooltip = api.Interface:CreateWidget("emptywidget", "eluRaidTooltip_" .. tostring(tooltipIdCounter), "UIParent")
+            table.insert(tooltipWidgets, tooltip)
+            tooltip:SetExtent(280, 110)
+            tooltip:AddAnchor("BOTTOM", widget, "TOP", 0, -5)
+            tooltip:Show(false)
+            
+            local bg = tooltip:CreateNinePartDrawable("ui/common_new/default.dds", "background")
+            bg:SetTextureInfo("tooltip")
+            bg:AddAnchor("TOPLEFT", tooltip, 0, 0)
+            bg:AddAnchor("BOTTOMRIGHT", tooltip, 0, 0)
+            bg:SetColor(1, 1, 1, 0.95)
+            
+            local lbl = tooltip:CreateChildWidget("textbox", "lbl", 0, true)
+            lbl:AddAnchor("TOPLEFT", tooltip, 10, 10)
+            lbl:AddAnchor("BOTTOMRIGHT", tooltip, -10, -10)
+            lbl.style:SetAlign(ALIGN.CENTER)
+            lbl.style:SetFontSize(14)
+            lbl:SetAutoWordwrap(true)
+            lbl:SetText(text)
+            ApplyTextColor(lbl, {1, 1, 1, 1}) -- White text for tooltip
+            tooltip.lbl = lbl
+        else
+            tooltip:RemoveAllAnchors()
+            tooltip:AddAnchor("BOTTOM", widget, "TOP", 0, -5)
+            if tooltip.lbl then tooltip.lbl:SetText(text) end
+        end
         
         widget:SetHandler("OnEnter", function()
             tooltip:Show(true)
@@ -933,7 +941,7 @@ local function BuildSidePanel(parent)
     local function ToggleListWindow(listType)
         local wnd = widgets.listWindow
         if not wnd then
-            wnd = api.Interface:CreateWindow("eluRList_" .. tostring(math.random(10000, 99999)), "Manage List", 0, 0)
+            wnd = api.Interface:CreateWindow("eluRaidListWnd", "Manage List", 0, 0)
             wnd:SetExtent(300, 500)
             wnd:AddAnchor("CENTER", "UIParent", 0, 0)
 
@@ -1516,63 +1524,69 @@ function raid_invite.OnLoad()
     widgets.toggleSideBtn = toggleSideBtn
     toggleSideBtn:Show(state.moduleEnabled)
     
-    local fIcon = api.Interface:CreateEmptyWindow("eluRaidFloatingIcon", "UIParent")
-    fIcon:SetExtent(55, 40)
-    fIcon:AddAnchor("TOPLEFT", "UIParent", state.floatingIconPos[1], state.floatingIconPos[2])
-    fIcon:Show(state.showFloatingIcon and state.moduleEnabled)
-    
-    local fBgOn = fIcon:CreateImageDrawable("Addon/Elu_Tracker/auto_on.png", "background")
-    fBgOn:SetExtent(55, 40)
-    fBgOn:AddAnchor("CENTER", fIcon, 0, 0)
-    fBgOn:SetColor(1, 1, 1, 0.7)
-    fBgOn:SetVisible(state.inviteMode == 1)
-    
-    local fBgOff = fIcon:CreateImageDrawable("Addon/Elu_Tracker/auto_off.png", "background")
-    fBgOff:SetExtent(55, 40)
-    fBgOff:AddAnchor("CENTER", fIcon, 0, 0)
-    fBgOff:SetColor(1, 1, 1, 0.7)
-    fBgOff:SetVisible(state.inviteMode == 0)
+    local fIcon = widgets.floatingIcon
+    if not fIcon then
+        fIcon = api.Interface:CreateEmptyWindow("eluRaidFloatingIcon", "UIParent")
+        fIcon:SetExtent(55, 40)
+        fIcon:AddAnchor("TOPLEFT", "UIParent", state.floatingIconPos[1], state.floatingIconPos[2])
+        fIcon:Show(state.showFloatingIcon and state.moduleEnabled)
+        
+        local fBgOn = fIcon:CreateImageDrawable("Addon/Elu_Tracker/auto_on.png", "background")
+        fBgOn:SetExtent(55, 40)
+        fBgOn:AddAnchor("CENTER", fIcon, 0, 0)
+        fBgOn:SetColor(1, 1, 1, 0.7)
+        fBgOn:SetVisible(state.inviteMode == 1)
+        
+        local fBgOff = fIcon:CreateImageDrawable("Addon/Elu_Tracker/auto_off.png", "background")
+        fBgOff:SetExtent(55, 40)
+        fBgOff:AddAnchor("CENTER", fIcon, 0, 0)
+        fBgOff:SetColor(1, 1, 1, 0.7)
+        fBgOff:SetVisible(state.inviteMode == 0)
 
-    widgets.fBgOn = fBgOn
-    widgets.fBgOff = fBgOff
-    
-    fIcon:EnableDrag(true)
-    fIcon:SetHandler("OnDragStart", function() 
-        if api.Input:IsShiftKeyDown() then fIcon:StartMoving() end 
-    end)
-    fIcon:SetHandler("OnDragStop", function() 
-        fIcon:StopMovingOrSizing() 
-        local x, y = fIcon:GetOffset()
-        state.floatingIconPos = {x, y}
-        SaveSettings()
-    end)
-    
-    local clickOverlay = fIcon:CreateChildWidget("button", "clickOverlay", 0, true)
-    clickOverlay:AddAnchor("TOPLEFT", fIcon, 0, 0)
-    clickOverlay:AddAnchor("BOTTOMRIGHT", fIcon, 0, 0)
-    clickOverlay.style:SetColor(0,0,0,0)
-    clickOverlay:SetHandler("OnClick", ToggleActive)
-    
-    clickOverlay:EnableDrag(true)
-    clickOverlay:SetHandler("OnDragStart", function() 
-        if api.Input:IsShiftKeyDown() then fIcon:StartMoving() end 
-    end)
-    clickOverlay:SetHandler("OnDragStop", function() 
-        fIcon:StopMovingOrSizing() 
-        local x, y = fIcon:GetOffset()
-        state.floatingIconPos = {x, y}
-        SaveSettings()
-    end)
-    
-    widgets.floatingIcon = fIcon
-    
-    local fKeywordLbl = fIcon:CreateChildWidget("label", "fKeywordLbl", 0, true)
-    fKeywordLbl:SetExtent(100, 20)
-    fKeywordLbl:AddAnchor("TOP", fIcon, "BOTTOM", 0, 0)
-    fKeywordLbl.style:SetAlign(ALIGN.CENTER)
-    fKeywordLbl.style:SetShadow(true)
-    ApplyTextColor(fKeywordLbl, {1, 1, 1, 1})
-    widgets.fKeywordLbl = fKeywordLbl
+        widgets.fBgOn = fBgOn
+        widgets.fBgOff = fBgOff
+        
+        fIcon:EnableDrag(true)
+        fIcon:SetHandler("OnDragStart", function() 
+            if api.Input:IsShiftKeyDown() then fIcon:StartMoving() end 
+        end)
+        fIcon:SetHandler("OnDragStop", function() 
+            fIcon:StopMovingOrSizing() 
+            local x, y = fIcon:GetOffset()
+            state.floatingIconPos = {x, y}
+            SaveSettings()
+        end)
+        
+        local clickOverlay = fIcon:CreateChildWidget("button", "clickOverlay", 0, true)
+        clickOverlay:AddAnchor("TOPLEFT", fIcon, 0, 0)
+        clickOverlay:AddAnchor("BOTTOMRIGHT", fIcon, 0, 0)
+        clickOverlay.style:SetColor(0,0,0,0)
+        clickOverlay:SetHandler("OnClick", ToggleActive)
+        
+        clickOverlay:EnableDrag(true)
+        clickOverlay:SetHandler("OnDragStart", function() 
+            if api.Input:IsShiftKeyDown() then fIcon:StartMoving() end 
+        end)
+        clickOverlay:SetHandler("OnDragStop", function() 
+            fIcon:StopMovingOrSizing() 
+            local x, y = fIcon:GetOffset()
+            state.floatingIconPos = {x, y}
+            SaveSettings()
+        end)
+        
+        local fKeywordLbl = fIcon:CreateChildWidget("label", "fKeywordLbl", 0, true)
+        fKeywordLbl:SetExtent(100, 20)
+        fKeywordLbl:AddAnchor("TOP", fIcon, "BOTTOM", 0, 0)
+        fKeywordLbl.style:SetAlign(ALIGN.CENTER)
+        fKeywordLbl.style:SetShadow(true)
+        ApplyTextColor(fKeywordLbl, {1, 1, 1, 1})
+        widgets.fKeywordLbl = fKeywordLbl
+
+        widgets.floatingIcon = fIcon
+    else
+        fIcon:RemoveAllAnchors()
+        fIcon:AddAnchor("TOPLEFT", "UIParent", state.floatingIconPos[1], state.floatingIconPos[2])
+    end
     
     UpdateFloatingIcon()
     
@@ -1630,66 +1644,66 @@ function raid_invite.OnLoad()
     end)
     widgets.fast_blacklist_button = fast_blacklist_button
     
-    local canvas = api.Interface:CreateEmptyWindow("enhancedRecruitWindow", "UIParent")
+    local canvas = widgets.enhancedCanvas
+    local cancel_button = widgets.enhancedCancelButton
+    local canvas_lbl = widgets.enhancedCanvasLbl
+
+    if not canvas then
+        canvas = api.Interface:CreateEmptyWindow("enhancedRecruitWindow", "UIParent")
+        canvas:SetExtent(160, 70)
+        canvas:Show(false)
+        widgets.enhancedCanvas = canvas
+        
+        canvas:EnableDrag(true)
+        canvas:SetHandler("OnDragStart", function()
+            if api.Input:IsShiftKeyDown() then canvas:StartMoving() end
+        end)
+        canvas:SetHandler("OnDragStop", function()
+            canvas:StopMovingOrSizing()
+            local x, y = canvas:GetOffset()
+
+            local screenW = api.Interface:GetScreenWidth()
+            local screenH = api.Interface:GetScreenHeight()
+            if x < 0 then x = 0 end
+            if y < 0 then y = 0 end
+            if x > screenW - 160 then x = screenW - 160 end
+            if y > screenH - 70 then y = screenH - 70 end
+            
+            canvas:RemoveAllAnchors()
+            canvas:AddAnchor("TOPLEFT", "UIParent", x, y)
+            
+            state.qaiCanvasPos = {x, y}
+            SaveSettings()
+        end)
+
+        local bg = canvas:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+        bg:SetTextureInfo("bg_quest")
+        bg:SetColor(0, 0, 0, 0.7)
+        bg:AddAnchor("TOPLEFT", canvas, 0, 0)
+        bg:AddAnchor("BOTTOMRIGHT", canvas, 0, 0)
+
+        canvas_lbl = canvas:CreateChildWidget("label", "canvas_lbl", 0, true)
+        canvas_lbl:SetExtent(140, 20)
+        canvas_lbl:AddAnchor("TOP", canvas, 0, 10)
+        canvas_lbl.style:SetAlign(ALIGN.CENTER)
+        canvas_lbl.style:SetShadow(true)
+        ApplyTextColor(canvas_lbl, {1, 1, 1, 1})
+        widgets.enhancedCanvasLbl = canvas_lbl
+
+        cancel_button = canvas:CreateChildWidget("button", "cancel_x", 0, true)
+        cancel_button:SetText("Stop")
+        cancel_button:SetExtent(80, 25)
+        cancel_button:AddAnchor("BOTTOM", canvas, 0, -10)
+        api.Interface:ApplyButtonSkin(cancel_button, BUTTON_BASIC.DEFAULT)
+        widgets.enhancedCancelButton = cancel_button
+    end
+
+    canvas:RemoveAllAnchors()
     if state.qaiCanvasPos then
         canvas:AddAnchor("TOPLEFT", "UIParent", state.qaiCanvasPos[1], state.qaiCanvasPos[2])
     else
         canvas:AddAnchor("CENTER", "UIParent", 0, 50)
     end
-    canvas:SetExtent(160, 70)
-    canvas:Show(false)
-    widgets.enhancedCanvas = canvas
-    
-    canvas:EnableDrag(true)
-    canvas:SetHandler("OnDragStart", function()
-        if api.Input:IsShiftKeyDown() then canvas:StartMoving() end
-    end)
-    canvas:SetHandler("OnDragStop", function()
-        canvas:StopMovingOrSizing()
-        local x, y = canvas:GetOffset()
-
-        -- Prevent going off-screen. Was reading canvas:GetParent():GetExtent()
-        -- for the screen size -- unreliable on this widget (GetParent() on a
-        -- window created against the "UIParent" string doesn't reliably hand
-        -- back a widget whose GetExtent() reports real screen dimensions),
-        -- which made this clamp collapse to a near-fixed small screenW/screenH
-        -- every time, snapping the box to the same corner on every drag no
-        -- matter where it was dropped. api.Interface:GetScreenWidth/Height()
-        -- is the proven-reliable way to get real screen dimensions elsewhere
-        -- in this addon (see quick_equip.lua's tooltip flip logic).
-        local screenW = api.Interface:GetScreenWidth()
-        local screenH = api.Interface:GetScreenHeight()
-        if x < 0 then x = 0 end
-        if y < 0 then y = 0 end
-        if x > screenW - 160 then x = screenW - 160 end
-        if y > screenH - 70 then y = screenH - 70 end
-        
-        canvas:RemoveAllAnchors()
-        canvas:AddAnchor("TOPLEFT", "UIParent", x, y)
-        
-        state.qaiCanvasPos = {x, y}
-        SaveSettings()
-    end)
-
-    local bg = canvas:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    bg:SetTextureInfo("bg_quest")
-    bg:SetColor(0, 0, 0, 0.7)
-    bg:AddAnchor("TOPLEFT", canvas, 0, 0)
-    bg:AddAnchor("BOTTOMRIGHT", canvas, 0, 0)
-
-    local canvas_lbl = canvas:CreateChildWidget("label", "canvas_lbl", 0, true)
-    canvas_lbl:SetExtent(140, 20)
-    canvas_lbl:AddAnchor("TOP", canvas, 0, 10)
-    canvas_lbl.style:SetAlign(ALIGN.CENTER)
-    canvas_lbl.style:SetShadow(true)
-    ApplyTextColor(canvas_lbl, {1, 1, 1, 1})
-    widgets.enhancedCanvasLbl = canvas_lbl
-
-    local cancel_button = canvas:CreateChildWidget("button", "cancel_x", 0, true)
-    cancel_button:SetText("Stop")
-    cancel_button:SetExtent(80, 25)
-    cancel_button:AddAnchor("BOTTOM", canvas, 0, -10)
-    api.Interface:ApplyButtonSkin(cancel_button, BUTTON_BASIC.DEFAULT)
     
     local function DisableExternalAutoInviteAddons()
         -- api.GetSettings(id) returns the live settings table of another
@@ -1816,39 +1830,30 @@ function raid_invite.OnUnload()
     if widgets.toggleSideBtn then pcall(function() api.Interface:Free(widgets.toggleSideBtn) end) end
     if widgets.sidePanel then pcall(function() api.Interface:Free(widgets.sidePanel) end) end
 
-    -- These are our own top-level windows, so hide + free them.
+    -- Top-level windows owned by this addon: hide them cleanly and keep references for reuse.
     if widgets.enhancedCanvas then
         widgets.enhancedCanvas:Show(false)
-        pcall(function() api.Interface:Free(widgets.enhancedCanvas) end)
     end
     if widgets.listWindow then
         widgets.listWindow:Show(false)
-        pcall(function() api.Interface:Free(widgets.listWindow) end)
     end
     if widgets.exportWnd then
         widgets.exportWnd:Show(false)
-        pcall(function() api.Interface:Free(widgets.exportWnd) end)
     end
     if widgets.importWnd then
         widgets.importWnd:Show(false)
-        pcall(function() api.Interface:Free(widgets.importWnd) end)
     end
     if widgets.privateBypassPopup then
         widgets.privateBypassPopup:Show(false)
-        pcall(function() api.Interface:Free(widgets.privateBypassPopup) end)
     end
     if widgets.floatingIcon then
         widgets.floatingIcon:Show(false)
-        pcall(function() api.Interface:Free(widgets.floatingIcon) end)
     end
 
-    -- Tooltips created by AddTooltip() are their own top-level widgets (see
-    -- the comment on tooltipWidgets above), never freed by any of the
-    -- parent Free() calls above -- free them explicitly here.
+    -- Tooltips created by AddTooltip() are hidden cleanly for reuse
     for _, tooltip in ipairs(tooltipWidgets) do
-        pcall(function() api.Interface:Free(tooltip) end)
+        tooltip:Show(false)
     end
-    tooltipWidgets = {}
 
     state.inviteMode = 0
 
@@ -1859,14 +1864,7 @@ function raid_invite.OnUnload()
     widgets.fast_blacklist_button = nil
     widgets.toggleSideBtn = nil
     widgets.sidePanel = nil
-    widgets.enhancedCanvas = nil
-    widgets.listWindow = nil
-    widgets.exportWnd = nil
-    widgets.importWnd = nil
-    widgets.privateBypassPopup = nil
     widgets.privateBypassGearBtn = nil
-    widgets.floatingIcon = nil
-    widgets.fKeywordLbl = nil
     widgets.ToggleListWindow = nil
     widgets.raid_manager = nil
 

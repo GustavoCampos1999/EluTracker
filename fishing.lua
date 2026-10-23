@@ -609,7 +609,11 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
 end
 
 local function OnLoad()
-    eluFishingEventWindow = api.Interface:CreateEmptyWindow("eluFishingEventWindow", "UIParent")
+    if not eluFishingEventWindow then
+        eluFishingEventWindow = api.Interface:CreateEmptyWindow("eluFishingEventWindow", "UIParent")
+    else
+        eluFishingEventWindow:Show(true)
+    end
     fishingWindow = eluDisplayWindow.tab.window[2].fishingWindow
 
     if X2Util and type(X2Util.GetMyMoneyString) == "function" then
@@ -887,8 +891,6 @@ end
 local function OnUnload()
     if eluFishingEventWindow then
         eluFishingEventWindow:Show(false)
-        pcall(function() api.Interface:Free(eluFishingEventWindow) end)
-        eluFishingEventWindow = nil
     end
 end
 

@@ -955,7 +955,14 @@ local function OnUpdate(dt)
 end
 
 local function OnLoad()
-    if indicatorWnd or _onLoadStarted then return end
+    if indicatorWnd then
+        LoadState()
+        ApplyPosition()
+        UpdateVisual()
+        indicatorWnd:Show(state.enabled)
+        return
+    end
+    if _onLoadStarted then return end
     _onLoadStarted = true
 
     LoadState()
@@ -1037,7 +1044,6 @@ local function OnLoad()
 
     local eventsToWatch = {
         "CHAT_MESSAGE",
-        "CHAT_MSG_SYSTEM",
         "SYS_MSG",
         "SYSTEM_MESSAGE",
         "NOTICE_MESSAGE",
@@ -1069,31 +1075,14 @@ local function OnUnload()
 
     if settingsPopupWnd ~= nil then
         settingsPopupWnd:Show(false)
-        pcall(function() api.Interface:Free(settingsPopupWnd) end)
-        settingsPopupWnd = nil
-    end
-
-    if eventWnd ~= nil then
-        pcall(function() eventWnd:ReleaseHandler("OnEvent") end)
-        eventWnd:Show(false)
-        pcall(function() api.Interface:Free(eventWnd) end)
-        eventWnd = nil
     end
 
     if tooltipWnd ~= nil then
         tooltipWnd:Show(false)
-        pcall(function() api.Interface:Free(tooltipWnd) end)
-        tooltipWnd = nil
-        tooltipLabel = nil
     end
 
     if indicatorWnd ~= nil then
         indicatorWnd:Show(false)
-        pcall(function() api.Interface:Free(indicatorWnd) end)
-        indicatorWnd = nil
-        langLabel = nil
-        bgBorder = nil
-        dragOverlay = nil
     end
 end
 

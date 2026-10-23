@@ -1418,41 +1418,45 @@ local function OnLoad()
     lastPersistMs = sessionSegmentStartMs
 
     -- Initialize the addon-wide loot event window
-    eluLootEventWindow = api.Interface:CreateEmptyWindow("eluLootEventWindow", "UIParent")
-    eluLootEventWindow:Show(true)
-    function eluLootEventWindow:OnEvent(event, ...)
-        if arg ~= nil then
-            if event == "REMOVED_ITEM" then
-                removedItem(unpack(arg))
-            elseif event == "ADDED_ITEM" then
-                lootedItem(unpack(arg))
-            elseif event == "LABORPOWER_CHANGED" then
-                laborPointsChanged(unpack(arg))
-            elseif event == "EXP_CHANGED" then
-                trackKill(unpack(arg))
-            elseif event == "CHAT_JOINED_CHANNEL" then
-                updateLastKnownChannel(unpack(arg))
-            end
-        else
-            if event == "REMOVED_ITEM" then
-                removedItem(...)
-            elseif event == "ADDED_ITEM" then
-                lootedItem(...)
-            elseif event == "LABORPOWER_CHANGED" then
-                laborPointsChanged(...)
-            elseif event == "EXP_CHANGED" then
-                trackKill(...)
-            elseif event == "CHAT_JOINED_CHANNEL" then
-                updateLastKnownChannel(...)
+    if not eluLootEventWindow then
+        eluLootEventWindow = api.Interface:CreateEmptyWindow("eluLootEventWindow", "UIParent")
+        eluLootEventWindow:Show(true)
+        function eluLootEventWindow:OnEvent(event, ...)
+            if arg ~= nil then
+                if event == "REMOVED_ITEM" then
+                    removedItem(unpack(arg))
+                elseif event == "ADDED_ITEM" then
+                    lootedItem(unpack(arg))
+                elseif event == "LABORPOWER_CHANGED" then
+                    laborPointsChanged(unpack(arg))
+                elseif event == "EXP_CHANGED" then
+                    trackKill(unpack(arg))
+                elseif event == "CHAT_JOINED_CHANNEL" then
+                    updateLastKnownChannel(unpack(arg))
+                end
+            else
+                if event == "REMOVED_ITEM" then
+                    removedItem(...)
+                elseif event == "ADDED_ITEM" then
+                    lootedItem(...)
+                elseif event == "LABORPOWER_CHANGED" then
+                    laborPointsChanged(...)
+                elseif event == "EXP_CHANGED" then
+                    trackKill(...)
+                elseif event == "CHAT_JOINED_CHANNEL" then
+                    updateLastKnownChannel(...)
+                end
             end
         end
+        eluLootEventWindow:SetHandler("OnEvent", eluLootEventWindow.OnEvent)
+        eluLootEventWindow:RegisterEvent("ADDED_ITEM")
+        eluLootEventWindow:RegisterEvent("REMOVED_ITEM")
+        eluLootEventWindow:RegisterEvent("LABORPOWER_CHANGED")
+        eluLootEventWindow:RegisterEvent("EXP_CHANGED")
+        eluLootEventWindow:RegisterEvent("CHAT_JOINED_CHANNEL")
+    else
+        eluLootEventWindow:Show(true)
     end
-    eluLootEventWindow:SetHandler("OnEvent", eluLootEventWindow.OnEvent)
-    eluLootEventWindow:RegisterEvent("ADDED_ITEM")
-    eluLootEventWindow:RegisterEvent("REMOVED_ITEM")
-    eluLootEventWindow:RegisterEvent("LABORPOWER_CHANGED")
-    eluLootEventWindow:RegisterEvent("EXP_CHANGED")
-    eluLootEventWindow:RegisterEvent("CHAT_JOINED_CHANNEL")
 
     -- Now that data is loaded, refresh the tab's session list (CreateUI may
     -- have already run once with no data, if this is the very first build).
@@ -1475,24 +1479,15 @@ local function OnLoad()
 end
 
 local function OnUnload()
-    -- Last chance to save the live session before the widgets go away.
-    -- main.lua does a full OnUnload+OnLoad shortly after loading, and the
-    -- periodic save only runs every few seconds.
     PersistActiveSession()
     if eluLootEventWindow then
         eluLootEventWindow:Show(false)
-        pcall(function() api.Interface:Free(eluLootEventWindow) end)
-        eluLootEventWindow = nil
     end
     if lootTrackerOverlay then
         lootTrackerOverlay:Show(false)
-        pcall(function() api.Interface:Free(lootTrackerOverlay) end)
-        lootTrackerOverlay = nil
     end
     if lootSessionDetailsWindow then
         lootSessionDetailsWindow:Show(false)
-        pcall(function() api.Interface:Free(lootSessionDetailsWindow) end)
-        lootSessionDetailsWindow = nil
     end
     lootSessionItemsList = nil
     lootSessionItemsListHasRows = false

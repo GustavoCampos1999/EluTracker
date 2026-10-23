@@ -235,98 +235,100 @@ function guild_check:OnUpdate(dt)
 end
 
 function guild_check:OnLoad()
-    f1Window = api.Interface:CreateEmptyWindow("eluGuildCheck_F1", "UIParent")
-    
-    if settings.f1_x == -999 then
-        f1Window:AddAnchor("CENTER", "UIParent", 0, -100)
-    else
-        f1Window:AddAnchor("CENTER", "UIParent", "TOPLEFT", settings.f1_x, settings.f1_y)
-    end
-    f1Window:Show(false)
-    f1Window:EnableDrag(true)
-    
-    f1Bg = f1Window:CreateColorDrawable(0, 0, 0, settings.f1_bg_alpha, "background")
-    f1Label = f1Window:CreateChildWidget("label", "f1Label", 0, true)
-    f1Label:SetAutoResize(false)
-    f1Label.style:SetAlign(ALIGN.CENTER)
-    f1Label.style:SetShadow(true)
-    f1Label.style:SetOutline(true)
-    f1Label:AddAnchor("TOPLEFT", f1Window, 0, 0)
-    f1Label:AddAnchor("BOTTOMRIGHT", f1Window, 0, 0)
-    
-    function f1Window:OnDragStart()
-        if api.Input:IsShiftKeyDown() then
-            self:StartMoving()
+    if not f1Window then
+        f1Window = api.Interface:CreateEmptyWindow("eluGuildCheck_F1", "UIParent")
+        
+        if settings.f1_x == -999 then
+            f1Window:AddAnchor("CENTER", "UIParent", 0, -100)
+        else
+            f1Window:AddAnchor("CENTER", "UIParent", "TOPLEFT", settings.f1_x, settings.f1_y)
         end
-    end
-    f1Window:SetHandler("OnDragStart", f1Window.OnDragStart)
-
-    function f1Window:OnDragStop()
-        self:StopMovingOrSizing()
-        local ox, oy = self:GetOffset()
-        local w, h = self:GetExtent()
-        if ox and oy and w and h then
-            settings.f1_x = ox + (w / 2)
-            settings.f1_y = oy + (h / 2)
-            
-            -- Re-anchor to center so it expands correctly immediately
-            self:RemoveAllAnchors()
-            self:AddAnchor("CENTER", "UIParent", "TOPLEFT", settings.f1_x, settings.f1_y)
+        f1Window:Show(false)
+        f1Window:EnableDrag(true)
+        
+        f1Bg = f1Window:CreateColorDrawable(0, 0, 0, settings.f1_bg_alpha, "background")
+        f1Label = f1Window:CreateChildWidget("label", "f1Label", 0, true)
+        f1Label:SetAutoResize(false)
+        f1Label.style:SetAlign(ALIGN.CENTER)
+        f1Label.style:SetShadow(true)
+        f1Label.style:SetOutline(true)
+        f1Label:AddAnchor("TOPLEFT", f1Window, 0, 0)
+        f1Label:AddAnchor("BOTTOMRIGHT", f1Window, 0, 0)
+        
+        function f1Window:OnDragStart()
+            if api.Input:IsShiftKeyDown() then
+                self:StartMoving()
+            end
         end
-        SaveSettings()
-    end
-    f1Window:SetHandler("OnDragStop", f1Window.OnDragStop)
+        f1Window:SetHandler("OnDragStart", f1Window.OnDragStart)
 
-    -- Explicitly proxy label drags to the parent window
-    f1Label:EnableDrag(true)
-    f1Label:SetHandler("OnDragStart", function() f1Window:OnDragStart() end)
-    f1Label:SetHandler("OnDragStop", function() f1Window:OnDragStop() end)
-
-    f2Window = api.Interface:CreateEmptyWindow("eluGuildCheck_F2", "UIParent")
-    
-    if settings.f2_x == -999 then
-        f2Window:AddAnchor("CENTER", "UIParent", 0, 150)
-    else
-        f2Window:AddAnchor("CENTER", "UIParent", "TOPLEFT", settings.f2_x, settings.f2_y)
-    end
-    f2Window:Show(false)
-    f2Window:EnableDrag(true)
-    
-    f2Label = f2Window:CreateChildWidget("label", "f2Label", 0, true)
-    f2Label:SetAutoResize(false)
-    f2Label.style:SetAlign(ALIGN.CENTER)
-    f2Label.style:SetShadow(true)
-    f2Label.style:SetOutline(true)
-    f2Label:AddAnchor("TOPLEFT", f2Window, 0, 0)
-    f2Label:AddAnchor("BOTTOMRIGHT", f2Window, 0, 0)
-    
-    function f2Window:OnDragStart()
-        if api.Input:IsShiftKeyDown() then
-            self:StartMoving()
+        function f1Window:OnDragStop()
+            self:StopMovingOrSizing()
+            local ox, oy = self:GetOffset()
+            local w, h = self:GetExtent()
+            if ox and oy and w and h then
+                settings.f1_x = ox + (w / 2)
+                settings.f1_y = oy + (h / 2)
+                
+                -- Re-anchor to center so it expands correctly immediately
+                self:RemoveAllAnchors()
+                self:AddAnchor("CENTER", "UIParent", "TOPLEFT", settings.f1_x, settings.f1_y)
+            end
+            SaveSettings()
         end
-    end
-    f2Window:SetHandler("OnDragStart", f2Window.OnDragStart)
+        f1Window:SetHandler("OnDragStop", f1Window.OnDragStop)
 
-    function f2Window:OnDragStop()
-        self:StopMovingOrSizing()
-        local ox, oy = self:GetOffset()
-        local w, h = self:GetExtent()
-        if ox and oy and w and h then
-            settings.f2_x = ox + (w / 2)
-            settings.f2_y = oy + (h / 2)
-            
-            -- Re-anchor to center so it expands correctly immediately
-            self:RemoveAllAnchors()
-            self:AddAnchor("CENTER", "UIParent", "TOPLEFT", settings.f2_x, settings.f2_y)
+        -- Explicitly proxy label drags to the parent window
+        f1Label:EnableDrag(true)
+        f1Label:SetHandler("OnDragStart", function() f1Window:OnDragStart() end)
+        f1Label:SetHandler("OnDragStop", function() f1Window:OnDragStop() end)
+
+        f2Window = api.Interface:CreateEmptyWindow("eluGuildCheck_F2", "UIParent")
+        
+        if settings.f2_x == -999 then
+            f2Window:AddAnchor("CENTER", "UIParent", 0, 150)
+        else
+            f2Window:AddAnchor("CENTER", "UIParent", "TOPLEFT", settings.f2_x, settings.f2_y)
         end
-        SaveSettings()
-    end
-    f2Window:SetHandler("OnDragStop", f2Window.OnDragStop)
+        f2Window:Show(false)
+        f2Window:EnableDrag(true)
+        
+        f2Label = f2Window:CreateChildWidget("label", "f2Label", 0, true)
+        f2Label:SetAutoResize(false)
+        f2Label.style:SetAlign(ALIGN.CENTER)
+        f2Label.style:SetShadow(true)
+        f2Label.style:SetOutline(true)
+        f2Label:AddAnchor("TOPLEFT", f2Window, 0, 0)
+        f2Label:AddAnchor("BOTTOMRIGHT", f2Window, 0, 0)
+        
+        function f2Window:OnDragStart()
+            if api.Input:IsShiftKeyDown() then
+                self:StartMoving()
+            end
+        end
+        f2Window:SetHandler("OnDragStart", f2Window.OnDragStart)
 
-    -- Explicitly proxy label drags to the parent window
-    f2Label:EnableDrag(true)
-    f2Label:SetHandler("OnDragStart", function() f2Window:OnDragStart() end)
-    f2Label:SetHandler("OnDragStop", function() f2Window:OnDragStop() end)
+        function f2Window:OnDragStop()
+            self:StopMovingOrSizing()
+            local ox, oy = self:GetOffset()
+            local w, h = self:GetExtent()
+            if ox and oy and w and h then
+                settings.f2_x = ox + (w / 2)
+                settings.f2_y = oy + (h / 2)
+                
+                -- Re-anchor to center so it expands correctly immediately
+                self:RemoveAllAnchors()
+                self:AddAnchor("CENTER", "UIParent", "TOPLEFT", settings.f2_x, settings.f2_y)
+            end
+            SaveSettings()
+        end
+        f2Window:SetHandler("OnDragStop", f2Window.OnDragStop)
+
+        -- Explicitly proxy label drags to the parent window
+        f2Label:EnableDrag(true)
+        f2Label:SetHandler("OnDragStart", function() f2Window:OnDragStart() end)
+        f2Label:SetHandler("OnDragStop", function() f2Window:OnDragStop() end)
+    end
 
     ApplyVisuals()
 end
@@ -334,15 +336,9 @@ end
 function guild_check:OnUnload()
     if f1Window then
         f1Window:Show(false)
-        f1Window:RemoveAllAnchors()
-        pcall(function() api.Interface:Free(f1Window) end)
-        f1Window = nil
     end
     if f2Window then
         f2Window:Show(false)
-        f2Window:RemoveAllAnchors()
-        pcall(function() api.Interface:Free(f2Window) end)
-        f2Window = nil
     end
 end
 

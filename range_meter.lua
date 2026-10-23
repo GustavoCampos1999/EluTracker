@@ -488,23 +488,25 @@ end
 
 
 function range_meter.OnLoad()
-    canvas = api.Interface:CreateEmptyWindow("eluRangeMeter")
-    canvas:SetExtent(150, 40)
-    canvas:Show(false)
-    canvas:Clickable(false)
-    
-    rangeLabel = canvas:CreateChildWidget("label", "rLabel", 0, true)
-    pcall(function() rangeLabel:Clickable(false) end)
-    rangeLabel:Show(true)
+    if not canvas then
+        canvas = api.Interface:CreateEmptyWindow("eluRangeMeter")
+        canvas:SetExtent(150, 40)
+        canvas:Show(false)
+        canvas:Clickable(false)
+        
+        rangeLabel = canvas:CreateChildWidget("label", "rLabel", 0, true)
+        pcall(function() rangeLabel:Clickable(false) end)
+        rangeLabel:Show(true)
         rangeLabel:SetAutoResize(true)
-    rangeLabel:AddAnchor("CENTER", canvas, 0, 0)
-    rangeLabel:SetText("0.0m")
-    rangeLabel.style:SetFontSize(settings.fontSize or 16)
-    rangeLabel.style:SetColor(1, 1, 1, settings.alpha or 1.0) -- White text
-    rangeLabel.style:SetOutline(true) -- Black outline
-    
-    if rangeLabel.style.SetShadow then
-        rangeLabel.style:SetShadow(true)
+        rangeLabel:AddAnchor("CENTER", canvas, 0, 0)
+        rangeLabel:SetText("0.0m")
+        rangeLabel.style:SetFontSize(settings.fontSize or 16)
+        rangeLabel.style:SetColor(1, 1, 1, settings.alpha or 1.0) -- White text
+        rangeLabel.style:SetOutline(true) -- Black outline
+        
+        if rangeLabel.style.SetShadow then
+            rangeLabel.style:SetShadow(true)
+        end
     end
 
     cachedTargetId = nil
@@ -526,13 +528,9 @@ end
 function range_meter.OnUnload()
     if canvas then
         canvas:Show(false)
-        pcall(function() api.Interface:Free(canvas) end)
-        canvas = nil
     end
     if dynWnd then
         dynWnd:Show(false)
-        pcall(function() api.Interface:Free(dynWnd) end)
-        dynWnd = nil
     end
 end
 

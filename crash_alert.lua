@@ -832,20 +832,16 @@ local function OnUnload()
 	-- already-freed-by-the-engine window would mean that surface silently
 	-- never rebuilds for the rest of the session after a reload cycle.
 	if configWnd then
-		pcall(function() api.Interface:Free(configWnd) end)
+		configWnd:Show(false)
 		configWnd = nil
 	end
 
 	if cornerWarningWnd then
 		cornerWarningWnd:Show(false)
-		pcall(function() api.Interface:Free(cornerWarningWnd) end)
-		cornerWarningWnd = nil
 	end
 
 	if liveUsageWnd then
 		liveUsageWnd:Show(false)
-		pcall(function() api.Interface:Free(liveUsageWnd) end)
-		liveUsageWnd = nil
 	end
 end
 

@@ -358,34 +358,36 @@ end
 function fish_tracker:OnLoad()
     LoadMiscSettings()
 
-    fishTrackerCanvas = api.Interface:CreateEmptyWindow("fishTrackerCanvas")
-    fishTrackerCanvas:Show(false)
+    if not fishTrackerCanvas then
+        fishTrackerCanvas = api.Interface:CreateEmptyWindow("fishTrackerCanvas")
+        fishTrackerCanvas:Show(false)
 
-    targetFishIcon = CreateItemIconButton("targetFishIcon", fishTrackerCanvas)
-    targetFishIcon:AddAnchor("TOPLEFT", fishTrackerCanvas, "TOPLEFT", 0, 0)
-    targetFishIcon:Show(true)
-    F_SLOT.ApplySlotSkin(targetFishIcon, targetFishIcon.back, SLOT_STYLE.DEFAULT)
+        targetFishIcon = CreateItemIconButton("targetFishIcon", fishTrackerCanvas)
+        targetFishIcon:AddAnchor("TOPLEFT", fishTrackerCanvas, "TOPLEFT", 0, 0)
+        targetFishIcon:Show(true)
+        F_SLOT.ApplySlotSkin(targetFishIcon, targetFishIcon.back, SLOT_STYLE.DEFAULT)
 
-    fishBuffTimeLeftLabel = fishTrackerCanvas:CreateChildWidget("label", "fishBuffTimeLeftLabel", 0, true)
-    fishBuffTimeLeftLabel:SetText("")
-    fishBuffTimeLeftLabel:AddAnchor("TOP", targetFishIcon, "BOTTOM", 0, 2)
-    fishBuffTimeLeftLabel.style:SetFontSize(18)
-    fishBuffTimeLeftLabel.style:SetAlign(ALIGN.CENTER)
-    fishBuffTimeLeftLabel.style:SetShadow(true)
-    fishBuffTimeLeftLabel.style:SetColor(0, 1, 0, 1)
+        fishBuffTimeLeftLabel = fishTrackerCanvas:CreateChildWidget("label", "fishBuffTimeLeftLabel", 0, true)
+        fishBuffTimeLeftLabel:SetText("")
+        fishBuffTimeLeftLabel:AddAnchor("TOP", targetFishIcon, "BOTTOM", 0, 2)
+        fishBuffTimeLeftLabel.style:SetFontSize(18)
+        fishBuffTimeLeftLabel.style:SetAlign(ALIGN.CENTER)
+        fishBuffTimeLeftLabel.style:SetShadow(true)
+        fishBuffTimeLeftLabel.style:SetColor(0, 1, 0, 1)
 
-    strengthContestIcon = CreateItemIconButton("strengthContestIcon", fishTrackerCanvas)
-    strengthContestIcon:AddAnchor("LEFT", targetFishIcon, "RIGHT", 5, 0)
-    strengthContestIcon:Show(false)
-    F_SLOT.ApplySlotSkin(strengthContestIcon, strengthContestIcon.back, SLOT_STYLE.DEFAULT)
+        strengthContestIcon = CreateItemIconButton("strengthContestIcon", fishTrackerCanvas)
+        strengthContestIcon:AddAnchor("LEFT", targetFishIcon, "RIGHT", 5, 0)
+        strengthContestIcon:Show(false)
+        F_SLOT.ApplySlotSkin(strengthContestIcon, strengthContestIcon.back, SLOT_STYLE.DEFAULT)
 
-    strengthContestTimeLabel = fishTrackerCanvas:CreateChildWidget("label", "strengthContestTimeLabel", 0, true)
-    strengthContestTimeLabel:SetText("")
-    strengthContestTimeLabel:AddAnchor("TOP", strengthContestIcon, "BOTTOM", 0, 2)
-    strengthContestTimeLabel.style:SetFontSize(18)
-    strengthContestTimeLabel.style:SetAlign(ALIGN.CENTER)
-    strengthContestTimeLabel.style:SetShadow(true)
-    strengthContestTimeLabel.style:SetColor(1, 1, 0, 1)
+        strengthContestTimeLabel = fishTrackerCanvas:CreateChildWidget("label", "strengthContestTimeLabel", 0, true)
+        strengthContestTimeLabel:SetText("")
+        strengthContestTimeLabel:AddAnchor("TOP", strengthContestIcon, "BOTTOM", 0, 2)
+        strengthContestTimeLabel.style:SetFontSize(18)
+        strengthContestTimeLabel.style:SetAlign(ALIGN.CENTER)
+        strengthContestTimeLabel.style:SetShadow(true)
+        strengthContestTimeLabel.style:SetColor(1, 1, 0, 1)
+    end
 
     -- Dead-fish-timer UI (drag box + 9-slot marker pool) is built lazily by
     -- BuildMarkedFishPool -- only up front here if the feature is already
@@ -724,33 +726,21 @@ function fish_tracker:OnUpdate(dt)
 end
 
 function fish_tracker:OnUnload()
-    -- fish_tracker.masterCanvas is never assigned anywhere else in this
-    -- file; kept here only in case older data still references it.
     if fish_tracker.masterCanvas then
         fish_tracker.masterCanvas:Show(false)
-        pcall(function() api.Interface:Free(fish_tracker.masterCanvas) end)
-        fish_tracker.masterCanvas = nil
     end
     if fishTrackerCanvas ~= nil then
         fishTrackerCanvas:Show(false)
-        pcall(function() api.Interface:Free(fishTrackerCanvas) end)
-        fishTrackerCanvas = nil
     end
     for i = 1, 9 do
         if markedFishUI[i] and markedFishUI[i].canvas then
             markedFishUI[i].canvas:Show(false)
-            pcall(function() api.Interface:Free(markedFishUI[i].canvas) end)
         end
-        markedFishUI[i] = nil
     end
     if fish_tracker.deadFishDragBox ~= nil then
         fish_tracker.deadFishDragBox:Show(false)
-        pcall(function() api.Interface:Free(fish_tracker.deadFishDragBox) end)
-        fish_tracker.deadFishDragBox = nil
     end
-    markedFishUI = {}
     deadFishes = {}
-    markedFishPoolBuilt = false
 end
 
 return fish_tracker

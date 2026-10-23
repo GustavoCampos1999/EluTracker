@@ -1,7 +1,7 @@
 local elu_tracker_addon = {
 	name = "Elu Tracker",
 	author = "Eludelu",
-	version = "5.2.4",
+	version = "5.3.0",
 	desc = "Commerce, Fishing and Tools."
 }
 
@@ -946,42 +946,50 @@ function OnLoad()
     local bagFrame = ADDON:GetContent(UIC.BAG)
     
     if bagFrame.eluBtn then
-        bagFrame.eluBtn:Show(false)
-        bagFrame.eluBtn:RemoveAllAnchors()
+        eluBtn = bagFrame.eluBtn
+        eluBtn:RemoveAllAnchors()
+    else
+        eluBtn = bagFrame:CreateChildWidget("button", "eluBtn", 0, true)
+        local blankBg = eluBtn:CreateColorDrawable(0,0,0,0, "background")
+        eluBtn:SetNormalBackground(blankBg)
+        eluBtn:SetPushedBackground(blankBg)
+        eluBtn:SetHighlightBackground(blankBg)
+        eluBtn:SetDisabledBackground(blankBg)
+        
+        local btnBg = eluBtn:CreateImageDrawable("Addon/elu_tracker/icon.png", "background")
+        btnBg:AddAnchor("TOPLEFT", eluBtn, 0, 0)
+        btnBg:AddAnchor("BOTTOMRIGHT", eluBtn, 0, 0)
+        eluBtn.btnBg = btnBg
+
+        function eluBtn:OnEnter()
+            if eluBtn.btnBg then
+                eluBtn.btnBg:RemoveAllAnchors()
+                eluBtn.btnBg:AddAnchor("TOPLEFT", eluBtn, -4, -4)
+                eluBtn.btnBg:AddAnchor("BOTTOMRIGHT", eluBtn, 4, 4)
+            end
+        end
+        eluBtn:SetHandler("OnEnter", eluBtn.OnEnter)
+        
+        function eluBtn:OnLeave()
+            if eluBtn.btnBg then
+                eluBtn.btnBg:RemoveAllAnchors()
+                eluBtn.btnBg:AddAnchor("TOPLEFT", eluBtn, 0, 0)
+                eluBtn.btnBg:AddAnchor("BOTTOMRIGHT", eluBtn, 0, 0)
+            end
+        end
+        eluBtn:SetHandler("OnLeave", eluBtn.OnLeave)
+
+        bagFrame.eluBtn = eluBtn
     end
 
-    eluBtn = bagFrame:CreateChildWidget("button", "eluBtn", 0, true)
     eluBtn:AddAnchor("BOTTOMLEFT", bagFrame.expandBtn, -55, 5)
     eluBtn:SetExtent(50, 50)
-    
-    local blankBg = eluBtn:CreateColorDrawable(0,0,0,0, "background")
-    eluBtn:SetNormalBackground(blankBg)
-    eluBtn:SetPushedBackground(blankBg)
-    eluBtn:SetHighlightBackground(blankBg)
-    eluBtn:SetDisabledBackground(blankBg)
-    
-    local btnBg = eluBtn:CreateImageDrawable("Addon/elu_tracker/icon.png", "background")
-    btnBg:AddAnchor("TOPLEFT", eluBtn, 0, 0)
-    btnBg:AddAnchor("BOTTOMRIGHT", eluBtn, 0, 0)
     eluBtn:Show(true)
     eluBtn:Raise()
     function eluBtn:OnClick()
         eluDisplayWindow:Show(not eluDisplayWindow:IsVisible())
     end 
     eluBtn:SetHandler("OnClick", eluBtn.OnClick)
-    function eluBtn:OnEnter()
-        btnBg:RemoveAllAnchors()
-        btnBg:AddAnchor("TOPLEFT", eluBtn, -4, -4)
-        btnBg:AddAnchor("BOTTOMRIGHT", eluBtn, 4, 4)
-    end
-    eluBtn:SetHandler("OnEnter", eluBtn.OnEnter)
-    
-    function eluBtn:OnLeave()
-        btnBg:RemoveAllAnchors()
-        btnBg:AddAnchor("TOPLEFT", eluBtn, 0, 0)
-        btnBg:AddAnchor("BOTTOMRIGHT", eluBtn, 0, 0)
-    end
-    eluBtn:SetHandler("OnLeave", eluBtn.OnLeave)
 
 
     packsAddon:OnLoad()
@@ -999,8 +1007,7 @@ function OnLoad()
     if lootTrackerAddon and lootTrackerAddon.OnLoad then lootTrackerAddon:OnLoad() end
 
 
-    -- api.On is additive in this engine: register only once, even though the
-    -- 3s auto-rebuild below runs OnUnload()/OnLoad() again.
+    -- api.On is additive in this engine: register only once.
     if not _eventsRegistered then
         _eventsRegistered = true
         api.On("UPDATE", function(dt) if OnUpdate then OnUpdate(dt) end end)
@@ -1014,8 +1021,6 @@ function OnLoad()
                 return
             end
             _autoRebuildDone = true
-            OnUnload()
-            OnLoad()
         end)
     end
 end
@@ -1043,7 +1048,6 @@ function OnUnload()
 
     if eluDisplayWindow then
         eluDisplayWindow:Show(false)
-        pcall(function() api.Interface:Free(eluDisplayWindow) end)
         eluDisplayWindow = nil
     end
 
@@ -1056,24 +1060,20 @@ function OnUnload()
 
     if _fishingSettingsWnd then
         _fishingSettingsWnd:Show(false)
-        pcall(function() api.Interface:Free(_fishingSettingsWnd) end)
         _fishingSettingsWnd = nil
     end
 
     if tripOverlay then
         tripOverlay:Show(false)
-        pcall(function() api.Interface:Free(tripOverlay) end)
         tripOverlay = nil
     end
     
     if eluBtn then
         eluBtn:Show(false)
-        pcall(function() api.Interface:Free(eluBtn) end)
         eluBtn = nil
     end
 
     if _toggleFuncTooltip then
-        pcall(function() api.Interface:Free(_toggleFuncTooltip) end)
         _toggleFuncTooltip = nil
     end
 

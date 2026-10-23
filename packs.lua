@@ -616,7 +616,11 @@ local function OnLoad()
     packs_helper = require("Elu_Tracker/packs_helper")
     AH_PRICES = require("Elu_Tracker/data/auction_house_prices")
 
-    eluTrackerEventWindow = api.Interface:CreateEmptyWindow("eluTrackerEventWindow", "UIParent")
+    if not eluTrackerEventWindow then
+        eluTrackerEventWindow = api.Interface:CreateEmptyWindow("eluTrackerEventWindow", "UIParent")
+    else
+        eluTrackerEventWindow:Show(true)
+    end
     
     currentBackSlotItem = nil
     lastKnownZone = nil
@@ -842,9 +846,7 @@ end
 local function OnUnload()
     if eluTrackerEventWindow then
         eluTrackerEventWindow:Show(false)
-        pcall(function() api.Interface:Free(eluTrackerEventWindow) end)
     end
-    eluTrackerEventWindow = nil
 end
 
 local function RefreshUI()

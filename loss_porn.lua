@@ -212,16 +212,18 @@ local function OnLoad()
     -- sessions that never open this log. This only defers window creation;
     -- nothing about when/whether regrades are recorded changes, since that
     -- is handled by lossPornWindow's event listener below, not by the UI.
-    lossPornWindow = api.Interface:CreateEmptyWindow("lossPornWnd", "UIParent")
+    if not lossPornWindow then
+        lossPornWindow = api.Interface:CreateEmptyWindow("lossPornWnd", "UIParent")
 
-    function lossPornWindow:OnEvent(event, ...)
-        if event == "GRADE_ENCHANT_BROADCAST" then
-            local msgArgs = arg or {...}
-            pcall(function() handleRegradeEvent(unpack(msgArgs)) end)
+        function lossPornWindow:OnEvent(event, ...)
+            if event == "GRADE_ENCHANT_BROADCAST" then
+                local msgArgs = arg or {...}
+                pcall(function() handleRegradeEvent(unpack(msgArgs)) end)
+            end
         end
+        lossPornWindow:SetHandler("OnEvent", lossPornWindow.OnEvent)
+        lossPornWindow:RegisterEvent("GRADE_ENCHANT_BROADCAST")
     end
-    lossPornWindow:SetHandler("OnEvent", lossPornWindow.OnEvent)
-    lossPornWindow:RegisterEvent("GRADE_ENCHANT_BROADCAST")
 	
     pcall(function()
         if ADDON and ADDON.GetContent and UIC and UIC.SYSTEM_CONFIG_FRAME then
@@ -238,10 +240,7 @@ end
 
 local function OnUnload()
     if lossPornWindow then
-        lossPornWindow:ReleaseHandler("OnEvent")
         lossPornWindow:Show(false)
-        pcall(function() api.Interface:Free(lossPornWindow) end)
-        lossPornWindow = nil
     end
 
     ui.Destroy()

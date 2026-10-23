@@ -245,10 +245,6 @@ end
 function ui.Destroy()
     if logWindow then
         logWindow:Show(false)
-        pcall(function() api.Interface:Free(logWindow) end)
-        logWindow = nil
-        logList = nil
-        filterComboBox = nil
     end
 end
 

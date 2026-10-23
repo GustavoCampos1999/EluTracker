@@ -110,16 +110,14 @@ end
 local function destroySpeedometerUI()
     if canvas then
         canvas:Show(false)
-        pcall(function() api.Interface:Free(canvas) end)
-        canvas = nil
     end
-    speedBar = nil
-    speedLabel = nil
-    dragOverlay = nil
 end
 
 local function createSpeedometerUI()
-    destroySpeedometerUI()
+    if canvas then
+        canvas:Show(settings.enabled and true or false)
+        return
+    end
     maxSpeedValue = 50
 
     canvas = api.Interface:CreateEmptyWindow("speedometer")

@@ -227,53 +227,57 @@ function zeal_alert:OnLoad()
     LoadSettings()
     trackedBuffInfo = api.Ability:GetBuffTooltip(buffIdToTrack, 1)
 
-    zealOverlay = api.Interface:CreateEmptyWindow("eluZealOverlay", "UIParent")
-    zealOverlay:SetExtent(300, 60)
-    zealOverlay:Show(false)
-    zealOverlay:EnableDrag(true)
+    if not zealOverlay then
+        zealOverlay = api.Interface:CreateEmptyWindow("eluZealOverlay", "UIParent")
+        zealOverlay:SetExtent(300, 60)
+        zealOverlay:Show(false)
+        zealOverlay:EnableDrag(true)
 
-    function zealOverlay:OnDragStart() 
-        if settings.moving then self:StartMoving() end 
+        function zealOverlay:OnDragStart() 
+            if settings.moving then self:StartMoving() end 
+        end
+        zealOverlay:SetHandler("OnDragStart", zealOverlay.OnDragStart)
+
+        function zealOverlay:OnDragStop() 
+            self:StopMovingOrSizing() 
+            SaveSettings()
+        end
+        zealOverlay:SetHandler("OnDragStop", zealOverlay.OnDragStop)
+
+        zealIcon = CreateItemIconButton("zealIcon", zealOverlay)
+        zealIcon:Show(true)
+        F_SLOT.ApplySlotSkin(zealIcon, zealIcon.back, SLOT_STYLE.BUFF)
+        zealIcon:AddAnchor("TOP", zealOverlay, "TOP", 0, 5)
+
+        zealLabel = zealOverlay:CreateChildWidget("label", "label", 0, true)
+        zealLabel:SetExtent(250, 45)
+        zealLabel:SetText(string.format("%s IS UP", (trackedBuffInfo and trackedBuffInfo.name) or "ZEAL"))
+        zealLabel:AddAnchor("TOP", zealIcon, "BOTTOM", 0, 5)
+        zealLabel.style:SetFontSize(44)
+        zealLabel.style:SetShadow(true)
+        zealLabel.style:SetAlign(ALIGN.CENTER)
+        
+        moveModeLabel = zealOverlay:CreateChildWidget("button", "moveModeLabel", 0, true)
+        moveModeLabel:SetExtent(200, 30)
+        moveModeLabel:SetText("(MOVE MODE)")
+        moveModeLabel:AddAnchor("TOP", zealLabel, "BOTTOM", 0, 2)
+        moveModeLabel.style:SetFontSize(24)
+        moveModeLabel.style:SetAlign(ALIGN.CENTER)
+        ApplyTextColor(moveModeLabel, FONT_COLOR.BLACK)
+        moveModeLabel:Show(false)
+        
+        zealBg = moveModeLabel:CreateColorDrawable(1, 1, 1, 0.9, "background")
+        zealBg:AddAnchor("TOPLEFT", moveModeLabel, -5, -2)
+        zealBg:AddAnchor("BOTTOMRIGHT", moveModeLabel, 5, 2)
+        
+        moveModeLabel:EnableDrag(true)
+        function moveModeLabel:OnDragStart() if settings.moving then zealOverlay:StartMoving() end end
+        moveModeLabel:SetHandler("OnDragStart", moveModeLabel.OnDragStart)
+        function moveModeLabel:OnDragStop() zealOverlay:StopMovingOrSizing() SaveSettings() end
+        moveModeLabel:SetHandler("OnDragStop", moveModeLabel.OnDragStop)
+    else
+        zealLabel:SetText(string.format("%s IS UP", (trackedBuffInfo and trackedBuffInfo.name) or "ZEAL"))
     end
-    zealOverlay:SetHandler("OnDragStart", zealOverlay.OnDragStart)
-
-    function zealOverlay:OnDragStop() 
-        self:StopMovingOrSizing() 
-        SaveSettings()
-    end
-    zealOverlay:SetHandler("OnDragStop", zealOverlay.OnDragStop)
-
-    zealIcon = CreateItemIconButton("zealIcon", zealOverlay)
-    zealIcon:Show(true)
-    F_SLOT.ApplySlotSkin(zealIcon, zealIcon.back, SLOT_STYLE.BUFF)
-    zealIcon:AddAnchor("TOP", zealOverlay, "TOP", 0, 5)
-
-    zealLabel = zealOverlay:CreateChildWidget("label", "label", 0, true)
-    zealLabel:SetExtent(250, 45)
-    zealLabel:SetText(string.format("%s IS UP", (trackedBuffInfo and trackedBuffInfo.name) or "ZEAL"))
-    zealLabel:AddAnchor("TOP", zealIcon, "BOTTOM", 0, 5)
-    zealLabel.style:SetFontSize(44)
-    zealLabel.style:SetShadow(true)
-    zealLabel.style:SetAlign(ALIGN.CENTER)
-    
-    moveModeLabel = zealOverlay:CreateChildWidget("button", "moveModeLabel", 0, true)
-    moveModeLabel:SetExtent(200, 30)
-    moveModeLabel:SetText("(MOVE MODE)")
-    moveModeLabel:AddAnchor("TOP", zealLabel, "BOTTOM", 0, 2)
-    moveModeLabel.style:SetFontSize(24)
-    moveModeLabel.style:SetAlign(ALIGN.CENTER)
-    ApplyTextColor(moveModeLabel, FONT_COLOR.BLACK)
-    moveModeLabel:Show(false)
-    
-    zealBg = moveModeLabel:CreateColorDrawable(1, 1, 1, 0.9, "background")
-    zealBg:AddAnchor("TOPLEFT", moveModeLabel, -5, -2)
-    zealBg:AddAnchor("BOTTOMRIGHT", moveModeLabel, 5, 2)
-    
-    moveModeLabel:EnableDrag(true)
-    function moveModeLabel:OnDragStart() if settings.moving then zealOverlay:StartMoving() end end
-    moveModeLabel:SetHandler("OnDragStart", moveModeLabel.OnDragStart)
-    function moveModeLabel:OnDragStop() zealOverlay:StopMovingOrSizing() SaveSettings() end
-    moveModeLabel:SetHandler("OnDragStop", moveModeLabel.OnDragStop)
 
     if trackedBuffInfo and trackedBuffInfo.path then
         F_SLOT.SetIconBackGround(zealIcon, trackedBuffInfo.path)
@@ -312,17 +316,7 @@ end
 function zeal_alert:OnUnload()
     if zealOverlay then
         zealOverlay:Show(false)
-        pcall(function() api.Interface:Free(zealOverlay) end)
-        zealOverlay = nil
     end
-    -- zealLabel/zealIcon/moveModeLabel/zealBg are all children of
-    -- zealOverlay and freed along with it above, but were never nil'd here
-    -- -- leaving stale references to already-freed widgets until the next
-    -- OnLoad happens to overwrite them.
-    zealLabel = nil
-    zealIcon = nil
-    moveModeLabel = nil
-    zealBg = nil
 end
 
 return zeal_alert

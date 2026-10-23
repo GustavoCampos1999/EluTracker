@@ -241,48 +241,10 @@ local renderGearSetUI      -- forward declaration
 local closeContextMenu     -- forward declaration
 local closePrompt          -- forward declaration
 
-local function getUniqueWidgetId(prefix)
-    widgetCounter = widgetCounter + 1
-    return "eluQuickEquip_" .. prefix .. "_" .. widgetCounter .. "_" .. tostring(api.Time:GetUiMsec())
-end
-
--- ===== Deferred widget cleanup (mainCanvas + contextMenu) =====
--- renderGearSetUI() and closeContextMenu() can both be invoked from INSIDE
--- a click/drag callback belonging to one of the very widgets they would
--- otherwise tear down (a preset button's own OnDragStop calls
--- renderGearSetUI(); a context-menu option's own OnClick, and the menu's
--- own outside-click MOUSE_DOWN handler, both call closeContextMenu()).
--- Calling api.Interface:Free() on a widget while its own handler is still
--- on the call stack corrupts the engine's live event dispatch -- confirmed
--- by two separate live-game attempts (an immediate Free(), and a
--- one-tick-deferred Free() via api:DoIn) that both broke Ctrl+Click. Both
--- were reverted, leaving every render/open leak its predecessor forever
--- (see the audit that found Elu_Tracker's window count climbing to 60+ in
--- a normal session from this).
---
--- The fix that's actually safe: never free the CURRENT generation.
--- Instead, retire it (Show(false) only) and free the PREVIOUS generation
--- instead -- by the time the next render/open call happens, whatever
--- click/drag dispatch led to that previous generation's retirement has
--- long since returned control to the engine, so there is no possibility of
--- freeing a widget out from under its own still-running handler. This
--- bounds the leak to at most one retired generation at a time instead of
--- leaking a full generation forever on every action.
-local previousGeneration = nil -- { canvas, buttons = {...}, addBtn, indicator }
-local previousContextMenu = nil
-
-local function FreeGeneration(gen)
-    if not gen then return end
-    if gen.indicator then pcall(function() api.Interface:Free(gen.indicator) end) end
-    for _, btn in ipairs(gen.buttons or {}) do
-        if btn then pcall(function() api.Interface:Free(btn) end) end
-    end
-    if gen.addBtn then pcall(function() api.Interface:Free(gen.addBtn) end) end
-    if gen.canvas then
-        gen.canvas:Show(false)
-        pcall(function() api.Interface:Free(gen.canvas) end)
-    end
-end
+-- Singleton architecture: Widgets are created once and reused forever with fixed IDs.
+-- In ArcheAge Classic (CryEngine 32-bit), api.Interface:Free() does not exist in the C++ engine.
+-- Destroying and recreating widgets creates memory leaks and duplicates in the C++ UI tree.
+-- By reusing the existing widgets, zero new memory or windows are allocated on reloads or preset changes.
 
 -- Hover tooltips: flip near a screen edge, same idea as the ctrl+click
 -- context menu (openContextMenu) -- try to show the tooltip below the
@@ -422,103 +384,100 @@ local function captureCurrentGear()
 end
 
 -- ===== Small reusable "name" prompt popup (Save / Rename) =====
--- Closable with the X button or the Esc key, in addition to Confirm.
+-- Built once with static IDs and reused forever; zero new windows allocated.
 
 function closePrompt()
     if promptCanvas then
         promptCanvas:Show(false)
-        pcall(function() api.Interface:Free(promptCanvas) end)
-        promptCanvas = nil
     end
 end
+
+local promptConfirmCallback = nil
 
 local function openNamePrompt(question, defaultText, onConfirm)
     closePrompt()
+    promptConfirmCallback = onConfirm
 
-    local popup = api.Interface:CreateEmptyWindow(getUniqueWidgetId("prompt"), "UIParent")
-    popup:SetExtent(300, 160)
-    popup:AddAnchor("CENTER", "UIParent", 0, 0)
-    popup:EnableDrag(true)
-    pcall(function() popup:SetCloseOnEscape(true) end)
-    pcall(function()
-        popup:SetHandler("OnCloseByEsc", function() closePrompt() end)
-    end)
+    if not promptCanvas then
+        local popup = api.Interface:CreateEmptyWindow("eluQuickEquip_prompt", "UIParent")
+        popup:SetExtent(300, 160)
+        popup:AddAnchor("CENTER", "UIParent", 0, 0)
+        popup:EnableDrag(true)
+        pcall(function() popup:SetCloseOnEscape(true) end)
+        pcall(function()
+            popup:SetHandler("OnCloseByEsc", function() closePrompt() end)
+        end)
 
-    local background = popup:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    background:SetTextureInfo("bg_quest")
-    background:SetColor(0, 0, 0, 0.85)
-    background:AddAnchor("TOPLEFT", popup, 0, 0)
-    background:AddAnchor("BOTTOMRIGHT", popup, 0, 0)
+        local background = popup:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+        background:SetTextureInfo("bg_quest")
+        background:SetColor(0, 0, 0, 0.85)
+        background:AddAnchor("TOPLEFT", popup, 0, 0)
+        background:AddAnchor("BOTTOMRIGHT", popup, 0, 0)
 
-    function popup:OnDragStart() self:StartMoving() end
-    popup:SetHandler("OnDragStart", popup.OnDragStart)
-    function popup:OnDragStop() self:StopMovingOrSizing() end
-    popup:SetHandler("OnDragStop", popup.OnDragStop)
+        function popup:OnDragStart() self:StartMoving() end
+        popup:SetHandler("OnDragStart", popup.OnDragStart)
+        function popup:OnDragStop() self:StopMovingOrSizing() end
+        popup:SetHandler("OnDragStop", popup.OnDragStop)
 
-    -- X button: cancel without saving
-    local closeBtn = popup:CreateChildWidget("button", "closeBtn", 0, true)
-    closeBtn:SetText("X")
-    closeBtn:SetExtent(18, 18)
-    closeBtn:AddAnchor("TOPRIGHT", popup, -6, 6)
-    closeBtn.style:SetAlign(ALIGN.CENTER)
-    ApplyTextColor(closeBtn, FONT_COLOR.RED)
-    function closeBtn:OnClick() closePrompt() end
-    closeBtn:SetHandler("OnClick", closeBtn.OnClick)
+        -- X button: cancel without saving
+        local closeBtn = popup:CreateChildWidget("button", "closeBtn", 0, true)
+        closeBtn:SetText("X")
+        closeBtn:SetExtent(18, 18)
+        closeBtn:AddAnchor("TOPRIGHT", popup, -6, 6)
+        closeBtn.style:SetAlign(ALIGN.CENTER)
+        ApplyTextColor(closeBtn, FONT_COLOR.RED)
+        function closeBtn:OnClick() closePrompt() end
+        closeBtn:SetHandler("OnClick", closeBtn.OnClick)
 
-    local label = popup:CreateChildWidget("label", "label", 0, true)
-    label:SetText(question or "Enter a name:")
-    label.style:SetAlign(ALIGN.CENTER)
-    label:SetExtent(260, 25)
-    label:AddAnchor("TOP", popup, 0, 25)
+        local label = popup:CreateChildWidget("label", "label", 0, true)
+        label.style:SetAlign(ALIGN.CENTER)
+        label:SetExtent(260, 25)
+        label:AddAnchor("TOP", popup, 0, 25)
+        popup.promptLabel = label
 
-    local textEdit = W_CTRL.CreateEdit(getUniqueWidgetId("promptInput"), popup)
-    textEdit:SetExtent(240, 30)
-    textEdit:AddAnchor("TOP", label, "BOTTOM", 0, 8)
-    if defaultText and defaultText ~= "" then
-        textEdit:SetText(defaultText)
+        local textEdit = W_CTRL.CreateEdit("eluQuickEquip_promptInput", popup)
+        textEdit:SetExtent(240, 30)
+        textEdit:AddAnchor("TOP", label, "BOTTOM", 0, 8)
+        popup.textEdit = textEdit
+
+        local function doConfirm()
+            local text = popup.textEdit and popup.textEdit:GetText() or ""
+            local cb = promptConfirmCallback
+            closePrompt()
+            if cb then cb(text) end
+        end
+
+        function textEdit:OnEnterPressed() doConfirm() end
+        textEdit:SetHandler("OnEnterPressed", textEdit.OnEnterPressed)
+
+        local confirmButton = popup:CreateChildWidget("button", "confirmButton", 0, true)
+        confirmButton:SetText("Confirm")
+        confirmButton:SetExtent(100, 30)
+        confirmButton:AddAnchor("BOTTOM", popup, 0, -20)
+        api.Interface:ApplyButtonSkin(confirmButton, BUTTON_BASIC.DEFAULT)
+        function confirmButton:OnClick() doConfirm() end
+        confirmButton:SetHandler("OnClick", confirmButton.OnClick)
+
+        promptCanvas = popup
     end
 
-    local function doConfirm()
-        local text = textEdit and textEdit:GetText() or ""
-        closePrompt()
-        if onConfirm then onConfirm(text) end
-    end
-
-    function textEdit:OnEnterPressed() doConfirm() end
-    textEdit:SetHandler("OnEnterPressed", textEdit.OnEnterPressed)
-
-    local confirmButton = popup:CreateChildWidget("button", "confirmButton", 0, true)
-    confirmButton:SetText("Confirm")
-    confirmButton:SetExtent(100, 30)
-    confirmButton:AddAnchor("BOTTOM", popup, 0, -20)
-    api.Interface:ApplyButtonSkin(confirmButton, BUTTON_BASIC.DEFAULT)
-    function confirmButton:OnClick() doConfirm() end
-    confirmButton:SetHandler("OnClick", confirmButton.OnClick)
-
-    popup:Show(true)
-    promptCanvas = popup
-    return popup
+    promptCanvas.promptLabel:SetText(question or "Enter a name:")
+    promptCanvas.textEdit:SetText(defaultText or "")
+    promptCanvas:Show(true)
+    pcall(function() promptCanvas:Raise() end)
+    return promptCanvas
 end
 
 -- ===== Ctrl+Click context menu (Replace / Rename / Delete) =====
+-- Built once with static ID "eluQuickEquip_ctxMenu" and reused.
 
 function closeContextMenu()
-    -- Free whatever was retired by the PREVIOUS close -- see the
-    -- FreeGeneration/previousGeneration comment above. This is reached
-    -- from inside the menu's own MOUSE_DOWN handler and from its own
-    -- option buttons' OnClick, so the CURRENT menu below is only ever
-    -- hidden here, never freed until the call after this one.
-    if previousContextMenu then
-        pcall(function() previousContextMenu:Show(false) end)
-        pcall(function() api.Interface:Free(previousContextMenu) end)
-        previousContextMenu = nil
-    end
     if contextMenu then
         contextMenu:Show(false)
-        previousContextMenu = contextMenu
-        contextMenu = nil
     end
 end
+
+local currentCtxIndex = nil
 
 local function openContextMenu(gearSetIndex)
     closeContextMenu()
@@ -528,114 +487,23 @@ local function openContextMenu(gearSetIndex)
         return
     end
 
+    currentCtxIndex = gearSetIndex
     local optionHeight = 24
     local menuWidth = 120
-    local options = {
-        {
-            text = "Replace",
-            action = function()
-                local target = settings.gear_sets[gearSetIndex]
-                if target and target.name == gearSet.name then
-                    target.gear = captureCurrentGear()
-                    SaveQuickEquipSettings()
-                    renderGearSetUI()
-                end
-            end
-        },
-        {
-            text = "Rename",
-            action = function()
-                openNamePrompt("Rename gear set", gearSet.name, function(newName)
-                    newName = (newName or ""):match("^%s*(.-)%s*$")
-                    if newName == "" then return end
-                    local target = settings.gear_sets[gearSetIndex]
-                    if target and target.name == gearSet.name then
-                        target.name = newName
-                        SaveQuickEquipSettings()
-                        renderGearSetUI()
-                    end
-                end)
-            end
-        },
-        {
-            text = "Delete",
-            action = function()
-                local target = settings.gear_sets[gearSetIndex]
-                if target and target.name == gearSet.name then
-                    table.remove(settings.gear_sets, gearSetIndex)
-                    SaveQuickEquipSettings()
-                    renderGearSetUI()
-                end
-            end
-        }
-    }
+    local menuHeight = optionHeight * 3 + 8
 
-    -- The window itself is created OUTSIDE the pcall (and kept in this
-    -- outer-scope local) specifically so a failed build can still clean it
-    -- up below. It was created INSIDE the pcall before, and every single
-    -- failed build (e.g. every Ctrl+Click while the UIParent bug was still
-    -- present) left that half-built window behind forever, uncounted and
-    -- unreachable, because the error aborted the function before it ever
-    -- reached menu:Show(true). Confirmed directly in the game's own log
-    -- from that session: Elu_Tracker's addon-window count climbed from 254
-    -- to 373 in under an hour of testing, memory climbing from ~2860MB to
-    -- 3190MB right up to the session's end -- a real, self-inflicted leak,
-    -- and almost certainly what caused that crash (and the resulting
-    -- Elu_Tracker settings reset, since a crash mid-save of the shared
-    -- settings file can corrupt it).
-    local menu = api.Interface:CreateEmptyWindow(getUniqueWidgetId("ctxMenu"), "UIParent")
-
-    -- The rest of the menu build is wrapped in one pcall so that if
-    -- anything in here errors, we log the REAL error message instead of it
-    -- being silently swallowed by the engine (which is what made the
-    -- original UIParent bug so hard to track down without being able to
-    -- run the game directly).
-    local buildOk, buildErr = pcall(function()
-        local menuHeight = optionHeight * #options + 8
+    if not contextMenu then
+        local menu = api.Interface:CreateEmptyWindow("eluQuickEquip_ctxMenu", "UIParent")
         menu:SetExtent(menuWidth, menuHeight)
-
-        local mx, my = api.Input:GetMousePos()
-
-        -- Stay on the one anchor POINT already proven to work everywhere
-        -- else in this file (TOPLEFT against "UIParent") -- switching to
-        -- BOTTOMLEFT/TOPRIGHT/BOTTOMRIGHT for the "open upward" case is
-        -- what broke visibility entirely last time (untested anchor points
-        -- against a plain string target). Instead, keep TOPLEFT and just
-        -- shift the OFFSET numbers: if the menu would run past the bottom
-        -- or right edge of the screen, subtract its own height/width from
-        -- the anchor position so it opens upward/leftward from the cursor
-        -- instead of downward/rightward -- same anchor mechanics, just a
-        -- different starting corner.
-        local okSize, screenW, screenH = pcall(function()
-            return api.Interface:GetScreenWidth(), api.Interface:GetScreenHeight()
-        end)
-        if not okSize or not screenW or not screenH then
-            screenW, screenH = 2560, 1080 -- conservative fallback if the call is ever unavailable
-        end
-
-        local anchorX = mx or 0
-        local anchorY = my or 0
-        if my and (my + menuHeight) > screenH then
-            anchorY = my - menuHeight
-        end
-        if mx and (mx + menuWidth) > screenW then
-            anchorX = mx - menuWidth
-        end
-
-        menu:RemoveAllAnchors()
-        menu:AddAnchor("TOPLEFT", "UIParent", anchorX, anchorY)
         pcall(function() menu:SetCloseOnEscape(true) end)
         pcall(function()
             menu:SetHandler("OnCloseByEsc", function() closeContextMenu() end)
         end)
 
-        -- Close the menu on any click outside of it (same technique
-        -- addonlibrary's popup menu uses: watch MOUSE_DOWN and hide unless the
-        -- clicked widget is part of this menu).
         pcall(function()
             menu:RegisterEvent("MOUSE_DOWN")
             menu:SetHandler("OnEvent", function(this, event, widgetId)
-                if event == "MOUSE_DOWN" and contextMenu == menu and not menu:IsDescendantWidget(widgetId) then
+                if event == "MOUSE_DOWN" and contextMenu and contextMenu:IsVisible() and not menu:IsDescendantWidget(widgetId) then
                     closeContextMenu()
                 end
             end)
@@ -647,36 +515,88 @@ local function openContextMenu(gearSetIndex)
         background:AddAnchor("TOPLEFT", menu, 0, 0)
         background:AddAnchor("BOTTOMRIGHT", menu, 0, 0)
 
-        for i, option in ipairs(options) do
-            local btn = menu:CreateChildWidget("button", "ctxOption" .. i, 0, true)
-            btn:SetText(option.text)
+        menu.options = {}
+        local optionDefs = { "Replace", "Rename", "Delete" }
+        for i, optName in ipairs(optionDefs) do
+            local btn = menu:CreateChildWidget("button", "eluQuickEquip_ctxOpt" .. i, 0, true)
+            btn:SetText(optName)
             btn:SetExtent(menuWidth - 8, optionHeight - 2)
             btn:RemoveAllAnchors()
             btn:AddAnchor("TOP", menu, 0, 4 + (i - 1) * optionHeight)
             api.Interface:ApplyButtonSkin(btn, BUTTON_BASIC.DEFAULT)
-            if option.text == "Delete" then
+            if optName == "Delete" then
                 ApplyTextColor(btn, FONT_COLOR.RED)
             end
-            btn.OnClick = function()
-                closeContextMenu()
-                option.action()
+            menu.options[i] = btn
+        end
+
+        menu.options[1].OnClick = function()
+            local idx = currentCtxIndex
+            closeContextMenu()
+            if not idx or not settings.gear_sets then return end
+            local target = settings.gear_sets[idx]
+            if target then
+                target.gear = captureCurrentGear()
+                SaveQuickEquipSettings()
+                renderGearSetUI()
             end
-            btn:SetHandler("OnClick", btn.OnClick)
         end
+        menu.options[1]:SetHandler("OnClick", menu.options[1].OnClick)
 
-        menu:Show(true)
+        menu.options[2].OnClick = function()
+            local idx = currentCtxIndex
+            closeContextMenu()
+            if not idx or not settings.gear_sets then return end
+            local target = settings.gear_sets[idx]
+            if not target then return end
+            openNamePrompt("Rename gear set", target.name, function(newName)
+                newName = (newName or ""):match("^%s*(.-)%s*$")
+                if newName == "" then return end
+                if settings.gear_sets[idx] then
+                    settings.gear_sets[idx].name = newName
+                    SaveQuickEquipSettings()
+                    renderGearSetUI()
+                end
+            end)
+        end
+        menu.options[2]:SetHandler("OnClick", menu.options[2].OnClick)
+
+        menu.options[3].OnClick = function()
+            local idx = currentCtxIndex
+            closeContextMenu()
+            if not idx or not settings.gear_sets then return end
+            if settings.gear_sets[idx] then
+                table.remove(settings.gear_sets, idx)
+                SaveQuickEquipSettings()
+                renderGearSetUI()
+            end
+        end
+        menu.options[3]:SetHandler("OnClick", menu.options[3].OnClick)
+
         contextMenu = menu
-    end)
-
-    if not buildOk then
-        -- Clean up the half-built window instead of leaking it -- see the
-        -- comment above `menu`'s creation for why this matters.
-        pcall(function() menu:Show(false) end)
-        pcall(function() api.Interface:Free(menu) end)
-        if contextMenu == menu then
-            contextMenu = nil
-        end
     end
+
+    local mx, my = api.Input:GetMousePos()
+    local okSize, screenW, screenH = pcall(function()
+        return api.Interface:GetScreenWidth(), api.Interface:GetScreenHeight()
+    end)
+    if not okSize or not screenW or not screenH then
+        screenW, screenH = 2560, 1080
+    end
+
+    local anchorX = mx or 0
+    local anchorY = my or 0
+    if my and (my + menuHeight) > screenH then
+        anchorY = my - menuHeight
+    end
+    if mx and (mx + menuWidth) > screenW then
+        anchorX = mx - menuWidth
+    end
+
+    contextMenu:RemoveAllAnchors()
+    contextMenu:AddAnchor("TOPLEFT", "UIParent", anchorX, anchorY)
+    contextMenu:Show(true)
+    pcall(function() contextMenu:Raise() end)
 end
 
 -- ===== Shift + drag reorder helper =====
@@ -750,95 +670,44 @@ end
 function renderGearSetUI()
     closeContextMenu()
 
-    -- Free whatever was retired by the LAST call to renderGearSetUI -- see
-    -- the FreeGeneration/previousGeneration comment above. Safe because a
-    -- full render call (this one) separates it from whatever click/drag
-    -- dispatch retired it, so none of those widgets' own handlers can
-    -- still be on the call stack. This is what actually closes the leak:
-    -- at most one retired generation is ever left un-freed at a time,
-    -- instead of every single render leaking its predecessor forever.
-    FreeGeneration(previousGeneration)
-    previousGeneration = { buttons = {} }
-
-    for i, btn in ipairs(gearSetButtons) do
-        table.insert(previousGeneration.buttons, btn)
-        if btn then btn:Show(false) end
-    end
-    gearSetButtons = {}
+    gearSetButtons = gearSetButtons or {}
     buttonRects = {}
     buttonLocalX = {}
 
-    previousGeneration.addBtn = addSetButton
-    if addSetButton then addSetButton:Show(false) end
-    addSetButton = nil
-
-    -- This function can run from inside a click/drag callback on one of
-    -- mainCanvas's own child buttons (a preset's OnDragStop, or a
-    -- context-menu option's OnClick -- reordering/renaming/deleting a
-    -- preset all go through here), so mainCanvas can only be hidden here,
-    -- never freed until the retirement above's Free() runs one render
-    -- call later. See the comment above FreeGeneration for why an
-    -- immediate or one-tick-deferred Free() here both broke Ctrl+Click.
-    previousGeneration.canvas = mainCanvas
-    if mainCanvas then mainCanvas:Show(false) end
-    mainCanvas = nil
-
-    -- dragIndicator is a child of mainCanvas above, so it was just hidden
-    -- along with it; retire the reference too (it will be recreated below
-    -- along with the rest of the bar) and let FreeGeneration free it next
-    -- render call.
-    previousGeneration.indicator = dragIndicator
-    dragIndicator = nil
-
     local canvas_x = settings.x or DEFAULT_X
     local canvas_y = settings.y or DEFAULT_Y
-    local canvasId = getUniqueWidgetId("bar")
 
-    mainCanvas = api.Interface:CreateEmptyWindow(canvasId, "UIParent")
-    mainCanvas.background = mainCanvas:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    mainCanvas.background:SetTextureInfo("bg_quest")
-    mainCanvas.background:SetColor(0, 0, 0, 0.6)
-    mainCanvas.background:AddAnchor("TOPLEFT", mainCanvas, 0, 0)
-    mainCanvas.background:AddAnchor("BOTTOMRIGHT", mainCanvas, 0, 0)
-    mainCanvas:AddAnchor("TOPLEFT", "UIParent", canvas_x, canvas_y)
+    if not mainCanvas then
+        mainCanvas = api.Interface:CreateEmptyWindow("eluQuickEquip_bar", "UIParent")
+        mainCanvas.background = mainCanvas:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+        mainCanvas.background:SetTextureInfo("bg_quest")
+        mainCanvas.background:SetColor(0, 0, 0, 0.6)
+        mainCanvas.background:AddAnchor("TOPLEFT", mainCanvas, 0, 0)
+        mainCanvas.background:AddAnchor("BOTTOMRIGHT", mainCanvas, 0, 0)
 
-    -- Shift + drag on empty bar space moves the whole bar (unchanged from
-    -- the original addon). Dragging directly on a preset button is handled
-    -- by that button instead (see below), and reorders presets.
-    function mainCanvas:OnDragStart()
-        if api.Input:IsShiftKeyDown() then
-            mainCanvas:StartMoving()
-            api.Cursor:ClearCursor()
-            api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
+        function mainCanvas:OnDragStart()
+            if api.Input:IsShiftKeyDown() then
+                mainCanvas:StartMoving()
+                api.Cursor:ClearCursor()
+                api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
+            end
         end
-    end
-    mainCanvas:SetHandler("OnDragStart", mainCanvas.OnDragStart)
+        mainCanvas:SetHandler("OnDragStart", mainCanvas.OnDragStart)
 
-    function mainCanvas:OnDragStop()
-        -- Use self (bound to this exact widget instance) rather than the
-        -- outer mainCanvas variable for every call below: renderGearSetUI()
-        -- at the end reassigns mainCanvas to a brand new widget, so a bare
-        -- `mainCanvas:...` reference here would risk operating on the wrong
-        -- (newly created, never-dragged) widget once that happens.
-        local current_x, current_y = self:GetOffset()
-        settings.x = current_x
-        settings.y = current_y
-        SaveQuickEquipSettings()
-        self:StopMovingOrSizing()
-        api.Cursor:ClearCursor()
-
-        -- Re-render so buttonRects/buttonLocalX (both snapshotted from
-        -- canvas_x/canvas_y at render time) get rebuilt against the bar's
-        -- new position. Without this, findClosestButtonIndex kept comparing
-        -- the live mouse position against stale pre-move coordinates on the
-        -- very next preset drag-reorder -- wrong drop target, and the live
-        -- "drop here" indicator pointing at the wrong slot too. Safe to call
-        -- from here for the same reason it's already safe from a child
-        -- button's own OnDragStop (see moveGearSet above): it never Free()s
-        -- the old canvas, only hides it.
-        renderGearSetUI()
+        function mainCanvas:OnDragStop()
+            local current_x, current_y = self:GetOffset()
+            settings.x = current_x
+            settings.y = current_y
+            SaveQuickEquipSettings()
+            self:StopMovingOrSizing()
+            api.Cursor:ClearCursor()
+            renderGearSetUI()
+        end
+        mainCanvas:SetHandler("OnDragStop", mainCanvas.OnDragStop)
     end
-    mainCanvas:SetHandler("OnDragStop", mainCanvas.OnDragStop)
+
+    mainCanvas:RemoveAllAnchors()
+    mainCanvas:AddAnchor("TOPLEFT", "UIParent", canvas_x, canvas_y)
 
     local baseCanvasHeight = BAR_HEIGHT
     local buttonBaseWidth = 70
@@ -852,21 +721,20 @@ function renderGearSetUI()
 
     local dynamicButtonsWidth = 0
 
-    for i, gear_set in ipairs(settings.gear_sets) do
-        local buttonId = getUniqueWidgetId("btn")
+    for i, gear_set in ipairs(settings.gear_sets or {}) do
         local buttonX = leftPadding + dynamicButtonsWidth
+        local setBtn = gearSetButtons[i]
+        if not setBtn then
+            setBtn = api.Interface:CreateWidget('button', "eluQuickEquip_btn_" .. i, mainCanvas)
+            if setBtn.RegisterForDrag then pcall(function() setBtn:RegisterForDrag("LeftButton") end) end
+            if setBtn.EnableDrag then pcall(function() setBtn:EnableDrag(true) end) end
+            gearSetButtons[i] = setBtn
+        end
 
-        local setBtn = api.Interface:CreateWidget('button', buttonId, mainCanvas)
+        setBtn:RemoveAllAnchors()
         setBtn:AddAnchor("TOPLEFT", buttonX, 3)
         setBtn:SetText(gear_set.name)
-        -- Bug fix: this used to be "local skin = BUTTON_BASIC.DEFAULT" --
-        -- that's a reference to the one shared, addon-wide default button
-        -- skin table, not a copy. Setting skin.width/height right after
-        -- permanently mutated BUTTON_BASIC.DEFAULT itself, on every single
-        -- render of this gear-set button row (i.e. every time this list
-        -- redraws), silently resizing every OTHER button anywhere in the
-        -- addon that also uses BUTTON_BASIC.DEFAULT's size after that point.
-        -- A real, honest copy avoids touching the shared table at all.
+
         local skin = {}
         for k, v in pairs(BUTTON_BASIC.DEFAULT) do skin[k] = v end
         skin.width = buttonBaseWidth
@@ -879,31 +747,27 @@ function renderGearSetUI()
         buttonLocalX[i] = { x1 = buttonX, x2 = buttonX + actualButtonWidth }
         dynamicButtonsWidth = dynamicButtonsWidth + actualButtonWidth + buttonGap
 
-        -- Left-click: equip. Ctrl + click: Replace / Rename / Delete menu.
-        -- (The addon API has no working right-click event for this widget
-        -- type, confirmed by live testing, so Ctrl+Click is used instead.
-        -- Shift is reserved for drag-to-reorder, so a plain shift+click
-        -- without movement just equips as usual.)
+        local currentIdx = i
+        local currentSet = gear_set
         setBtn.OnClick = function()
             local ctrlDown = api.Input:IsControlKeyDown()
             if ctrlDown then
                 closeContextMenu()
-                openContextMenu(i)
+                openContextMenu(currentIdx)
                 return
             end
             closeContextMenu()
             disableAllGearSetButtons()
-            enqueueLoadoutEquipment(gear_set)
+            enqueueLoadoutEquipment(currentSet)
         end
         setBtn:SetHandler("OnClick", setBtn.OnClick)
 
-        -- Shift + drag: reorder this preset among the others.
         function setBtn:OnDragStart()
             if not api.Input:IsShiftKeyDown() then
                 return
             end
             closeContextMenu()
-            dragState = { index = i }
+            dragState = { index = currentIdx }
             self:StartMoving()
             api.Cursor:ClearCursor()
             api.Cursor:SetCursorImage(CURSOR_PATH.MOVE, 0, 0)
@@ -915,25 +779,18 @@ function renderGearSetUI()
             api.Cursor:ClearCursor()
             local dragging = dragState
             dragState = nil
-            if not dragging or dragging.index ~= i then
+            if not dragging or dragging.index ~= currentIdx then
                 return
             end
             local mx = api.Input:GetMousePos()
             local targetIndex = findClosestButtonIndex(mx)
-            if targetIndex and targetIndex ~= i then
-                moveGearSet(i, targetIndex)
+            if targetIndex and targetIndex ~= currentIdx then
+                moveGearSet(currentIdx, targetIndex)
             else
-                -- Nothing to reorder (only one preset, or dropped back on its
-                -- own slot) -- still re-render so the button snaps back into
-                -- its place in the bar instead of staying wherever it was
-                -- dragged to on screen.
                 renderGearSetUI()
             end
         end
         setBtn:SetHandler("OnDragStop", setBtn.OnDragStop)
-
-        if setBtn.RegisterForDrag then pcall(function() setBtn:RegisterForDrag("LeftButton") end) end
-        if setBtn.EnableDrag then pcall(function() setBtn:EnableDrag(true) end) end
 
         local name = gear_set.name or "Unnamed Set"
         function setBtn:OnEnter()
@@ -950,91 +807,93 @@ function renderGearSetUI()
         end
         setBtn:SetHandler("OnEnter", setBtn.OnEnter)
         setBtn:SetHandler("OnLeave", setBtn.OnLeave)
-
-        table.insert(gearSetButtons, setBtn)
     end
 
-    local addButtonId = getUniqueWidgetId("addBtn")
+    -- Hide any extra buttons that were previously created
+    for j = numGearSets + 1, #gearSetButtons do
+        if gearSetButtons[j] then
+            gearSetButtons[j]:Show(false)
+        end
+    end
+
     local useExtraGap = numGearSets > 0 and addButtonExtraGap or 0
     local addButtonX = leftPadding + dynamicButtonsWidth + useExtraGap
 
-    addSetButton = api.Interface:CreateWidget('button', addButtonId, mainCanvas)
-    addSetButton:AddAnchor("TOPLEFT", addButtonX, 3)
-    addSetButton:SetText("+")
-    -- Same shared-table aliasing bug as the "skin" copy above -- fixed the
-    -- same way, with an actual copy instead of a reference.
-    local addSkin = {}
-    for k, v in pairs(BUTTON_BASIC.DEFAULT) do addSkin[k] = v end
-    addSkin.width = 60
-    addSkin.height = 30
-    api.Interface:ApplyButtonSkin(addSetButton, addSkin)
-    addSetButton:Show(true)
+    if not addSetButton then
+        addSetButton = api.Interface:CreateWidget('button', "eluQuickEquip_addBtn", mainCanvas)
+        local addSkin = {}
+        for k, v in pairs(BUTTON_BASIC.DEFAULT) do addSkin[k] = v end
+        addSkin.width = 60
+        addSkin.height = 30
+        api.Interface:ApplyButtonSkin(addSetButton, addSkin)
+        addSetButton:SetText("+")
 
-    function addSetButton:OnEnter()
-        local PosX, PosY = self:GetOffset()
-        api.Interface:SetTooltipOnPos("Quick Equip\nAdd Preset", mainCanvas, PosX + 15, PosY + getTooltipOffsetY(PosY, 60))
+        function addSetButton:OnEnter()
+            local PosX, PosY = self:GetOffset()
+            api.Interface:SetTooltipOnPos("Quick Equip\nAdd Preset", mainCanvas, PosX + 15, PosY + getTooltipOffsetY(PosY, 60))
+        end
+        function addSetButton:OnLeave()
+            local PosX, PosY = self:GetOffset()
+            api.Interface:SetTooltipOnPos(nil, mainCanvas, PosX + 15, PosY + getTooltipOffsetY(PosY, 60))
+        end
+        addSetButton:SetHandler("OnEnter", addSetButton.OnEnter)
+        addSetButton:SetHandler("OnLeave", addSetButton.OnLeave)
+
+        local function saveNewSet(setNameInput)
+            local setName = ""
+            if setNameInput and setNameInput ~= "" then
+                setName = setNameInput
+            else
+                setName = "New Gear Set (" .. (#settings.gear_sets + 1) .. ")"
+            end
+
+            local loadout = { name = setName, gear = captureCurrentGear() }
+
+            local loadout_exists = false
+            if settings.gear_sets then
+                for i, v in ipairs(settings.gear_sets) do
+                    if v.name == setName then
+                        settings.gear_sets[i] = loadout
+                        loadout_exists = true
+                        break
+                    end
+                end
+            end
+
+            if not loadout_exists then
+                settings.gear_sets = settings.gear_sets or {}
+                table.insert(settings.gear_sets, loadout)
+            end
+
+            SaveQuickEquipSettings()
+            renderGearSetUI()
+        end
+
+        addSetButton.OnClick = function()
+            closeContextMenu()
+            openNamePrompt("Enter Gear Set Name", "", saveNewSet)
+        end
+        addSetButton:SetHandler("OnClick", addSetButton.OnClick)
     end
-    function addSetButton:OnLeave()
-        local PosX, PosY = self:GetOffset()
-        api.Interface:SetTooltipOnPos(nil, mainCanvas, PosX + 15, PosY + getTooltipOffsetY(PosY, 60))
-    end
-    addSetButton:SetHandler("OnEnter", addSetButton.OnEnter)
-    addSetButton:SetHandler("OnLeave", addSetButton.OnLeave)
+
+    addSetButton:RemoveAllAnchors()
+    addSetButton:AddAnchor("TOPLEFT", addButtonX, 3)
+    addSetButton:Show(true)
 
     local addButtonWidth = addSetButton:GetWidth()
     local totalRequiredWidth = leftPadding + dynamicButtonsWidth + addButtonWidth + rightPadding + useExtraGap
     mainCanvas:SetExtent(totalRequiredWidth, baseCanvasHeight)
 
-    -- Live "drop here" highlight for shift+drag reordering. Created hidden;
-    -- quick_equip_addon:OnUpdate shows and repositions it (via
-    -- updateDragIndicator) over whichever slot the dragged preset would
-    -- land in, so reordering has visual feedback instead of being blind
-    -- until release.
-    local indicatorId = getUniqueWidgetId("dragIndicator")
-    dragIndicator = mainCanvas:CreateChildWidget("emptywidget", indicatorId, 0, true)
-    dragIndicator.bg = dragIndicator:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
-    dragIndicator.bg:SetTextureInfo("bg_quest")
-    dragIndicator.bg:SetColor(1, 0.82, 0.15, 0.55)
-    dragIndicator.bg:AddAnchor("TOPLEFT", dragIndicator, 0, 0)
-    dragIndicator.bg:AddAnchor("BOTTOMRIGHT", dragIndicator, 0, 0)
+    if not dragIndicator then
+        dragIndicator = mainCanvas:CreateChildWidget("emptywidget", "eluQuickEquip_dragIndicator", 0, true)
+        dragIndicator.bg = dragIndicator:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
+        dragIndicator.bg:SetTextureInfo("bg_quest")
+        dragIndicator.bg:SetColor(1, 0.82, 0.15, 0.55)
+        dragIndicator.bg:AddAnchor("TOPLEFT", dragIndicator, 0, 0)
+        dragIndicator.bg:AddAnchor("BOTTOMRIGHT", dragIndicator, 0, 0)
+    end
     dragIndicator:SetExtent(buttonBaseWidth, baseCanvasHeight - 4)
     dragIndicator:Show(false)
-
-    local function saveNewSet(setNameInput)
-        local setName = ""
-        if setNameInput and setNameInput ~= "" then
-            setName = setNameInput
-        else
-            setName = "New Gear Set (" .. (#settings.gear_sets + 1) .. ")"
-        end
-
-        local loadout = { name = setName, gear = captureCurrentGear() }
-
-        local loadout_exists = false
-        if settings.gear_sets then
-            for i, v in ipairs(settings.gear_sets) do
-                if v.name == setName then
-                    settings.gear_sets[i] = loadout
-                    loadout_exists = true
-                    break
-                end
-            end
-        end
-
-        if not loadout_exists then
-            settings.gear_sets = settings.gear_sets or {}
-            table.insert(settings.gear_sets, loadout)
-        end
-
-        SaveQuickEquipSettings()
-        renderGearSetUI()
-    end
-
-    addSetButton.OnClick = function()
-        closeContextMenu()
-        openNamePrompt("Enter Gear Set Name", "", saveNewSet)
-    end
-    addSetButton:SetHandler("OnClick", addSetButton.OnClick)
 
     if #enqueuedItems == 0 then
         enableAllGearSetButtons()
@@ -1046,42 +905,14 @@ end
 
 -- ===== Enable / disable (Misc tab toggle) =====
 
--- Tears down the bar (and any open popup/menu) without touching settings.
--- Shared by OnUnload and by turning the toggle off.
+-- Hides the bar (and any open popup/menu) without touching settings.
 local function destroyBarUI()
     closeContextMenu()
     closePrompt()
 
-    -- Real teardown (OnUnload, or the Misc-tab checkbox turning the bar
-    -- off) is never triggered from inside one of these widgets' own click
-    -- dispatch -- the checkbox lives in a completely separate window --
-    -- so unlike renderGearSetUI/closeContextMenu above, it's safe to flush
-    -- and free anything still waiting in the retirement queue right now,
-    -- instead of waiting for one more render/open call that may never come.
-    FreeGeneration(previousGeneration)
-    previousGeneration = nil
-    if previousContextMenu then
-        pcall(function() previousContextMenu:Show(false) end)
-        pcall(function() api.Interface:Free(previousContextMenu) end)
-        previousContextMenu = nil
-    end
-
-    for i, btn in ipairs(gearSetButtons) do
-        if btn then btn:Show(false) end
-    end
-    gearSetButtons = {}
-
-    if addSetButton then addSetButton:Show(false) end
-    addSetButton = nil
-
     if mainCanvas then
         mainCanvas:Show(false)
-        pcall(function() api.Interface:Free(mainCanvas) end)
-        mainCanvas = nil
     end
-    -- dragIndicator is a child of mainCanvas, freed along with it above;
-    -- drop the now-stale Lua-side reference and cancel any in-progress drag.
-    dragIndicator = nil
     dragState = nil
 end
 

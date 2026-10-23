@@ -326,7 +326,12 @@ local function SetVisible(v)
 end
 
 local function OnLoad()
-	if containerWindow or _onLoadStarted then return end
+	if containerWindow then
+		loadSettings()
+		containerWindow:Show(settings.visible == true)
+		return
+	end
+	if _onLoadStarted then return end
 	_onLoadStarted = true
 
 	loadSettings()
@@ -481,25 +486,6 @@ local function OnUnload()
 
 	if containerWindow ~= nil then
 		containerWindow:Show(false)
-		-- LEAK FOUND during a full audit: every other window-creating module
-		-- in this addon (main.lua's eluDisplayWindow/tripOverlay/eluBtn,
-		-- stopwatch.lua's swOverlay, crash_alert.lua, zeal_alert.lua,
-		-- spot_tracker.lua, etc. -- confirmed by grepping the whole addon
-		-- for api.Interface:Free) calls Free() on its top-level window in
-		-- OnUnload before dropping the Lua reference. This file never did --
-		-- Show(false) plus `containerWindow = nil` only drops the LOCAL
-		-- reference; it doesn't release the underlying widget. Since the
-		-- auto-rebuild-once-after-3s in Elu_Tracker/main.lua's own OnLoad
-		-- runs OnUnload+OnLoad on every single session (not just on a manual
-		-- reload), this leaked one containerWindow plus its 2 buttons and 1
-		-- background drawable EVERY session, guaranteed, on top of leaking
-		-- again on every manual /reloadui. Matches the same "window count
-		-- climbing" failure class main.lua's own duplicate-OnLoad comment
-		-- already documents elsewhere in this addon.
-		pcall(function() api.Interface:Free(containerWindow) end)
-		containerWindow = nil
-		portalsBtn = nil
-		skinBtn = nil
 	end
 end
 
