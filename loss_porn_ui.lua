@@ -221,7 +221,7 @@ function ui.RefreshList()
         end
         
         if include and type(logItem) == "table" and logItem.line1 and logItem.line2 then
-            logList:InsertData(i, 1, {
+            logList:InsertData(visibleIndex, 1, {
                 richText = logItem.line1 .. "\n" .. logItem.line2,
                 index = visibleIndex
             })

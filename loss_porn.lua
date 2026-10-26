@@ -91,9 +91,13 @@ local function getTimeString()
         return t
     end
     if api.Time and api.Time.GetLocalTime and api.Time.TimeToDate then
-        local success2, d = pcall(function() return api.Time:TimeToDate(api.Time:GetLocalTime()) end)
-        if success2 and d and type(d) == "table" then
-            return string.format("%02d:%02d:%02d", d.hour or 0, d.minute or 0, d.second or 0)
+        local rawTime = api.Time:GetLocalTime()
+        if rawTime then
+            local strTime = type(rawTime) == "number" and string.format("%.0f", rawTime) or tostring(rawTime)
+            local success2, d = pcall(function() return api.Time:TimeToDate(strTime) end)
+            if success2 and d and type(d) == "table" then
+                return string.format("%02d:%02d:%02d", tonumber(d.hour) or 0, tonumber(d.minute) or 0, tonumber(d.second) or 0)
+            end
         end
     end
     return "00:00:00"
@@ -215,14 +219,19 @@ local function OnLoad()
     if not lossPornWindow then
         lossPornWindow = api.Interface:CreateEmptyWindow("lossPornWnd", "UIParent")
 
-        function lossPornWindow:OnEvent(event, ...)
-            if event == "GRADE_ENCHANT_BROADCAST" then
-                local msgArgs = arg or {...}
-                pcall(function() handleRegradeEvent(unpack(msgArgs)) end)
+        function lossPornWindow:OnEvent(event, a1, a2, a3, a4, a5)
+            if event == "GRADE_ENCHANT_BROADCAST" or event == "GRADE_ENCHANT_RESULT" then
+                local args = { a1, a2, a3, a4, a5 }
+                if arg ~= nil and a1 == nil and type(arg) == "table" then
+                    args = arg
+                end
+                pcall(function() handleRegradeEvent(unpack(args)) end)
             end
         end
         lossPornWindow:SetHandler("OnEvent", lossPornWindow.OnEvent)
         lossPornWindow:RegisterEvent("GRADE_ENCHANT_BROADCAST")
+        pcall(function() lossPornWindow:RegisterEvent("GRADE_ENCHANT_RESULT") end)
+        lossPornWindow:Show(true)
     end
 	
     pcall(function()

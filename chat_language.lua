@@ -161,7 +161,7 @@ local function LoadState()
             end
         end
 
-        -- Global defaults for visual controls
+        -- Global defaults for visual controls & position
         if loaded.enabled ~= nil then
             state.enabled = (loaded.enabled == true)
         end
@@ -174,6 +174,12 @@ local function LoadState()
         if type(loaded.bgAlpha) == "number" and loaded.bgAlpha >= 0.0 and loaded.bgAlpha <= 1.0 then
             state.bgAlpha = loaded.bgAlpha
         end
+        if loaded.customPos == true and type(loaded.x) == "number" and type(loaded.y) == "number" and
+           loaded.x >= 0 and loaded.x <= SANE_COORD_LIMIT and loaded.y >= 0 and loaded.y <= SANE_COORD_LIMIT then
+            state.x = math.max(0, math.floor(loaded.x))
+            state.y = math.max(0, math.floor(loaded.y))
+            state.customPos = true
+        end
 
         local ck = GetCurrentCharKey()
         if ck then
@@ -185,19 +191,12 @@ local function LoadState()
                 end
                 if charData.lang == "H" or charData.lang == "N" then
                     state.lang = charData.lang
-                else
-                    state.lang = "?"
                 end
-                if type(charData.x) == "number" and charData.x >= 0 and charData.x <= SANE_COORD_LIMIT and
-                   type(charData.y) == "number" and charData.y >= 0 and charData.y <= SANE_COORD_LIMIT and
-                   charData.customPos == true then
-                    state.x = charData.x
-                    state.y = charData.y
+                if charData.customPos == true and type(charData.x) == "number" and type(charData.y) == "number" and
+                   charData.x >= 0 and charData.x <= SANE_COORD_LIMIT and charData.y >= 0 and charData.y <= SANE_COORD_LIMIT then
+                    state.x = math.max(0, math.floor(charData.x))
+                    state.y = math.max(0, math.floor(charData.y))
                     state.customPos = true
-                else
-                    state.x = nil
-                    state.y = nil
-                    state.customPos = false
                 end
                 if type(charData.size) == "number" and charData.size >= 10 and charData.size <= 40 then
                     state.size = math.floor(charData.size + 0.5)
@@ -208,25 +207,8 @@ local function LoadState()
                 if type(charData.bgAlpha) == "number" and charData.bgAlpha >= 0.0 and charData.bgAlpha <= 1.0 then
                     state.bgAlpha = charData.bgAlpha
                 end
-            else
-                -- New character that never had the addon: start with "?" and default position
-                state.lang = "?"
-                state.x = nil
-                state.y = nil
-                state.customPos = false
             end
-        else
-            -- At load time before character is known, start with "?" and default position
-            state.lang = "?"
-            state.x = nil
-            state.y = nil
-            state.customPos = false
         end
-    else
-        state.lang = "?"
-        state.x = nil
-        state.y = nil
-        state.customPos = false
     end
 end
 
@@ -597,11 +579,11 @@ local function StopMoving()
     api.Cursor:ClearCursor()
     isMoving = false
     local x, y = indicatorWnd:GetOffset()
-    if type(x) == "number" and type(y) == "number" and
-       x >= 0 and x <= SANE_COORD_LIMIT and y >= 0 and y <= SANE_COORD_LIMIT then
-        state.x = x
-        state.y = y
+    if type(x) == "number" and type(y) == "number" then
+        state.x = math.max(0, math.floor(x))
+        state.y = math.max(0, math.floor(y))
         state.customPos = true
+        ApplyPosition()
         SaveState()
     end
 end
@@ -609,6 +591,9 @@ end
 local function WireShiftDragAndTooltip(widget)
     if not widget then return end
     pcall(function() widget:EnableDrag(true) end)
+    if widget.RegisterForDrag then
+        pcall(function() widget:RegisterForDrag("LeftButton") end)
+    end
     function widget:OnDragStart() StartMoving() end
     widget:SetHandler("OnDragStart", widget.OnDragStart)
     function widget:OnDragStop() StopMoving() end
@@ -970,7 +955,7 @@ local function OnLoad()
     local fontSize = state.size or 18
     local boxSize = math.max(28, fontSize + 12)
 
-    indicatorWnd = api.Interface:CreateEmptyWindow("eluChatLanguageWnd")
+    indicatorWnd = api.Interface:CreateEmptyWindow("eluChatLanguageWnd", "UIParent")
     indicatorWnd:SetExtent(boxSize, boxSize)
     ApplyPosition()
 
@@ -992,13 +977,8 @@ local function OnLoad()
         pcall(function() langLabel:Clickable(false) end)
     end
 
-    dragOverlay = indicatorWnd:CreateChildWidget("emptywidget", "chatLangDragOverlay", 0, true)
-    dragOverlay:AddAnchor("TOPLEFT", indicatorWnd, 0, 0)
-    dragOverlay:AddAnchor("BOTTOMRIGHT", indicatorWnd, 0, 0)
-    dragOverlay:Show(true)
-
     -- Hover tooltip displaying "Nuia" or "Haranya" right above the indicator
-    tooltipWnd = api.Interface:CreateEmptyWindow("eluChatLangTooltip")
+    tooltipWnd = api.Interface:CreateEmptyWindow("eluChatLangTooltip", "UIParent")
     tooltipWnd:SetExtent(74, 26)
     tooltipWnd:AddAnchor("BOTTOM", indicatorWnd, "TOP", 0, -4)
     tooltipWnd:Show(false)
@@ -1026,8 +1006,6 @@ local function OnLoad()
     end
 
     WireShiftDragAndTooltip(indicatorWnd)
-    WireShiftDragAndTooltip(langLabel)
-    WireShiftDragAndTooltip(dragOverlay)
 
     UpdateVisual()
     indicatorWnd:Show(state.enabled)

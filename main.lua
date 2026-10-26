@@ -962,19 +962,19 @@ function OnLoad()
         eluBtn.btnBg = btnBg
 
         function eluBtn:OnEnter()
-            if eluBtn.btnBg then
-                eluBtn.btnBg:RemoveAllAnchors()
-                eluBtn.btnBg:AddAnchor("TOPLEFT", eluBtn, -4, -4)
-                eluBtn.btnBg:AddAnchor("BOTTOMRIGHT", eluBtn, 4, 4)
+            if self and self.btnBg then
+                self.btnBg:RemoveAllAnchors()
+                self.btnBg:AddAnchor("TOPLEFT", self, -4, -4)
+                self.btnBg:AddAnchor("BOTTOMRIGHT", self, 4, 4)
             end
         end
         eluBtn:SetHandler("OnEnter", eluBtn.OnEnter)
         
         function eluBtn:OnLeave()
-            if eluBtn.btnBg then
-                eluBtn.btnBg:RemoveAllAnchors()
-                eluBtn.btnBg:AddAnchor("TOPLEFT", eluBtn, 0, 0)
-                eluBtn.btnBg:AddAnchor("BOTTOMRIGHT", eluBtn, 0, 0)
+            if self and self.btnBg then
+                self.btnBg:RemoveAllAnchors()
+                self.btnBg:AddAnchor("TOPLEFT", self, 0, 0)
+                self.btnBg:AddAnchor("BOTTOMRIGHT", self, 0, 0)
             end
         end
         eluBtn:SetHandler("OnLeave", eluBtn.OnLeave)
