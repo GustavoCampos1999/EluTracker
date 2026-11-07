@@ -116,6 +116,7 @@ local markedFishPoolBuilt = false
 
 local customMarkedFishes = {}
 local customMarkerUI = {}
+local targetBarMarkerUI = nil
 local customMarkerPoolBuilt = false
 local customMarkerEventWnd = nil
 
@@ -227,6 +228,9 @@ local function HideAllCustomFishMarkers()
         if customMarkerUI[i] and customMarkerUI[i].canvas then
             customMarkerUI[i].canvas:Show(false)
         end
+    end
+    if targetBarMarkerUI and targetBarMarkerUI.canvas then
+        targetBarMarkerUI.canvas:Show(false)
     end
 end
 
@@ -459,6 +463,57 @@ local function BuildCustomMarkerPool()
             numLabel = numLabel,
         }
     end
+
+    local tbCanvas = api.Interface:CreateEmptyWindow("eluTargetBarFishMarker", "UIParent")
+    tbCanvas:SetExtent(42, 42)
+    tbCanvas:Show(false)
+    pcall(function() tbCanvas:Clickable(false) end)
+    pcall(function() tbCanvas:EnableHitTest(false) end)
+
+    local tbOutlineOffsets = {
+        {-2, -1}, {2, -1}, {-2, 1}, {2, 1},
+        {0, -2},  {0, 2},  {-2, 0}, {2, 0},
+    }
+    local tbOutlineLabels = {}
+    for idx, off in ipairs(tbOutlineOffsets) do
+        local ol = tbCanvas:CreateChildWidget("label", "olLabel" .. idx, 0, true)
+        ol:SetExtent(42, 42)
+        ol:AddAnchor("CENTER", tbCanvas, "CENTER", off[1], off[2])
+        pcall(function() ol.style:SetFont("ui/font/yoon_firedgothic_b.ttf", 25) end)
+        ol.style:SetFontSize(25)
+        ol.style:SetAlign(ALIGN.CENTER)
+        ol.style:SetShadow(false)
+        ol.style:SetColor(0, 0, 0, 0.95)
+        ol:SetText("")
+        pcall(function() ol:Clickable(false) end)
+        pcall(function() ol:EnableHitTest(false) end)
+        tbOutlineLabels[idx] = ol
+    end
+
+    local tbCoreOffsets = { {-1, 0}, {0, 0}, {1, 0} }
+    local tbCoreLabels = {}
+    for idx, off in ipairs(tbCoreOffsets) do
+        local cl = tbCanvas:CreateChildWidget("label", "numLabel" .. idx, 0, true)
+        cl:SetExtent(42, 42)
+        cl:AddAnchor("CENTER", tbCanvas, "CENTER", off[1], off[2])
+        pcall(function() cl.style:SetFont("ui/font/yoon_firedgothic_b.ttf", 25) end)
+        cl.style:SetFontSize(25)
+        cl.style:SetAlign(ALIGN.CENTER)
+        cl.style:SetShadow(true)
+        pcall(function() cl.style:SetOutline(true) end)
+        cl:SetText("")
+        pcall(function() cl:Clickable(false) end)
+        pcall(function() cl:EnableHitTest(false) end)
+        tbCoreLabels[idx] = cl
+    end
+
+    targetBarMarkerUI = {
+        canvas = tbCanvas,
+        outlineLabels = tbOutlineLabels,
+        coreLabels = tbCoreLabels,
+        lastMarker = nil,
+        anchoredBar = nil,
+    }
 
     customMarkerEventWnd = api.Interface:CreateEmptyWindow("eluCustomFishMarkerEvents", "UIParent")
     customMarkerEventWnd:Show(false)
@@ -1173,6 +1228,52 @@ function fish_tracker:OnUpdate(dt)
         for i = 1, 9 do
             if not usedSlots[i] and customMarkerUI[i] and customMarkerUI[i].canvas then
                 customMarkerUI[i].canvas:Show(false)
+            end
+        end
+
+        if targetBarMarkerUI and targetBarMarkerUI.canvas then
+            local targetEntry = currentTarget and customMarkedFishes[currentTarget] or nil
+            if targetEntry and targetEntry.marker then
+                local okTf, targetFrame = pcall(function()
+                    if ADDON and ADDON.GetContent and UIC and UIC.TARGET_UNITFRAME then
+                        return ADDON:GetContent(UIC.TARGET_UNITFRAME)
+                    end
+                    return nil
+                end)
+                local hpBar = okTf and targetFrame and targetFrame.hpBar or nil
+                if hpBar then
+                    local m = targetEntry.marker
+                    if targetBarMarkerUI.lastMarker ~= m then
+                        targetBarMarkerUI.lastMarker = m
+                        local mStr = tostring(m)
+                        local color = markerColors[m] or {1, 0.8, 0, 1}
+                        if targetBarMarkerUI.outlineLabels then
+                            for _, ol in ipairs(targetBarMarkerUI.outlineLabels) do
+                                ol:SetText(mStr)
+                            end
+                        end
+                        if targetBarMarkerUI.coreLabels then
+                            for _, cl in ipairs(targetBarMarkerUI.coreLabels) do
+                                cl:SetText(mStr)
+                                cl.style:SetColor(color[1], color[2], color[3], color[4])
+                            end
+                        end
+                    end
+                    if targetBarMarkerUI.anchoredBar ~= hpBar then
+                        targetBarMarkerUI.anchoredBar = hpBar
+                        targetBarMarkerUI.canvas:RemoveAllAnchors()
+                        targetBarMarkerUI.canvas:AddAnchor("CENTER", hpBar, "BOTTOMLEFT", 18, -2)
+                    end
+                    if not targetBarMarkerUI.canvas:IsVisible() or targetBarMarkerUI.lastTargetId ~= currentTarget then
+                        targetBarMarkerUI.lastTargetId = currentTarget
+                        targetBarMarkerUI.canvas:Show(true)
+                        pcall(function() targetBarMarkerUI.canvas:Raise() end)
+                    end
+                else
+                    targetBarMarkerUI.canvas:Show(false)
+                end
+            else
+                targetBarMarkerUI.canvas:Show(false)
             end
         end
     else

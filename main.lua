@@ -1,7 +1,7 @@
 local elu_tracker_addon = {
 	name = "Elu Tracker",
 	author = "Eludelu",
-	version = "6.0.0",
+	version = "6.0.1",
 	desc = "Commerce, Fishing and Tools."
 }
 

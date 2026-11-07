@@ -44,6 +44,7 @@ end
 
 local function getGradeName(gradeId)
     local grades = {
+        [0] = "Crude",
         [1] = "Basic",
         [2] = "Grand",
         [3] = "Rare",
@@ -62,7 +63,8 @@ end
 
 local function getGradeColor(gradeId)
     local hex = "FFFFFFFF"
-    if gradeId == 1 then hex = "FFa9a9a9"
+    if gradeId == 0 then hex = "FF808080"
+    elseif gradeId == 1 then hex = "FFa9a9a9"
     elseif gradeId == 2 then hex = "FFffffff"
     elseif gradeId == 3 then hex = "FF55a62e"
     elseif gradeId == 4 then hex = "FF2593d6"
@@ -79,6 +81,11 @@ local function getGradeColor(gradeId)
 end
 
 local function itemIdFromItemLinkText(itemLinkText)
+    if type(itemLinkText) ~= "string" then return nil end
+    local matched = string.match(itemLinkText, "^|i(%d+)") or string.match(itemLinkText, "(%d+)")
+    if matched then
+        return matched
+    end
     local itemIdStr = string.sub(itemLinkText, 3)
     itemIdStr = split(itemIdStr, ",")
     itemIdStr = itemIdStr[1]
@@ -106,10 +113,35 @@ end
 local function OnUpdate(dt)
 end 
 
+settingsManager._lossPornRuntime = settingsManager._lossPornRuntime or {}
+local sharedRuntime = settingsManager._lossPornRuntime
+local lastRegradeEventKey = nil
+local lastRegradeEventTime = 0
+
 local function handleRegradeEvent(characterName, resultCode, itemLink, oldGrade, newGrade)
+    if type(characterName) ~= "string" or characterName == "" then return end
+    if type(itemLink) ~= "string" or itemLink == "" then return end
+
     resultCode = tonumber(resultCode)
     oldGrade = tonumber(oldGrade)
     newGrade = tonumber(newGrade)
+    if resultCode == nil then return end
+
+    local itemId = itemIdFromItemLinkText(itemLink)
+
+    -- Deduplicate identical broadcast events firing within 2 seconds
+    local nowMs = (api.Time and api.Time.GetUiMsec and api.Time:GetUiMsec()) or 0
+    local eventKey = tostring(characterName) .. "|" .. tostring(resultCode) .. "|" .. tostring(itemId or itemLink) .. "|" .. tostring(oldGrade) .. "|" .. tostring(newGrade)
+    local prevKey = sharedRuntime.lastKey or lastRegradeEventKey
+    local prevTime = sharedRuntime.lastTime or lastRegradeEventTime
+
+    if prevKey == eventKey and nowMs > 0 and (nowMs - prevTime) >= 0 and (nowMs - prevTime) < 2000 then
+        return
+    end
+    lastRegradeEventKey = eventKey
+    lastRegradeEventTime = nowMs
+    sharedRuntime.lastKey = eventKey
+    sharedRuntime.lastTime = nowMs
 
     local msg = ""
     local uiLogMsg1 = ""
@@ -121,9 +153,7 @@ local function handleRegradeEvent(characterName, resultCode, itemLink, oldGrade,
     
     local oldGradeCol = getGradeColor(oldGrade)
     local newGradeCol = getGradeColor(newGrade)
-    local itemCol = oldGradeCol
     
-    local itemId = itemIdFromItemLinkText(itemLink)
     local itemName = "Unknown Item"
     if itemId then
         local success, itemInfo = pcall(function() return api.Item:GetItemInfoByType(tonumber(itemId)) end)
@@ -135,15 +165,19 @@ local function handleRegradeEvent(characterName, resultCode, itemLink, oldGrade,
     local timeStr = getTimeString()
     
     if resultCode == ENCHANT_RESULT.DOWNGRADE then 
-        msg = "|cFFFFF8C7" .. characterName .. " failed their regrade, |cFFF8BD47Downgrading|r their " .. itemLink .. " from |cFFf95252Celestial|r to |cFFc267cdArcane|r"
-        uiLogMsg1 = "|cFF805000[" .. timeStr .. "]|r |cFF00cc00[DOWNGRADE]|r |cFF805000" .. characterName .. "|r"
+        msg = "|cFFFFF8C7" .. characterName .. " failed their regrade, |cFFF8BD47Downgrading|r their " .. itemLink .. " from " .. oldGradeCol .. oldGradeStr .. "|r to " .. newGradeCol .. newGradeStr .. "|r."
+        uiLogMsg1 = "|cFF805000[" .. timeStr .. "]|r |cFFF8BD47[DOWNGRADE]|r |cFF805000" .. characterName .. "|r"
         uiLogMsg2 = "-> |cFFF8BD47downgraded|r " .. newGradeCol .. itemName .. " " .. oldGradeCol .. "(" .. oldGradeStr .. " -> |r" .. newGradeCol .. newGradeStr .. ")|r"
     elseif resultCode == ENCHANT_RESULT.BREAK then 
-        msg = "|cFFFFF8C7" .. characterName .. " failed their regrade, |cFFFF6060Destroying|r their " .. itemLink
+        msg = "|cFFFFF8C7" .. characterName .. " failed their regrade, |cFFFF6060Destroying|r their " .. oldGradeCol .. oldGradeStr .. "|r " .. itemLink .. "."
         uiLogMsg1 = "|cFF805000[" .. timeStr .. "]|r |cFFff4a4a[DESTROYED]|r |cFF805000" .. characterName .. "|r"
         uiLogMsg2 = "-> |cFFFF6060destroyed|r " .. oldGradeCol .. itemName .. " " .. oldGradeCol .. "(" .. oldGradeStr .. ")|r"
     elseif resultCode == ENCHANT_RESULT.FAIL then 
-        msg = "|cFFFFF8C7" .. characterName .. " failed their regrade, |cFFF8BD47Anchoring|r their " .. itemLink .. " like a complete and total coward."
+        if oldGrade and oldGrade >= 7 then
+            msg = "|cFFFFF8C7" .. characterName .. " failed their regrade, |cFFF8BD47Anchoring|r their " .. oldGradeCol .. oldGradeStr .. "|r " .. itemLink .. " like a complete and total coward."
+        else
+            msg = "|cFFFFF8C7" .. characterName .. " |cFFF8BD47Failed|r their regrade on " .. oldGradeCol .. oldGradeStr .. "|r " .. itemLink .. "."
+        end
         uiLogMsg1 = "|cFF805000[" .. timeStr .. "]|r |cFFffaa00[FAIL]|r |cFF805000" .. characterName .. "|r"
         uiLogMsg2 = "-> |cFFF8BD47failed|r on " .. oldGradeCol .. itemName .. " " .. oldGradeCol .. "(" .. oldGradeStr .. ")|r"
     elseif resultCode == ENCHANT_RESULT.SUCCESS then
@@ -216,23 +250,36 @@ local function OnLoad()
     -- sessions that never open this log. This only defers window creation;
     -- nothing about when/whether regrades are recorded changes, since that
     -- is handled by lossPornWindow's event listener below, not by the UI.
+    local myGen = (tonumber(sharedRuntime.gen) or 0) + 1
+    sharedRuntime.gen = myGen
+    if not lossPornWindow and sharedRuntime.window then
+        lossPornWindow = sharedRuntime.window
+    end
+
     if not lossPornWindow then
         lossPornWindow = api.Interface:CreateEmptyWindow("lossPornWnd", "UIParent")
-
-        function lossPornWindow:OnEvent(event, a1, a2, a3, a4, a5)
-            if event == "GRADE_ENCHANT_BROADCAST" or event == "GRADE_ENCHANT_RESULT" then
-                local args = { a1, a2, a3, a4, a5 }
-                if arg ~= nil and a1 == nil and type(arg) == "table" then
-                    args = arg
-                end
-                pcall(function() handleRegradeEvent(unpack(args)) end)
-            end
-        end
-        lossPornWindow:SetHandler("OnEvent", lossPornWindow.OnEvent)
-        lossPornWindow:RegisterEvent("GRADE_ENCHANT_BROADCAST")
-        pcall(function() lossPornWindow:RegisterEvent("GRADE_ENCHANT_RESULT") end)
-        lossPornWindow:Show(true)
     end
+    sharedRuntime.window = lossPornWindow
+
+    pcall(function() lossPornWindow:ReleaseHandler("GRADE_ENCHANT_BROADCAST") end)
+    pcall(function() lossPornWindow:ReleaseHandler("GRADE_ENCHANT_RESULT") end)
+    pcall(function() lossPornWindow:ReleaseHandler("OnEvent") end)
+
+    function lossPornWindow:OnEvent(event, a1, a2, a3, a4, a5)
+        if sharedRuntime.gen ~= myGen then
+            return
+        end
+        if event == "GRADE_ENCHANT_BROADCAST" then
+            local args = { a1, a2, a3, a4, a5 }
+            if arg ~= nil and a1 == nil and type(arg) == "table" then
+                args = arg
+            end
+            pcall(function() handleRegradeEvent(unpack(args)) end)
+        end
+    end
+    lossPornWindow:SetHandler("OnEvent", lossPornWindow.OnEvent)
+    lossPornWindow:RegisterEvent("GRADE_ENCHANT_BROADCAST")
+    lossPornWindow:Show(true)
 	
     pcall(function()
         if ADDON and ADDON.GetContent and UIC and UIC.SYSTEM_CONFIG_FRAME then
@@ -248,7 +295,12 @@ local function OnLoad()
 end
 
 local function OnUnload()
+    sharedRuntime.gen = (tonumber(sharedRuntime.gen) or 0) + 1
     if lossPornWindow then
+        pcall(function() lossPornWindow:SetHandler("OnEvent", function() end) end)
+        pcall(function() lossPornWindow:ReleaseHandler("GRADE_ENCHANT_BROADCAST") end)
+        pcall(function() lossPornWindow:ReleaseHandler("GRADE_ENCHANT_RESULT") end)
+        pcall(function() lossPornWindow:ReleaseHandler("OnEvent") end)
         lossPornWindow:Show(false)
     end
 
