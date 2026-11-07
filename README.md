@@ -5,16 +5,16 @@ A highly comprehensive and self-sufficient productivity, utility, and recruitmen
 **Packed with features:**
 - **Trade Pack Profit Tracker** that allows you to pull weekly average prices or set your own manual prices.
 - **Fishing Profit Tracker** and a **Fishing Spots Time Tracker**.
-- **Fishing Tools** that display the required skill under the fish's HP bar, along with a dead fish timer tracking how much time is left before its loot expires.
+- **Fishing Tools** that display the required skill under the fish's HP bar, along with a dead fish timer tracking how much time is left before its loot expires, and personal **Fish Markers (1-9)** that work even inside a raid.
 - **Loot Tracker** start and stop loot sessions to precisely track every single item dropped during your grinding or farming runs.
 - **Raid Management** featuring an Auto Raid system with Whitelist and Auto-Givelead, plus a "Quick Auto Raid" mode for fast open-world events.
 - **Guild Check** to easily identify the guilds of both players and vessels (ships).
 - **Range Finder** with fully customizable dynamic colors.
-- **Crash Alert**, a high memory monitor that warns you when it's time to relog to prevent client crashes.
+- **Crash Me**, a quick client close/restart utility accessible via a button in the Misc tab or a customizable chat command (default `/crash`).
 - **Regrade Log** to track server success and failure regrades.
 - **Customizable Zeal Alert** that allows you to move and change size.
 - **Everyday Tools** including a built-in Stopwatch and Trip Counter.
-- **Quick Equip** gear-set swapper, letting you save and instantly re-equip full loadouts with one click.
+- **Quick Equip** gear-set swapper, letting you save and instantly re-equip full loadouts (including your active character **Title**) with one click.
 - **Elu Functions Tools**, draggable quick-toggle buttons for a temporary portal-safety bypass and the client's Default Player Appearances option, handy for RvR performance.
 - **Speedometer** displaying your real-time movement speed (`m/s`) on screen, with Shift + Drag repositioning.
 - **Chat Language Indicator**, an always-on-top `H` / `N` HUD box showing your active spoken continent dialect (Haranya or Nuia), with customizable size and opacity.
@@ -54,6 +54,7 @@ The regrade log can be opened in two different ways: by navigating to the **Misc
 - **Midnight Session Transfer:** Features a smart rollover mechanism. If your fishing session goes past midnight, manually transfer "Today's" earnings into "Yesterday's" profit with a single click.
 - **Dead Fish Timers (Visual Overlay):** Automatically draws a visible 5-minute countdown timer directly floating over the bodies of dropped Large Fishes so you know exactly when they will despawn.
 - **Skill Indicators (Visual Overlay):** Automatically detects what skill a hooked fish requires and displays the required skill icon directly above the fish in the 3D world.
+- **Personal Fish Markers (1–9) (Client-Side & Raid-Compatible):** Located in the **Fishing** tab under **Settings**, right below *Enable Spot Tracking* (**Enable Fish Markers (1-9)**). Whenever you hook a sport fish and it targets you, the addon automatically assigns it a colored number from **1 to 9** in sequence (cycling back to **1** after **9**). Because these markers are rendered locally on your screen rather than using native party/raid overhead markers, they only appear to you and work seamlessly even while inside a large fishing raid without requiring raid leadership or overwriting raid marks. When a marked fish dies, its colored number stays anchored above its body in the water and links directly to its corresponding **Dead Fish Timer** icon — automatically removing both the floating marker and the Dead Fish Timer the exact moment the fish is looted or despawns (while keeping manual click-to-close on the Dead Fish Timer icons available for players who do not use auto-marking).
 
 ### 3. Commerce Tracker (Packs)
 *Calculates the value of pending packs, pulls weekly average prices for pack resources, and features an option to set manual prices of your choice.*
@@ -63,10 +64,10 @@ The regrade log can be opened in two different ways: by navigating to the **Misc
 - **Session-Based Logging**: Start and stop loot sessions to precisely track every single item dropped during your grinding or farming runs.
 - **Visual Grid Inventory**: See exactly how many of each item you looted in a clean, visual grid interface, helping you calculate exactly how much money you made in an hour.
 
-### 5. System Stability & Anti-Crash
-- **Live RAM Monitor:** Displays a live memory tracker on-screen to monitor ArcheAge's RAM consumption.
-- **Crash Preventer Warning:** Monitors RAM usage and pops an on-screen warning when it hits a critical threshold (e.g., 3200 MB or 96% of the 32-bit limit), so you know it's time to relog before a fatal crash happens. The actual client restart is manual — click the warning's "Crash NOW" button, or use the Crash Command below — it is never triggered automatically.
-- **Crash Command:** Features a customizable chat command (default is `/crash`) that forcefully and instantly restarts the client.
+### 5. Crash Me
+*Located in the **Misc** tab, **Crash Me** provides an instant client exit/restart utility for fast relogs.*
+- **Crash Button:** Click the **Crash** button directly inside the **Misc** tab to immediately and forcefully close the client.
+- **Crash Command:** Features a customizable chat command (default is `/crash`) that forcefully and instantly closes/restarts the client whenever typed in chat.
 
 ### 6. Regrade Log 
 *Tracks server success and failure regrades, and allows you to toggle whether failures are displayed in your System chat.*
@@ -82,8 +83,8 @@ The regrade log can be opened in two different ways: by navigating to the **Misc
 
 ### 9. Quick Equip
 *A gear-set swapper: save your currently equipped gear as a named preset, then re-equip the whole set with a single click. Disabled by default on a fresh install; enable it from the **Misc** tab's Tools section, and your choice is saved across reload/relog like every other Elu Tracker setting.*
-- **One-Click Loadouts:** Save your current gear as a named preset and re-equip the entire set instantly, without dragging items one by one.
-- **Ctrl + Click a Preset:** Opens a context menu with **Replace** (overwrite the preset with your currently equipped gear, same name), **Rename**, and **Delete**.
+- **One-Click Loadouts (Gear + Title):** Save your current gear and active character **Title** as a named preset and re-equip the entire loadout (including switching to that saved Title) instantly with a single click, without dragging items one by one. Hovering over a preset button displays the preset name along with its saved Title.
+- **Right-Click (or Ctrl + Click) a Preset:** Opens a context menu with **Replace** (overwrite the preset with your currently equipped gear and active Title, keeping the same name), **Rename**, and **Delete**.
 - **Shift + Drag to Reorder:** Hold Shift and drag a preset to change its position among the others.
 - **Shift + Drag the Bar:** Hold Shift and drag empty space on the bar itself to reposition the whole Quick Equip window.
 

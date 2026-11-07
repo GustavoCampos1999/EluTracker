@@ -206,7 +206,8 @@ function speedometer_addon.CreateUI(wndParent)
 
     local checkboxGap = 6
     local labelWidth = enableLbl:GetWidth() or 200
-    local totalWidth = 18 + checkboxGap + labelWidth
+    local resetBtnSpace = 12 + 24
+    local totalWidth = 18 + checkboxGap + labelWidth + resetBtnSpace
     local containerWidth = container:GetWidth() or 500
     local startX = math.floor((containerWidth - totalWidth) / 2)
     enableCheck:RemoveAllAnchors()

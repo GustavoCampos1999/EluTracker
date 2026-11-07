@@ -1,7 +1,7 @@
 local api = require("api")
 
 local crash_age = {
-	name = "Crash Alert",
+	name = "Crash Me",
 	author = "Eludelu",
 	version = "1.1.0",
 	desc = "Memory tracker and crash warning system",
@@ -231,6 +231,30 @@ end
 local function MarkDeliberateCrash()
     learnState.deliberateCrash = true
     SaveLearnState()
+end
+
+-- Instant client termination compatible with both the 64-bit (binNext) and
+-- 32-bit (bin32) clients.
+local function TriggerDeliberateCrash()
+    MarkDeliberateCrash()
+
+    if type(os) == "table" and type(os.exit) == "function" then
+        os.exit(0)
+    end
+    if type(System) == "table" and type(System.Quit) == "function" then
+        System.Quit()
+    end
+
+    local chunks = {}
+    local block = "CRASH_BLOCK_16B_"
+    for _ = 1, 25 do
+        block = block .. block
+    end
+    while true do
+        pcall(function()
+            chunks[#chunks + 1] = block .. tostring(#chunks)
+        end)
+    end
 end
 
 local function AddCapped(list, value)
@@ -474,267 +498,91 @@ function crash_age.CreateUI(parentWnd)
         return configWnd
     end
 
+    if not config.crashCommand or config.crashCommand == "" then
+        config.crashCommand = "/crash"
+    end
+
     configWnd = parentWnd:CreateChildWidget("emptywidget", "crashAgeSettingsWnd", 0, true)
-    configWnd:SetExtent(500, 200)
+    configWnd:SetExtent(500, 92)
     configWnd:AddAnchor("TOP", parentWnd, "TOP", 0, 175) -- fallback position; main.lua re-anchors this under the previous Misc section
     configWnd:Show(true)
-    
+
     local title = configWnd:CreateChildWidget("label", "title", 0, true)
-    title:SetAutoResize(true)
+    title:SetAutoResize(false)
+    title:SetExtent(300, 26)
+    title.style:SetAlign(ALIGN.CENTER)
     title.style:SetFontSize(FONT_SIZE.XXLARGE)
     if FONT_COLOR and FONT_COLOR.TITLE then
         ApplyTextColor(title, FONT_COLOR.TITLE)
     else
         title.style:SetColor(1, 1, 1, 1)
     end
-    title:SetText("Crash Alert Settings")
-    title:AddAnchor("TOP", configWnd, "TOP", 0, 10)
+    title:SetText("Crash Me")
+    title:AddAnchor("TOP", configWnd, "TOP", 0, 0)
 
-    
-    
-    
-    
-    local r1 = configWnd:CreateChildWidget("emptywidget", "r1", 0, true)
-    r1:SetExtent(265, 30)
-    r1:AddAnchor("TOP", title, "BOTTOM", 0, 15)
-
-    local toggleMainBtn = r1:CreateChildWidget("button", "toggleMainBtn", 0, true)
-    if api and api.Interface and api.Interface.ApplyButtonSkin then
-        api.Interface:ApplyButtonSkin(toggleMainBtn, BUTTON_BASIC.DEFAULT)
-    end
-    local mainText = config.enabled and "Turn OFF" or "Turn ON"
-    toggleMainBtn:SetText(mainText)
-    toggleMainBtn:SetExtent(100, 30)
-    toggleMainBtn:AddAnchor("LEFT", r1, 0, 0)
-
-    local toggleLiveBtn = r1:CreateChildWidget("button", "toggleLiveBtn", 0, true)
-    local btnText = config.showLiveUsage and "[X] Show Live Usage" or "[ ] Show Live Usage"
-    toggleLiveBtn:SetText(btnText)
-    toggleLiveBtn:SetExtent(160, 30)
-    toggleLiveBtn:AddAnchor("RIGHT", r1, 0, 0)
-    if api and api.Interface and api.Interface.ApplyButtonSkin then
-        api.Interface:ApplyButtonSkin(toggleLiveBtn, BUTTON_BASIC.DEFAULT)
-    end
-    toggleLiveBtn:Show(config.enabled)
-
-    toggleMainBtn:SetHandler("OnClick", function()
-        config.enabled = not config.enabled
-        local text = config.enabled and "Turn OFF" or "Turn ON"
-        toggleMainBtn:SetText(text)
-        toggleLiveBtn:Show(config.enabled)
-        
-        if not config.enabled then
-            if liveUsageWnd then liveUsageWnd:Show(false) end
-            if cornerWarningWnd then cornerWarningWnd:Show(false) end
-        else
-            if config.showLiveUsage and liveUsageWnd then liveUsageWnd:Show(true) end
-        end
-        SaveConfig()
-    end)
-
-    -- Was two SetHandler("OnClick", ...) calls back to back -- the second
-    -- overwrites the first as far as the game is concerned, so the first
-    -- one never actually ran. The one that DID run also had one dead inner
-    -- block (an `if liveUsageWidget then` referencing a variable that was
-    -- never declared anywhere in this file, always nil, so that Show() call
-    -- never fired) -- harmless only because the UpdateLiveUsage(currentMB)
-    -- call right after it already shows/hides liveUsageWnd correctly on its
-    -- own based on config.showLiveUsage. Collapsed to the one handler that
-    -- was actually active, with that dead inner block removed -- behavior
-    -- is unchanged either way, this only removes code that never ran.
-    toggleLiveBtn:SetHandler("OnClick", function()
-        config.showLiveUsage = not config.showLiveUsage
-        local text = config.showLiveUsage and "[X] Show Live Usage" or "[ ] Show Live Usage"
-        toggleLiveBtn:SetText(text)
-        SaveConfig()
-
-        local mem = api.GetMemoryUsage()
-        if mem then
-            local currentMB = math.floor(mem < 100000 and mem or (mem / 1024 / 1024))
-            UpdateLiveUsage(currentMB)
-        end
-    end)
-    
-    local sEdit = W_CTRL.CreateEdit("crashAgeSlashEdit", configWnd)
-    sEdit:SetExtent(320, 30)
-    sEdit:AddAnchor("TOP", r1, "BOTTOM", 0, 35)
-    sEdit:SetText(tostring(config.crashCommand))
-    configWnd.sEdit = sEdit
-    
     local sLabel = configWnd:CreateChildWidget("label", "sLabel", 0, true)
-    sLabel:SetText("Manual Crash Command:")
+    sLabel:SetText("Crash Command:")
     sLabel:SetExtent(320, 20)
-    sLabel:AddAnchor("BOTTOM", sEdit, "TOP", 0, -5)
+    sLabel:AddAnchor("TOP", configWnd, "TOP", 0, 32)
     sLabel.style:SetAlign(ALIGN.CENTER)
-    sLabel.style:SetColor(0, 0, 0, 1)
-    
-    sEdit:SetHandler("OnKillFocus", function()
+    if FONT_COLOR and FONT_COLOR.DEFAULT then
+        ApplyTextColor(sLabel, FONT_COLOR.DEFAULT)
+    else
+        sLabel.style:SetColor(0.85, 0.85, 0.85, 1)
+    end
+
+    local row = configWnd:CreateChildWidget("emptywidget", "crashMeRow", 0, true)
+    row:SetExtent(310, 30)
+    row:AddAnchor("TOP", configWnd, "TOP", 0, 56)
+
+    local sEdit = W_CTRL.CreateEdit("crashAgeSlashEdit", row)
+    sEdit:SetExtent(195, 30)
+    sEdit:AddAnchor("LEFT", row, 0, 0)
+    sEdit:SetText(tostring(config.crashCommand or "/crash"))
+    configWnd.sEdit = sEdit
+
+    local function syncCommandFromInput(allowFallback)
+        if not configWnd or not configWnd.sEdit then return end
         local sCmd = configWnd.sEdit:GetText()
-        if sCmd and sCmd ~= "" then 
-            config.crashCommand = sCmd 
+        sCmd = type(sCmd) == "string" and (sCmd:match("^%s*(.-)%s*$") or sCmd) or ""
+        if sCmd ~= "" then
+            config.crashCommand = sCmd
+            SaveConfig()
+        elseif allowFallback then
+            config.crashCommand = "/crash"
+            configWnd.sEdit:SetText("/crash")
             SaveConfig()
         end
+    end
+
+    sEdit:SetHandler("OnTextChanged", function()
+        syncCommandFromInput(false)
+    end)
+    sEdit:SetHandler("OnEnterPressed", function()
+        syncCommandFromInput(true)
+    end)
+    sEdit:SetHandler("OnKillFocus", function()
+        syncCommandFromInput(true)
     end)
 
-    local resetPosBtn = configWnd:CreateChildWidget("button", "resetPosBtn", 0, true)
-    resetPosBtn:SetText("Reset Position")
-    resetPosBtn:SetExtent(100, 30)
-    resetPosBtn:AddAnchor("TOP", sEdit, "BOTTOM", 0, 20)
-    if api and api.Interface and api.Interface.ApplyButtonSkin then
-        api.Interface:ApplyButtonSkin(resetPosBtn, BUTTON_BASIC.DEFAULT)
-    end
-
-    local toggleMoveBtn = configWnd:CreateChildWidget("button", "toggleMoveBtn", 0, true)
-    toggleMoveBtn:SetText("Move UI")
-    toggleMoveBtn:SetExtent(100, 30)
-    toggleMoveBtn:AddAnchor("RIGHT", resetPosBtn, "LEFT", -10, 0)
-    if api and api.Interface and api.Interface.ApplyButtonSkin then
-        api.Interface:ApplyButtonSkin(toggleMoveBtn, BUTTON_BASIC.DEFAULT)
-    end
-    configWnd.toggleMoveBtn = toggleMoveBtn
-
-    local forceCrashBtn = configWnd:CreateChildWidget("button", "forceCrashBtn", 0, true)
-    forceCrashBtn:SetText("Crash NOW")
-    forceCrashBtn:SetExtent(100, 30)
-    forceCrashBtn:AddAnchor("LEFT", resetPosBtn, "RIGHT", 10, 0)
+    local forceCrashBtn = row:CreateChildWidget("button", "forceCrashBtn", 0, true)
+    forceCrashBtn:SetText("Crash")
     if api and api.Interface and api.Interface.ApplyButtonSkin then
         api.Interface:ApplyButtonSkin(forceCrashBtn, BUTTON_BASIC.DEFAULT)
     end
-
-    toggleMoveBtn:SetHandler("OnClick", function()
-        moveMode = not moveMode
-        if moveMode then
-            toggleMoveBtn:SetText("Save UI")
-            ShowCornerWarning("Test Warning Position", false)
-            local mem = api.GetMemoryUsage()
-            if mem then
-                local currentMB = math.floor(mem < 100000 and mem or (mem / 1024 / 1024))
-                UpdateLiveUsage(currentMB)
-            end
-        else
-            toggleMoveBtn:SetText("Move UI")
-            if cornerWarningWnd then cornerWarningWnd:Show(false) end
-            local mem = api.GetMemoryUsage()
-            if mem then
-                local currentMB = math.floor(mem < 100000 and mem or (mem / 1024 / 1024))
-                UpdateLiveUsage(currentMB)
-            end
-            SaveConfig()
-        end
-    end)
-
-    resetPosBtn:SetHandler("OnClick", function()
-        -- NOTE: this used to call UIParent:GetExtent(), but "UIParent" is
-        -- only valid as the anchor-target STRING elsewhere in this addon --
-        -- it is not a real Lua global here, so this line always threw
-        -- "attempt to index global 'UIParent' (a nil value)" and the whole
-        -- handler aborted before ever reaching SaveConfig() below. Same bug,
-        -- same fix, as quick_equip.lua's context menu positioning.
-        local okSize, screenW = pcall(function() return api.Interface:GetScreenWidth() end)
-        if not okSize or not screenW then screenW = 2560 end
-        config.warnOffsetX = screenW / 2
-        config.warnOffsetY = 100
-        config.liveOffsetX = screenW / 2
-        config.liveOffsetY = 50
-        
-        if cornerWarningWnd then
-            cornerWarningWnd:RemoveAllAnchors()
-            cornerWarningWnd:AddAnchor("TOPLEFT", "UIParent", "TOPLEFT", config.warnOffsetX, config.warnOffsetY)
-        end
-        if liveUsageWnd then
-            liveUsageWnd:RemoveAllAnchors()
-            liveUsageWnd:AddAnchor("TOPLEFT", "UIParent", "TOPLEFT", config.liveOffsetX, config.liveOffsetY)
-        end
-        SaveConfig()
-    end)
+    forceCrashBtn:SetExtent(105, 30)
+    forceCrashBtn:AddAnchor("RIGHT", row, 0, 0)
 
     forceCrashBtn:SetHandler("OnClick", function()
-        MarkDeliberateCrash()
-        local s = "CRASH"
-        while true do
-            s = s .. s
-        end
+        syncCommandFromInput(true)
+        TriggerDeliberateCrash()
     end)
 
     return configWnd
 end
 
 local function OnUpdate(dt)
-	if not config.enabled then return end
-	if cornerWarningWnd and cornerWarningWnd:IsVisible() and not moveMode then
-		if cornerWarningHideTime > 0 then
-			local timeLeft = cornerWarningHideTime - api.Time:GetUiMsec()
-			if timeLeft <= 0 then
-				cornerWarningWnd:Show(false)
-			elseif timeLeft < 2000 then
-				if cornerWarningWnd.SetAlpha then
-					cornerWarningWnd:SetAlpha(timeLeft / 2000.0)
-				end
-			end
-		end
-	end
-
-	timeSinceLastWarnCheck = timeSinceLastWarnCheck + (dt or 1000)
-
-	if timeSinceLastWarnCheck >= warnCheckInterval then
-		timeSinceLastWarnCheck = 0
-
-		local mem = api.GetMemoryUsage()
-		if mem == nil then
-			return
-		end
-		local isMB = (mem < 100000)
-		local currentMB = math.floor(isMB and mem or (mem / 1024 / 1024))
-		
-		-- Merge Live usage update into this 5s tick
-		UpdateLiveUsage(currentMB)
-
-		-- Learning bookkeeping: cheap, in-memory every 5s tick; only
-		-- actually hits disk every LEARN_SAVE_INTERVAL (see comment above
-		-- LEARN_FILE for why that's throttled separately from everything
-		-- else in this function).
-		learnState.lastMB = currentMB
-		if not learnState.sessionMaxMB or currentMB > learnState.sessionMaxMB then
-			learnState.sessionMaxMB = currentMB
-		end
-		timeSinceLastLearnSave = timeSinceLastLearnSave + warnCheckInterval
-		if timeSinceLastLearnSave >= LEARN_SAVE_INTERVAL then
-			timeSinceLastLearnSave = 0
-			SaveLearnState()
-		end
-
-		if currentMB >= config.critical then
-			if not criticalTriggered then
-				criticalTriggered = true
-				ShowCornerWarning("CRITICAL WARNING! " .. GetMemoryString(currentMB), true)
-			else
-				-- Keep updating text with current memory
-				if cornerWarningWnd and cornerWarningWnd.warnLabel then
-					cornerWarningWnd.warnLabel:SetText("CRITICAL WARNING! " .. GetMemoryString(currentMB))
-				end
-			end
-		else
-			for _, t in ipairs(config.thresholds) do
-				if currentMB >= t and not triggeredThresholds[t] then
-					triggeredThresholds[t] = true
-					ShowCornerWarning("Memory Warning: " .. GetMemoryString(currentMB), false)
-				elseif currentMB < t - 100 and triggeredThresholds[t] then
-					-- Same hysteresis margin as criticalTriggered below: re-arms
-					-- once memory drops a real 100MB under this threshold, not
-					-- right at the boundary, so it can't flicker/re-fire on
-					-- small readings jitter around the line.
-					triggeredThresholds[t] = false
-				end
-			end
-
-			if criticalTriggered and currentMB < config.critical - 100 then
-				criticalTriggered = false
-				if cornerWarningWnd and not moveMode then
-					cornerWarningWnd:Show(false)
-				end
-			end
-		end
-	end
+	-- Automatic 32-bit memory warning polling disabled in Crash Me mode.
 end
 
 
@@ -749,18 +597,24 @@ local function HandleChatCommand(
 	factionName,
 	trialPosition
 )
-    if not config.enabled then return end
 	if channel == 2 then
 		return
 	end -- ignore system messages or non-user chat
+	if type(message) ~= "string" or type(config.crashCommand) ~= "string" or config.crashCommand == "" then
+		return
+	end
+
+	local trimmedMsg = message:match("^%s*(.-)%s*$") or message
+	local targetCmd = config.crashCommand:match("^%s*(.-)%s*$") or config.crashCommand
+	if string.lower(trimmedMsg) ~= string.lower(targetCmd) then
+		return
+	end
 
 	local playerName = api.Unit:GetUnitNameById(api.Unit:GetUnitId("player"))
-	if playerName == name and message == config.crashCommand then
-		MarkDeliberateCrash()
-		local s = "CRASH"
-		while true do
-			s = s .. s
-		end
+	local isSelf = (playerName == name)
+		or (type(playerName) == "string" and type(name) == "string" and string.lower(playerName) == string.lower(name))
+	if isSelf then
+		TriggerDeliberateCrash()
 	end
 end
 
@@ -797,12 +651,11 @@ local function OnLoad()
 
 
 
-	if config.enabled and config.showLiveUsage then
-		local mem = api.GetMemoryUsage()
-		if mem then
-			local isMB = (mem < 100000)
-			UpdateLiveUsage(math.floor(isMB and mem or (mem / 1024 / 1024)))
-		end
+	if cornerWarningWnd then
+		cornerWarningWnd:Show(false)
+	end
+	if liveUsageWnd then
+		liveUsageWnd:Show(false)
 	end
 end
 

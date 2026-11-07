@@ -78,19 +78,21 @@ end
 
 function zeal_alert.CreateUI(wndParent)
     local container = wndParent:CreateChildWidget("emptywidget", "zealAlertContainer", 0, true)
-    container:SetExtent(500, 115)
+    container:SetExtent(500, 94)
     container:AddAnchor("TOP", wndParent, 0, 385) -- fallback position; main.lua re-anchors this under the previous Misc section
     
     local title = container:CreateChildWidget("label", "title", 0, true)
-    title:SetAutoResize(true)
+    title:SetAutoResize(false)
+    title:SetExtent(300, 26)
+    title.style:SetAlign(ALIGN.CENTER)
     title.style:SetFontSize(FONT_SIZE.XXLARGE)
     ApplyTextColor(title, FONT_COLOR.TITLE)
     title:SetText("Zeal Alert Settings")
-    title:AddAnchor("TOP", container, 0, 0)
+    title:AddAnchor("TOP", container, "TOP", 0, 0)
     
     local enableCheck = container:CreateChildWidget("checkbutton", "enableCheck", 0, true)
     enableCheck:SetExtent(18, 17)
-    enableCheck:AddAnchor("TOP", title, "BOTTOM", 0, 25) -- temporary; recentered below once the label's width is known
+    enableCheck:AddAnchor("TOP", container, "TOP", 0, 34) -- temporary; recentered below once the label's width is known
     local bg1 = enableCheck:CreateImageDrawable("ui/button/check_button.dds", "background")
     bg1:SetExtent(18, 17)
     bg1:AddAnchor("CENTER", enableCheck, 0, 0)
@@ -129,15 +131,15 @@ function zeal_alert.CreateUI(wndParent)
         local totalWidth = 18 + checkboxGap + labelWidth
         local offsetX = math.floor(9 - (totalWidth / 2))
         enableCheck:RemoveAllAnchors()
-        enableCheck:AddAnchor("TOP", title, "BOTTOM", offsetX, 25)
+        enableCheck:AddAnchor("TOP", container, "TOP", offsetX, 34)
     end
 
     enableCheck:SetChecked(settings.enabled, false)
     
     
     local rowZeal = container:CreateChildWidget("emptywidget", "rowZeal", 0, true)
-    rowZeal:SetExtent(375, 25)
-    rowZeal:AddAnchor("TOP", title, "BOTTOM", 0, 70)
+    rowZeal:SetExtent(375, 28)
+    rowZeal:AddAnchor("TOP", container, "TOP", 0, 62)
 
     local scaleLbl = rowZeal:CreateChildWidget("label", "scaleLbl", 0, true)
     scaleLbl:SetAutoResize(true)
@@ -146,16 +148,16 @@ function zeal_alert.CreateUI(wndParent)
     ApplyTextColor(scaleLbl, FONT_COLOR.DEFAULT)
 
     local scaleInput = W_CTRL.CreateEdit("scaleInput", rowZeal)
-    scaleInput:SetExtent(50, 25)
+    scaleInput:SetExtent(50, 28)
     scaleInput:AddAnchor("LEFT", scaleLbl, "RIGHT", 10, 0)
     scaleInput.style:SetAlign(ALIGN.CENTER)
     scaleInput:SetText(tostring(settings.scale))
 
     local applyScaleBtn = rowZeal:CreateChildWidget("button", "applyScaleBtn", 0, true)
     applyScaleBtn:SetText("Apply Scale")
-    applyScaleBtn:SetExtent(90, 25)
-    applyScaleBtn:AddAnchor("LEFT", scaleInput, "RIGHT", 10, 0)
     ApplyButtonSkin(applyScaleBtn, BUTTON_BASIC.DEFAULT)
+    applyScaleBtn:SetExtent(90, 28)
+    applyScaleBtn:AddAnchor("LEFT", scaleInput, "RIGHT", 10, 0)
 
     function applyScaleBtn:OnClick()
         local newScale = tonumber(scaleInput:GetText())
@@ -176,7 +178,7 @@ function zeal_alert.CreateUI(wndParent)
     -- settings.moving was already true (e.g. right after a reload while
     -- mid-drag-setup). settings.moving is the actual state this tracks.
     moveBtn:SetText(settings.moving and "Save UI" or "Move UI")
-    moveBtn:SetExtent(100, 25)
+    moveBtn:SetExtent(100, 28)
     moveBtn:AddAnchor("LEFT", applyScaleBtn, "RIGHT", 10, 0)
 
     

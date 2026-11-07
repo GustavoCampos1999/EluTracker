@@ -5,10 +5,8 @@
 --
 -- Controls:
 --   Left-click a preset      -> equip that gear set
---   Ctrl + click a preset    -> context menu: Replace / Rename / Delete
---                                (the addon API has no working right-click
---                                 event for this widget, confirmed by live
---                                 testing, so Ctrl+Click is used instead)
+--   Right-click a preset     -> context menu: Replace / Rename / Delete
+--                                (Ctrl + click also supported as fallback)
 --   Shift + drag a preset    -> reorder it among the other presets
 --   Shift + drag empty bar   -> move the whole Quick Equip bar
 --   "+" button               -> save currently equipped gear as a new preset
@@ -83,6 +81,8 @@ local function CloneGearSets(src)
             copy[i] = {
                 name = set.name,
                 gear = gearCopy,
+                titleId = set.titleId,
+                titleName = set.titleName,
             }
         end
     end
@@ -261,22 +261,103 @@ local closePrompt          -- forward declaration
 -- down* than the button (bottom edge + gap + box height), and "show
 -- above" means anchoring it *just above* the button (top edge - gap);
 -- the box then grows upward from that point in both cases.
-local TOOLTIP_GAP = 15
--- Extra safety margin used only for the flip DECISION (not for the actual
--- anchor offset). The real rendered tooltip box is a bit taller than our
--- estHeight guess, so without this the below-branch was still getting
--- picked (and clipped) when the button was close to, but not exactly at,
--- the bottom edge. Padding the decision makes it flip a little earlier,
--- before the real box has a chance to run off the bottom of the screen.
-local TOOLTIP_SAFETY = 40
+local TOOLTIP_GAP = 6
+local hoverTooltipWnd = nil
 
-local function getTooltipOffsetY(PosY, estHeight)
-    local screenH = api.Interface:GetScreenHeight()
-    if PosY + TOOLTIP_GAP + estHeight + TOOLTIP_SAFETY > screenH then
-        -- not enough room below: flip above the button
-        return -TOOLTIP_GAP
+local function hideHoverTooltip()
+    if hoverTooltipWnd then
+        hoverTooltipWnd:Show(false)
     end
-    return TOOLTIP_GAP + estHeight
+    pcall(function()
+        if mainCanvas then
+            api.Interface:SetTooltipOnPos(nil, mainCanvas, 0, 0)
+        end
+    end)
+end
+
+local function showHoverTooltip(targetBtn, lines, isCompact)
+    if not targetBtn or type(lines) ~= "table" or #lines == 0 then
+        hideHoverTooltip()
+        return
+    end
+
+    if not hoverTooltipWnd then
+        local tip = api.Interface:CreateEmptyWindow("eluQuickEquip_hoverTooltip", "UIParent")
+        tip:SetExtent(330, 110)
+        tip:Show(false)
+        if tip.Clickable then
+            pcall(function() tip:Clickable(false) end)
+        end
+
+        pcall(function()
+            local bg = tip:CreateNinePartDrawable("ui/common_new/default.dds", "background")
+            bg:SetTextureInfo("tooltip")
+            bg:AddAnchor("TOPLEFT", tip, 0, 0)
+            bg:AddAnchor("BOTTOMRIGHT", tip, 0, 0)
+            bg:SetColor(1, 1, 1, 0.95)
+        end)
+
+        tip.lineLabels = {}
+        for idx = 1, 6 do
+            local lbl = tip:CreateChildWidget("label", "line_" .. idx, 0, true)
+            lbl:SetExtent(306, 20)
+            lbl.style:SetAlign(ALIGN.LEFT)
+            lbl.style:SetFontSize(idx == 1 and (FONT_SIZE.LARGE or 15) or (FONT_SIZE.MIDDLE or 13))
+            if lbl.style.SetShadow then pcall(function() lbl.style:SetShadow(true) end) end
+            if lbl.Clickable then pcall(function() lbl:Clickable(false) end) end
+            ApplyTextColor(lbl, { 0.92, 0.88, 0.78, 1 })
+            lbl:Show(false)
+            tip.lineLabels[idx] = lbl
+        end
+
+        hoverTooltipWnd = tip
+    end
+
+    local boxWidth = isCompact and 220 or 335
+    local padX = 12
+    local padY = 10
+    local lineHeight = 20
+    local lineCount = math.min(#lines, #hoverTooltipWnd.lineLabels)
+
+    for idx = 1, #hoverTooltipWnd.lineLabels do
+        local lbl = hoverTooltipWnd.lineLabels[idx]
+        if idx <= lineCount then
+            lbl:SetExtent(boxWidth - padX * 2, lineHeight)
+            lbl:SetText(tostring(lines[idx] or ""))
+            lbl:RemoveAllAnchors()
+            lbl:AddAnchor("TOPLEFT", hoverTooltipWnd, padX, padY + (idx - 1) * lineHeight)
+            if idx == 1 then
+                ApplyTextColor(lbl, { 1, 0.96, 0.84, 1 })
+            else
+                ApplyTextColor(lbl, { 0.88, 0.85, 0.78, 1 })
+            end
+            lbl:Show(true)
+        else
+            lbl:Show(false)
+        end
+    end
+
+    local boxHeight = padY * 2 + lineCount * lineHeight
+    hoverTooltipWnd:SetExtent(boxWidth, boxHeight)
+
+    local screenH = 1080
+    pcall(function()
+        screenH = api.Interface:GetScreenHeight() or 1080
+    end)
+
+    local btnX, btnY = targetBtn:GetOffset()
+    local canvasY = (settings and settings.y) or btnY or DEFAULT_Y
+    local refY = math.max(btnY or 0, canvasY or 0)
+
+    hoverTooltipWnd:RemoveAllAnchors()
+    if (refY + BAR_HEIGHT + TOOLTIP_GAP + boxHeight + 20) > screenH or refY > (screenH * 0.55) then
+        hoverTooltipWnd:AddAnchor("BOTTOMLEFT", targetBtn, "TOPLEFT", 0, -TOOLTIP_GAP)
+    else
+        hoverTooltipWnd:AddAnchor("TOPLEFT", targetBtn, "BOTTOMLEFT", 0, TOOLTIP_GAP)
+    end
+
+    hoverTooltipWnd:Show(true)
+    pcall(function() hoverTooltipWnd:Raise() end)
 end
 
 -- ===== Equip queue (unchanged logic from the original addon) =====
@@ -309,9 +390,49 @@ local function enableAllGearSetButtons()
     end
 end
 
+-- Snapshot of the currently active title (appellation), if any.
+local function captureCurrentTitle()
+    if not api.Player or not api.Player.GetShowingAppellation then
+        return nil, nil
+    end
+    local ok, a1, a2 = pcall(function()
+        return api.Player:GetShowingAppellation()
+    end)
+    if not ok or a1 == nil then
+        return nil, nil
+    end
+    if type(a1) == "table" then
+        local id = a1[1] or a1.type or a1.id or a1.appellationType
+        local name = a1[2] or a1.name or a1.title
+        if type(id) == "number" and id > 0 then
+            return id, type(name) == "string" and name or nil
+        end
+    elseif type(a1) == "number" and a1 > 0 then
+        return a1, type(a2) == "string" and a2 or nil
+    end
+    return nil, nil
+end
+
+local function applySavedTitle(loadout)
+    if type(loadout) ~= "table" or type(loadout.titleId) ~= "number" or loadout.titleId <= 0 then
+        return
+    end
+    if not api.Player or not api.Player.ChangeAppellation then
+        return
+    end
+    local currentTitleId = captureCurrentTitle()
+    if currentTitleId ~= loadout.titleId then
+        pcall(function()
+            api.Player:ChangeAppellation(loadout.titleId)
+        end)
+    end
+end
+
 local function enqueueLoadoutEquipment(loadout)
+    applySavedTitle(loadout)
+
     local maxBagSlots = 150
-    for loadoutItemIndex = 1, #loadout.gear do
+    for loadoutItemIndex = 1, #(loadout.gear or {}) do
         local loadoutItem = loadout.gear[loadoutItemIndex]
         for bagSlot = 1, maxBagSlots do
             local bagItem = api.Bag:GetBagItemInfo(1, bagSlot)
@@ -324,6 +445,8 @@ local function enqueueLoadoutEquipment(loadout)
 
     if not isProcessingEquip then
         processNextEquip()
+    else
+        enableAllGearSetButtons()
     end
 end
 
@@ -488,9 +611,12 @@ local function openContextMenu(gearSetIndex)
     end
 
     currentCtxIndex = gearSetIndex
-    local optionHeight = 24
-    local menuWidth = 120
-    local menuHeight = optionHeight * 3 + 8
+    local btnHeight = 28
+    local btnGap = 4
+    local padX = 8
+    local padY = 8
+    local menuWidth = 116
+    local menuHeight = (padY * 2) + (btnHeight * 3) + (btnGap * 2)
 
     if not contextMenu then
         local menu = api.Interface:CreateEmptyWindow("eluQuickEquip_ctxMenu", "UIParent")
@@ -520,10 +646,12 @@ local function openContextMenu(gearSetIndex)
         for i, optName in ipairs(optionDefs) do
             local btn = menu:CreateChildWidget("button", "eluQuickEquip_ctxOpt" .. i, 0, true)
             btn:SetText(optName)
-            btn:SetExtent(menuWidth - 8, optionHeight - 2)
-            btn:RemoveAllAnchors()
-            btn:AddAnchor("TOP", menu, 0, 4 + (i - 1) * optionHeight)
             api.Interface:ApplyButtonSkin(btn, BUTTON_BASIC.DEFAULT)
+            -- SetExtent MUST be called after ApplyButtonSkin so BUTTON_BASIC.DEFAULT
+            -- does not overwrite the button height and cause vertical overlap.
+            btn:SetExtent(menuWidth - (padX * 2), btnHeight)
+            btn:RemoveAllAnchors()
+            btn:AddAnchor("TOP", menu, 0, padY + (i - 1) * (btnHeight + btnGap))
             if optName == "Delete" then
                 ApplyTextColor(btn, FONT_COLOR.RED)
             end
@@ -537,6 +665,9 @@ local function openContextMenu(gearSetIndex)
             local target = settings.gear_sets[idx]
             if target then
                 target.gear = captureCurrentGear()
+                local tId, tName = captureCurrentTitle()
+                target.titleId = tId
+                target.titleName = tName
                 SaveQuickEquipSettings()
                 renderGearSetUI()
             end
@@ -576,7 +707,6 @@ local function openContextMenu(gearSetIndex)
         contextMenu = menu
     end
 
-    local mx, my = api.Input:GetMousePos()
     local okSize, screenW, screenH = pcall(function()
         return api.Interface:GetScreenWidth(), api.Interface:GetScreenHeight()
     end)
@@ -584,15 +714,32 @@ local function openContextMenu(gearSetIndex)
         screenW, screenH = 2560, 1080
     end
 
-    local anchorX = mx or 0
-    local anchorY = my or 0
-    if my and (my + menuHeight) > screenH then
-        anchorY = my - menuHeight
-    end
-    if mx and (mx + menuWidth) > screenW then
-        anchorX = mx - menuWidth
+    local canvasY = settings.y or DEFAULT_Y
+    local rect = buttonRects[gearSetIndex]
+    local anchorX
+    local anchorY
+
+    if rect then
+        anchorX = math.floor(((rect.x1 + rect.x2) - menuWidth) / 2)
+    else
+        local mx = api.Input:GetMousePos()
+        anchorX = mx or (settings.x or DEFAULT_X)
     end
 
+    -- Anchor cleanly above or below the Quick Equip bar so the popup never covers the preset buttons.
+    if (canvasY + BAR_HEIGHT + menuHeight + 6) > screenH or canvasY > (screenH * 0.55) then
+        anchorY = canvasY - menuHeight - 4
+    else
+        anchorY = canvasY + BAR_HEIGHT + 4
+    end
+
+    if anchorX < 4 then anchorX = 4 end
+    if (anchorX + menuWidth) > screenW - 4 then
+        anchorX = screenW - menuWidth - 4
+    end
+    if anchorY < 4 then anchorY = 4 end
+
+    contextMenu:SetExtent(menuWidth, menuHeight)
     contextMenu:RemoveAllAnchors()
     contextMenu:AddAnchor("TOPLEFT", "UIParent", anchorX, anchorY)
     contextMenu:Show(true)
@@ -669,6 +816,7 @@ end
 
 function renderGearSetUI()
     closeContextMenu()
+    hideHoverTooltip()
 
     gearSetButtons = gearSetButtons or {}
     buttonRects = {}
@@ -710,11 +858,13 @@ function renderGearSetUI()
     mainCanvas:AddAnchor("TOPLEFT", "UIParent", canvas_x, canvas_y)
 
     local baseCanvasHeight = BAR_HEIGHT
-    local buttonBaseWidth = 70
+    local buttonBaseWidth = 68
+    local buttonHeight = 30
+    local buttonY = math.floor((baseCanvasHeight - buttonHeight) / 2)
     local buttonGap = 5
-    local leftPadding = 9
-    local rightPadding = 9
-    local addButtonExtraGap = 10
+    local leftPadding = 8
+    local rightPadding = 8
+    local addButtonExtraGap = 2
 
     local numGearSets = settings.gear_sets and #settings.gear_sets or 0
     mainCanvas:SetExtent(90, baseCanvasHeight)
@@ -726,32 +876,50 @@ function renderGearSetUI()
         local setBtn = gearSetButtons[i]
         if not setBtn then
             setBtn = api.Interface:CreateWidget('button', "eluQuickEquip_btn_" .. i, mainCanvas)
+            if setBtn.RegisterForClicks then
+                pcall(function() setBtn:RegisterForClicks("LeftButton") end)
+                pcall(function() setBtn:RegisterForClicks("RightButton") end)
+            end
             if setBtn.RegisterForDrag then pcall(function() setBtn:RegisterForDrag("LeftButton") end) end
             if setBtn.EnableDrag then pcall(function() setBtn:EnableDrag(true) end) end
             gearSetButtons[i] = setBtn
         end
 
-        setBtn:RemoveAllAnchors()
-        setBtn:AddAnchor("TOPLEFT", buttonX, 3)
-        setBtn:SetText(gear_set.name)
+        local setLabel = tostring(gear_set.name or ("Set " .. i))
+        setBtn:SetText(setLabel)
+        api.Interface:ApplyButtonSkin(setBtn, BUTTON_BASIC.DEFAULT)
+        if setBtn.RegisterForClicks then
+            pcall(function() setBtn:RegisterForClicks("LeftButton") end)
+            pcall(function() setBtn:RegisterForClicks("RightButton") end)
+        end
 
-        local skin = {}
-        for k, v in pairs(BUTTON_BASIC.DEFAULT) do skin[k] = v end
-        skin.width = buttonBaseWidth
-        skin.height = 30
-        api.Interface:ApplyButtonSkin(setBtn, skin)
+        local textW = 0
+        pcall(function()
+            if setBtn.style and setBtn.style.GetTextWidth then
+                textW = setBtn.style:GetTextWidth(setLabel) or 0
+            end
+        end)
+        if textW <= 0 then
+            textW = #setLabel * 8
+        end
+        local calcWidth = math.max(buttonBaseWidth, math.floor(textW + 24))
+        setBtn:SetExtent(calcWidth, buttonHeight)
+
+        setBtn:RemoveAllAnchors()
+        setBtn:AddAnchor("TOPLEFT", mainCanvas, buttonX, buttonY)
         setBtn:Show(true)
 
-        local actualButtonWidth = setBtn:GetWidth()
+        local actualButtonWidth = calcWidth
         buttonRects[i] = { x1 = canvas_x + buttonX, x2 = canvas_x + buttonX + actualButtonWidth }
         buttonLocalX[i] = { x1 = buttonX, x2 = buttonX + actualButtonWidth }
         dynamicButtonsWidth = dynamicButtonsWidth + actualButtonWidth + buttonGap
 
         local currentIdx = i
         local currentSet = gear_set
-        setBtn.OnClick = function()
+        function setBtn:OnClick(mb)
+            local clickType = (type(self) == "string" and self) or mb
             local ctrlDown = api.Input:IsControlKeyDown()
-            if ctrlDown then
+            if clickType == "RightButton" or ctrlDown then
                 closeContextMenu()
                 openContextMenu(currentIdx)
                 return
@@ -793,17 +961,20 @@ function renderGearSetUI()
         setBtn:SetHandler("OnDragStop", setBtn.OnDragStop)
 
         local name = gear_set.name or "Unnamed Set"
+        local tipLines = { name }
+        if type(gear_set.titleName) == "string" and gear_set.titleName ~= "" then
+            table.insert(tipLines, "Title: " .. gear_set.titleName)
+        elseif type(gear_set.titleId) == "number" and gear_set.titleId > 0 then
+            table.insert(tipLines, "Title ID: " .. tostring(gear_set.titleId))
+        end
+        table.insert(tipLines, "Left-click: equip this gear set.")
+        table.insert(tipLines, "Right-click (or Ctrl + click): replace / rename / delete.")
+        table.insert(tipLines, "Shift + drag: reorder.")
         function setBtn:OnEnter()
-            local PosX, PosY = self:GetOffset()
-            local description = name
-                .. "\nLeft-click: equip this gear set."
-                .. "\nCtrl + click: replace / rename / delete."
-                .. "\nShift + drag: reorder."
-            api.Interface:SetTooltipOnPos(description, mainCanvas, PosX + 50, PosY + getTooltipOffsetY(PosY, 110))
+            showHoverTooltip(self, tipLines, false)
         end
         function setBtn:OnLeave()
-            local PosX, PosY = self:GetOffset()
-            api.Interface:SetTooltipOnPos(nil, mainCanvas, PosX + 50, PosY + getTooltipOffsetY(PosY, 110))
+            hideHoverTooltip()
         end
         setBtn:SetHandler("OnEnter", setBtn.OnEnter)
         setBtn:SetHandler("OnLeave", setBtn.OnLeave)
@@ -818,23 +989,19 @@ function renderGearSetUI()
 
     local useExtraGap = numGearSets > 0 and addButtonExtraGap or 0
     local addButtonX = leftPadding + dynamicButtonsWidth + useExtraGap
+    local addBtnWidth = 36
 
     if not addSetButton then
         addSetButton = api.Interface:CreateWidget('button', "eluQuickEquip_addBtn", mainCanvas)
-        local addSkin = {}
-        for k, v in pairs(BUTTON_BASIC.DEFAULT) do addSkin[k] = v end
-        addSkin.width = 60
-        addSkin.height = 30
-        api.Interface:ApplyButtonSkin(addSetButton, addSkin)
+        api.Interface:ApplyButtonSkin(addSetButton, BUTTON_BASIC.DEFAULT)
         addSetButton:SetText("+")
+        addSetButton:SetExtent(addBtnWidth, buttonHeight)
 
         function addSetButton:OnEnter()
-            local PosX, PosY = self:GetOffset()
-            api.Interface:SetTooltipOnPos("Quick Equip\nAdd Preset", mainCanvas, PosX + 15, PosY + getTooltipOffsetY(PosY, 60))
+            showHoverTooltip(self, { "Quick Equip", "Add Preset (Gear + Title)" }, true)
         end
         function addSetButton:OnLeave()
-            local PosX, PosY = self:GetOffset()
-            api.Interface:SetTooltipOnPos(nil, mainCanvas, PosX + 15, PosY + getTooltipOffsetY(PosY, 60))
+            hideHoverTooltip()
         end
         addSetButton:SetHandler("OnEnter", addSetButton.OnEnter)
         addSetButton:SetHandler("OnLeave", addSetButton.OnLeave)
@@ -847,7 +1014,13 @@ function renderGearSetUI()
                 setName = "New Gear Set (" .. (#settings.gear_sets + 1) .. ")"
             end
 
-            local loadout = { name = setName, gear = captureCurrentGear() }
+            local tId, tName = captureCurrentTitle()
+            local loadout = {
+                name = setName,
+                gear = captureCurrentGear(),
+                titleId = tId,
+                titleName = tName,
+            }
 
             local loadout_exists = false
             if settings.gear_sets then
@@ -876,11 +1049,12 @@ function renderGearSetUI()
         addSetButton:SetHandler("OnClick", addSetButton.OnClick)
     end
 
+    addSetButton:SetExtent(addBtnWidth, buttonHeight)
     addSetButton:RemoveAllAnchors()
-    addSetButton:AddAnchor("TOPLEFT", addButtonX, 3)
+    addSetButton:AddAnchor("TOPLEFT", mainCanvas, addButtonX, buttonY)
     addSetButton:Show(true)
 
-    local addButtonWidth = addSetButton:GetWidth()
+    local addButtonWidth = addBtnWidth
     local totalRequiredWidth = leftPadding + dynamicButtonsWidth + addButtonWidth + rightPadding + useExtraGap
     mainCanvas:SetExtent(totalRequiredWidth, baseCanvasHeight)
 
@@ -909,6 +1083,7 @@ end
 local function destroyBarUI()
     closeContextMenu()
     closePrompt()
+    hideHoverTooltip()
 
     if mainCanvas then
         mainCanvas:Show(false)
@@ -969,13 +1144,12 @@ function quick_equip_addon.CreateUI(wndParent)
     enableLbl:AddAnchor("LEFT", enableCheck, "RIGHT", 6, 0)
     ApplyTextColor(enableLbl, FONT_COLOR.DEFAULT)
 
-    -- Center the checkbox+label pair as a whole inside the 500-wide
-    -- section, based on the label's actual rendered width, instead of a
-    -- fixed guessed offset -- keeps it lined up with the section titles
-    -- above/below regardless of font metrics.
+    -- Center the checkbox + label + reset button row as a whole inside the
+    -- 500-wide section so the entire group is visually centered.
     local checkboxGap = 6
     local labelWidth = enableLbl:GetWidth() or 220
-    local totalWidth = 18 + checkboxGap + labelWidth
+    local resetBtnSpace = 12 + 24
+    local totalWidth = 18 + checkboxGap + labelWidth + resetBtnSpace
     local containerWidth = container:GetWidth() or 500
     local startX = math.floor((containerWidth - totalWidth) / 2)
     enableCheck:RemoveAllAnchors()

@@ -45,6 +45,7 @@ local fish_tracker = {}
 
 fish_tracker.enableDeadFishTimers = false
 fish_tracker.enableSkillIndicators = false
+fish_tracker.enableCustomFishMarkers = false
 fish_tracker.enableDebugMode = true
 fish_tracker.enableOnlyMyFishes = true
 fish_tracker.deadFishContainerPos = {0, 200} -- default position relative to center
@@ -84,10 +85,10 @@ local actionBuffs = {
 
 local fishNamesToAlert = {
 	-- English
-	["Marlin"] = true, ["Blue Marlin"] = true, ["Tuna"] = true, ["Blue Tuna"] = true, ["Bluefin Tuna"] = true, ["Sunfish"] = true,
+	["Marlin"] = true, ["Blue Marlin"] = true, ["Tuna"] = true, ["Blue Tuna"] = true, ["Bluefin"] = true, ["Bluefin Tuna"] = true, ["Sunfish"] = true,
 	["Sailfish"] = true, ["Sturgeon"] = true, ["Pink Pufferfish"] = true,
-	["Carp"] = true, ["Arowana"] = true, ["Pufferfish"] = true, ["Eel"] = true,
-	["Pink Marlin"] = true, ["Treasure Mimic"] = true,
+	["Carp"] = true, ["Arowana"] = true, ["Pufferfish"] = true, ["Eel"] = true, ["Electric Eel"] = true,
+	["Pink Marlin"] = true, ["Small Pink Marlin"] = true, ["Medium Pink Marlin"] = true, ["Gargantuan Pink Marlin"] = true, ["Treasure Mimic"] = true,
 	-- Korean
 	["철갑상어"] = true,
 	["청새치"] = true,
@@ -113,16 +114,134 @@ local deadFishes = {}
 local markedFishUI = {}
 local markedFishPoolBuilt = false
 
+local customMarkedFishes = {}
+local customMarkerUI = {}
+local customMarkerPoolBuilt = false
+local customMarkerEventWnd = nil
+
+local function isFiniteCoord(n)
+    return type(n) == "number" and n == n and n > -1e9 and n < 1e9
+end
+
+local function getUIScaleSafe()
+    if api and api.Interface and api.Interface.GetUIScale then
+        local ok, s = pcall(api.Interface.GetUIScale, api.Interface)
+        if ok and type(s) == "number" and s > 0 then
+            return s
+        end
+    end
+    return 1
+end
+
+local function updateEntryWorldCalibration(entry, tx, ty, tz)
+    if not entry or not (isFiniteCoord(entry.wx) and isFiniteCoord(entry.wy) and isFiniteCoord(entry.wz)) then
+        return
+    end
+    if not (isFiniteCoord(tx) and isFiniteCoord(ty)) or (tz and tz < 0) then
+        return
+    end
+    if type(X2Util) ~= "table" or type(X2Util.ConvertWorldToScreen) ~= "function" then
+        return
+    end
+
+    local scale = getUIScaleSafe()
+    local bestDist = 1e9
+    local bestMode = nil
+    local bestScaleDiv = false
+    local bestPx, bestPy = nil, nil
+
+    local okD, dx, dy, dz = pcall(X2Util.ConvertWorldToScreen, entry.wx, entry.wy, entry.wz)
+    if okD and isFiniteCoord(dx) and isFiniteCoord(dy) and (dz == nil or dz >= 0) then
+        local d1 = math.abs(dx - tx) + math.abs(dy - ty)
+        if d1 < bestDist then
+            bestDist, bestMode, bestScaleDiv, bestPx, bestPy = d1, "dot", false, dx, dy
+        end
+        if scale > 0 and scale ~= 1 then
+            local sx, sy = dx / scale, dy / scale
+            local d2 = math.abs(sx - tx) + math.abs(sy - ty)
+            if d2 < bestDist then
+                bestDist, bestMode, bestScaleDiv, bestPx, bestPy = d2, "dot", true, sx, sy
+            end
+        end
+    end
+
+    local okC, cx, cy, cz = pcall(X2Util.ConvertWorldToScreen, X2Util, entry.wx, entry.wy, entry.wz)
+    if okC and isFiniteCoord(cx) and isFiniteCoord(cy) and (cz == nil or cz >= 0) then
+        local d1 = math.abs(cx - tx) + math.abs(cy - ty)
+        if d1 < bestDist then
+            bestDist, bestMode, bestScaleDiv, bestPx, bestPy = d1, "colon", false, cx, cy
+        end
+        if scale > 0 and scale ~= 1 then
+            local sx, sy = cx / scale, cy / scale
+            local d2 = math.abs(sx - tx) + math.abs(sy - ty)
+            if d2 < bestDist then
+                bestDist, bestMode, bestScaleDiv, bestPx, bestPy = d2, "colon", true, sx, sy
+            end
+        end
+    end
+
+    if bestMode and bestDist < 400 then
+        entry.projMode = bestMode
+        entry.useScaleDiv = bestScaleDiv
+        entry.screenOffsetX = tx - bestPx
+        entry.screenOffsetY = ty - bestPy
+        entry.worldProjValid = true
+    end
+end
+
+local function projectEntryWorldToScreen(entry)
+    if not entry or not entry.worldProjValid then
+        return nil, nil, nil
+    end
+    if not (isFiniteCoord(entry.wx) and isFiniteCoord(entry.wy) and isFiniteCoord(entry.wz)) then
+        return nil, nil, nil
+    end
+    if type(X2Util) ~= "table" or type(X2Util.ConvertWorldToScreen) ~= "function" then
+        return nil, nil, nil
+    end
+
+    local ok, px, py, pz
+    if entry.projMode == "colon" then
+        ok, px, py, pz = pcall(X2Util.ConvertWorldToScreen, X2Util, entry.wx, entry.wy, entry.wz)
+    else
+        ok, px, py, pz = pcall(X2Util.ConvertWorldToScreen, entry.wx, entry.wy, entry.wz)
+    end
+    if not (ok and isFiniteCoord(px) and isFiniteCoord(py)) then
+        return nil, nil, nil
+    end
+    if pz ~= nil and pz < 0 then
+        return nil, nil, pz
+    end
+    if entry.useScaleDiv then
+        local scale = getUIScaleSafe()
+        if scale > 0 then
+            px = px / scale
+            py = py / scale
+        end
+    end
+    return px + (entry.screenOffsetX or 0), py + (entry.screenOffsetY or 0), pz or 0
+end
+
+local function HideAllCustomFishMarkers()
+    for i = 1, 9 do
+        if customMarkerUI[i] and customMarkerUI[i].canvas then
+            customMarkerUI[i].canvas:Show(false)
+        end
+    end
+end
+
 local function LoadMiscSettings()
     local data = api.File:Read("elu_tracker_misc.txt")
     if type(data) == "table" then
         if data.enableDeadFishTimers ~= nil then fish_tracker.enableDeadFishTimers = data.enableDeadFishTimers end
         if data.enableSkillIndicators ~= nil then fish_tracker.enableSkillIndicators = data.enableSkillIndicators end
+        if data.enableCustomFishMarkers ~= nil then fish_tracker.enableCustomFishMarkers = data.enableCustomFishMarkers end
         if data.deadFishContainerPos ~= nil then fish_tracker.deadFishContainerPos = data.deadFishContainerPos end
     else
         
         fish_tracker.enableDeadFishTimers = false
         fish_tracker.enableSkillIndicators = false
+        fish_tracker.enableCustomFishMarkers = false
         fish_tracker.deadFishContainerPos = {0, 200}
     end
 end
@@ -132,6 +251,7 @@ local function SaveMiscSettings()
     if type(data) ~= "table" then data = {} end
     data.enableDeadFishTimers = fish_tracker.enableDeadFishTimers
     data.enableSkillIndicators = fish_tracker.enableSkillIndicators
+    data.enableCustomFishMarkers = fish_tracker.enableCustomFishMarkers
     data.deadFishContainerPos = fish_tracker.deadFishContainerPos
     api.File:Write("elu_tracker_misc.txt", data)
 end
@@ -249,6 +369,140 @@ function fish_tracker.CreateUI(wndParent)
     dfMoveBtn:SetHandler("OnClick", dfMoveBtn.OnClick)
 end
 
+function fish_tracker.CreateCustomMarkersUI(wndParent)
+    LoadMiscSettings()
+
+    local container = wndParent:CreateChildWidget("emptywidget", "eluCustomFishMarkerContainer", 0, true)
+    container:SetExtent(300, 30)
+
+    if wndParent.eluAltToggleContainer then
+        container:AddAnchor("TOP", wndParent.eluAltToggleContainer, "BOTTOM", 0, 10)
+    elseif wndParent.eluFishTrackerToggles then
+        container:AddAnchor("TOP", wndParent.eluFishTrackerToggles, "BOTTOM", 0, 75)
+    else
+        container:AddAnchor("TOP", wndParent, "TOP", 0, 195)
+    end
+    wndParent.eluCustomFishMarkerContainer = container
+
+    local cmToggle = container:CreateChildWidget("checkbutton", "eluCustomFishMarkerCheck", 0, true)
+    cmToggle:SetExtent(18, 17)
+    cmToggle:AddAnchor("LEFT", container, 45, 0)
+
+    local bg1 = cmToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
+    bg1:SetExtent(18, 17)
+    bg1:AddAnchor("CENTER", cmToggle, 0, 0)
+    bg1:SetCoords(0, 0, 18, 17)
+    cmToggle:SetNormalBackground(bg1)
+
+    local bg2 = cmToggle:CreateImageDrawable("ui/button/check_button.dds", "background")
+    bg2:SetExtent(18, 17)
+    bg2:AddAnchor("CENTER", cmToggle, 0, 0)
+    bg2:SetCoords(18, 0, 18, 17)
+    cmToggle:SetCheckedBackground(bg2)
+
+    local cmLbl = container:CreateChildWidget("label", "eluCustomFishMarkerLbl", 0, true)
+    cmLbl:SetAutoResize(true)
+    cmLbl:SetText("Enable Fish Markers (1-9)")
+    cmLbl:AddAnchor("LEFT", cmToggle, "RIGHT", 5, 0)
+    if FONT_COLOR and FONT_COLOR.DEFAULT then
+        ApplyTextColor(cmLbl, FONT_COLOR.DEFAULT)
+    end
+
+    cmToggle:SetChecked(fish_tracker.enableCustomFishMarkers)
+    function cmToggle:OnCheckChanged()
+        fish_tracker.enableCustomFishMarkers = self:GetChecked()
+        SaveMiscSettings()
+        if not fish_tracker.enableCustomFishMarkers then
+            customMarkedFishes = {}
+            fish_tracker.nextCustomFishMarker = 0
+            HideAllCustomFishMarkers()
+        end
+    end
+    cmToggle:SetHandler("OnCheckChanged", cmToggle.OnCheckChanged)
+end
+
+local function RemoveDeadFishByUnitId(uid)
+    if not uid then return end
+    for k, v in pairs(deadFishes) do
+        if type(v) == "table" and v.unitId == uid then
+            deadFishes[k] = nil
+        end
+    end
+end
+
+local function BuildCustomMarkerPool()
+    if customMarkerPoolBuilt then return end
+    customMarkerPoolBuilt = true
+
+    for i = 1, 9 do
+        local canvas = api.Interface:CreateEmptyWindow("eluCustomFishMarker" .. i, "UIParent")
+        canvas:SetExtent(60, 60)
+        canvas:Show(false)
+        pcall(function() canvas:Clickable(false) end)
+        pcall(function() canvas:EnableHitTest(false) end)
+
+        local numLabel = canvas:CreateChildWidget("label", "numLabel", 0, true)
+        numLabel:SetExtent(60, 60)
+        numLabel:AddAnchor("CENTER", canvas, "CENTER", 0, 0)
+        numLabel.style:SetFontSize(34)
+        numLabel.style:SetAlign(ALIGN.CENTER)
+        numLabel.style:SetShadow(true)
+        pcall(function() numLabel.style:SetOutline(true) end)
+        local color = markerColors[i] or {1, 0.8, 0, 1}
+        numLabel.style:SetColor(color[1], color[2], color[3], color[4])
+        numLabel:SetText(tostring(i))
+        pcall(function() numLabel:Clickable(false) end)
+        pcall(function() numLabel:EnableHitTest(false) end)
+
+        customMarkerUI[i] = {
+            canvas = canvas,
+            numLabel = numLabel,
+        }
+    end
+
+    customMarkerEventWnd = api.Interface:CreateEmptyWindow("eluCustomFishMarkerEvents", "UIParent")
+    customMarkerEventWnd:Show(false)
+    function customMarkerEventWnd:OnEvent(event, ...)
+        if event == "UNIT_EQUIPMENT_CHANGED" then
+            local args = {...}
+            local unit = args[1]
+            local equipString = args[3]
+            if unit == "player" and equipString and string.find(tostring(equipString), "i;") then
+                -- Player just equipped a pack onto their back; if they looted a dead marked fish nearby, clear it
+                local currentTarget = api.Unit:GetUnitId("target")
+                if currentTarget and customMarkedFishes[currentTarget] and customMarkedFishes[currentTarget].isDead then
+                    customMarkedFishes[currentTarget] = nil
+                    RemoveDeadFishByUnitId(currentTarget)
+                    return
+                end
+                local px, py, pz = api.Unit:UnitWorldPosition("player")
+                if isFiniteCoord(px) and isFiniteCoord(py) and isFiniteCoord(pz) then
+                    local closestId = nil
+                    local closestDistSq = 144 -- within 12m
+                    for uid, entry in pairs(customMarkedFishes) do
+                        if entry.isDead and isFiniteCoord(entry.wx) and isFiniteCoord(entry.wy) and isFiniteCoord(entry.wz) then
+                            local dx = entry.wx - px
+                            local dy = entry.wy - py
+                            local dz = entry.wz - pz
+                            local dSq = dx * dx + dy * dy + dz * dz
+                            if dSq < closestDistSq then
+                                closestDistSq = dSq
+                                closestId = uid
+                            end
+                        end
+                    end
+                    if closestId then
+                        customMarkedFishes[closestId] = nil
+                        RemoveDeadFishByUnitId(closestId)
+                    end
+                end
+            end
+        end
+    end
+    customMarkerEventWnd:SetHandler("OnEvent", customMarkerEventWnd.OnEvent)
+    pcall(function() customMarkerEventWnd:RegisterEvent("UNIT_EQUIPMENT_CHANGED") end)
+end
+
 -- The dead-fish-timer UI -- the drag box used to reposition it, plus the
 -- 9-slot "marked dead fish" pool (10 windows + ~27 child widgets total) --
 -- is only ever shown when Enable Dead Fish Timers is on. Both used to be
@@ -327,6 +581,10 @@ local function BuildMarkedFishPool()
             if arg == "RightButton" or arg == "LeftButton" then
                 if canvas.deadFishKey then
                     if canvas.deleteState then
+                        local delEntry = deadFishes[canvas.deadFishKey]
+                        if type(delEntry) == "table" and delEntry.unitId then
+                            customMarkedFishes[delEntry.unitId] = nil
+                        end
                         deadFishes[canvas.deadFishKey] = nil
                         canvas:Show(false)
                         canvas.deleteState = false
@@ -397,8 +655,13 @@ function fish_tracker:OnLoad()
     if fish_tracker.enableDeadFishTimers then
         BuildMarkedFishPool()
     end
+    if fish_tracker.enableCustomFishMarkers then
+        BuildCustomMarkerPool()
+    end
 
     deadFishes = {}
+    customMarkedFishes = {}
+    fish_tracker.nextCustomFishMarker = 0
 
 end
 
@@ -431,9 +694,95 @@ function fish_tracker:OnUpdate(dt)
     if currentTarget and hp ~= nil and hp <= 0 then
         local px = api.Unit:UnitWorldPosition("target")
         if px == nil then
-            for k, v in pairs(deadFishes) do
-                if v.unitId == currentTarget then
-                    deadFishes[k] = nil
+            customMarkedFishes[currentTarget] = nil
+            RemoveDeadFishByUnitId(currentTarget)
+        end
+    end
+
+    if fish_tracker.enableCustomFishMarkers then
+        BuildCustomMarkerPool()
+        local isKnownFish = (targetName ~= nil and fishNamesToAlert[targetName] == true)
+
+        if currentTarget and isKnownFish and isTargetingMe and hp ~= nil and hp > 0 then
+            if not customMarkedFishes[currentTarget] then
+                fish_tracker.nextCustomFishMarker = ((fish_tracker.nextCustomFishMarker or 0) % 9) + 1
+                local markerNum = fish_tracker.nextCustomFishMarker
+                for uid, existing in pairs(customMarkedFishes) do
+                    if existing.marker == markerNum then
+                        customMarkedFishes[uid] = nil
+                    end
+                end
+                local wx, wy, wz = api.Unit:UnitWorldPosition("target")
+                customMarkedFishes[currentTarget] = {
+                    unitId = currentTarget,
+                    marker = markerNum,
+                    wx = wx,
+                    wy = wy,
+                    wz = wz,
+                    isDead = false,
+                    createdTime = currentTime,
+                    lastSeenTime = currentTime,
+                }
+            end
+        end
+
+        if currentTarget and customMarkedFishes[currentTarget] then
+            local cEntry = customMarkedFishes[currentTarget]
+            cEntry.lastSeenTime = currentTime
+            local wx, wy, wz = api.Unit:UnitWorldPosition("target")
+            local okInfo, uInfo = pcall(api.Unit.GetUnitInfoById, api.Unit, currentTarget)
+            if okInfo and uInfo ~= nil then
+                cEntry.hadUnitInfo = true
+            end
+            if hp ~= nil and hp <= 0 then
+                if not cEntry.isDead then
+                    cEntry.isDead = true
+                    cEntry.deathTime = currentTime
+                end
+                if wx == nil then
+                    customMarkedFishes[currentTarget] = nil
+                    RemoveDeadFishByUnitId(currentTarget)
+                    cEntry = nil
+                end
+            elseif hp ~= nil and hp > 0 then
+                -- Check fishing buffs on live fish to know exact timeout / despawn
+                local bCount = api.Unit:UnitBuffCount("target") or 0
+                local hasContest = false
+                for bi = 1, bCount do
+                    local b = api.Unit:UnitBuff("target", bi)
+                    if b and b.buff_id then
+                        if b.buff_id == 5715 and b.timeLeft then
+                            hasContest = true
+                            cEntry.hadStrengthContest = true
+                            cEntry.strengthContestEndTime = currentTime + b.timeLeft
+                        elseif ownersMarkCache[b.buff_id] and b.timeLeft then
+                            cEntry.ownerMarkEndTime = currentTime + b.timeLeft
+                        end
+                    end
+                end
+                if cEntry.hadStrengthContest and not hasContest then
+                    -- Strength Contest buff ended while fish still had HP > 0 -> fish escaped!
+                    customMarkedFishes[currentTarget] = nil
+                    RemoveDeadFishByUnitId(currentTarget)
+                    cEntry = nil
+                end
+            end
+            if cEntry and isFiniteCoord(wx) and isFiniteCoord(wy) and isFiniteCoord(wz) then
+                cEntry.wx, cEntry.wy, cEntry.wz = wx, wy, wz
+            end
+        elseif fish_tracker.lastTargetId and customMarkedFishes[fish_tracker.lastTargetId] and currentTarget == nil then
+            -- Target suddenly became nil; check if the previously targeted fish despawned
+            local prevUid = fish_tracker.lastTargetId
+            local prevEntry = customMarkedFishes[prevUid]
+            if prevEntry then
+                local okName, uName = pcall(api.Unit.GetUnitNameById, api.Unit, prevUid)
+                local okInfo, uInfo = pcall(api.Unit.GetUnitInfoById, api.Unit, prevUid)
+                if (not okName or uName == nil or uName == "") or (prevEntry.hadUnitInfo and (not okInfo or uInfo == nil)) then
+                    customMarkedFishes[prevUid] = nil
+                    RemoveDeadFishByUnitId(prevUid)
+                elseif not prevEntry.isDead and prevEntry.strengthContestEndTime and currentTime >= (prevEntry.strengthContestEndTime - 1500) then
+                    customMarkedFishes[prevUid] = nil
+                    RemoveDeadFishByUnitId(prevUid)
                 end
             end
         end
@@ -451,6 +800,7 @@ function fish_tracker:OnUpdate(dt)
             if prevHp ~= nil and prevHp > 0 then
                 if not fish_tracker.enableOnlyMyFishes or fish_tracker.lastTargetTargetingMe then
                     local mIdx = nil
+                    local isAutoMarked = false
                     for i = 1, 9 do
                         local mUnit = safeGetOverHeadMarkerUnitId(i)
                         if mUnit and mUnit == currentTarget then
@@ -458,11 +808,25 @@ function fish_tracker:OnUpdate(dt)
                             break
                         end
                     end
+                    if not mIdx and fish_tracker.enableCustomFishMarkers and customMarkedFishes[currentTarget] then
+                        mIdx = customMarkedFishes[currentTarget].marker
+                        isAutoMarked = true
+                    elseif fish_tracker.enableCustomFishMarkers and customMarkedFishes[currentTarget] then
+                        isAutoMarked = true
+                    end
+
+                    local okInfo, uInfo = pcall(api.Unit.GetUnitInfoById, api.Unit, currentTarget)
                     
                     fish_tracker.nextDeadFishId = (fish_tracker.nextDeadFishId or 0) + 1
                     local uniqueKey = currentTarget .. "_" .. tostring(fish_tracker.nextDeadFishId)
                     
-                    deadFishes[uniqueKey] = { time = currentTime, marker = mIdx, unitId = currentTarget }
+                    deadFishes[uniqueKey] = {
+                        time = currentTime,
+                        marker = mIdx,
+                        unitId = currentTarget,
+                        autoMarked = isAutoMarked,
+                        hadUnitInfo = (okInfo and uInfo ~= nil),
+                    }
                 end
             end
         end
@@ -503,6 +867,21 @@ function fish_tracker:OnUpdate(dt)
             local marker = type(data) == "table" and data.marker or nil
             local elapsed = currentTime - deathTime
             local remaining = MARKED_FISH_TIMER - elapsed
+
+            -- When Auto Mark (Enable Fish Markers 1-9) is enabled, automatically remove the Dead Fish Timer
+            -- as soon as the fish's marker / entity disappears from the world (looted or despawned).
+            if remaining > 0 and type(data) == "table" and data.unitId and (fish_tracker.enableCustomFishMarkers or data.autoMarked) then
+                if data.autoMarked and not customMarkedFishes[data.unitId] then
+                    remaining = 0
+                else
+                    local okName, uName = pcall(api.Unit.GetUnitNameById, api.Unit, data.unitId)
+                    local okInfo, uInfo = pcall(api.Unit.GetUnitInfoById, api.Unit, data.unitId)
+                    if (not okName or uName == nil or uName == "") or (data.hadUnitInfo and (not okInfo or uInfo == nil)) then
+                        customMarkedFishes[data.unitId] = nil
+                        remaining = 0
+                    end
+                end
+            end
             
             if remaining <= 0 then
                 deadFishes[key] = nil
@@ -723,6 +1102,82 @@ function fish_tracker:OnUpdate(dt)
         previousStrengthBuffId = nil
         if fishTrackerCanvas then fishTrackerCanvas:Show(false) end
     end
+
+    -- 3. Update Custom Fish Markers (1-9)
+    if fish_tracker.enableCustomFishMarkers then
+        BuildCustomMarkerPool()
+        local usedSlots = {}
+        local pwx, pwy, pwz = api.Unit:UnitWorldPosition("player")
+
+        for uid, entry in pairs(customMarkedFishes) do
+            local expired = false
+            local okName, uName = pcall(api.Unit.GetUnitNameById, api.Unit, uid)
+            local okInfo, uInfo = pcall(api.Unit.GetUnitInfoById, api.Unit, uid)
+
+            if (not okName or uName == nil or uName == "") or (entry.hadUnitInfo and (not okInfo or uInfo == nil)) then
+                expired = true
+            elseif entry.isDead and entry.deathTime and (currentTime - entry.deathTime) >= MARKED_FISH_TIMER then
+                expired = true
+            elseif not entry.isDead and entry.strengthContestEndTime and currentTime >= (entry.strengthContestEndTime + 500) then
+                expired = true
+            elseif not entry.isDead and currentTarget ~= uid and (currentTime - (entry.lastSeenTime or entry.createdTime)) >= 120000 then
+                expired = true
+            elseif isFiniteCoord(pwx) and isFiniteCoord(pwy) and isFiniteCoord(pwz) and isFiniteCoord(entry.wx) and isFiniteCoord(entry.wy) and isFiniteCoord(entry.wz) then
+                local dx = entry.wx - pwx
+                local dy = entry.wy - pwy
+                local dz = entry.wz - pwz
+                if (dx * dx + dy * dy + dz * dz) > 90000 then
+                    expired = true
+                end
+            end
+
+            if expired then
+                customMarkedFishes[uid] = nil
+                RemoveDeadFishByUnitId(uid)
+            else
+                local m = entry.marker
+                local ui = customMarkerUI[m]
+                if ui and ui.canvas then
+                    local sx, sy, sz = nil, nil, nil
+                    if currentTarget == uid then
+                        local okT, tx, ty, tz = pcall(api.Unit.GetUnitScreenPosition, api.Unit, "target")
+                        if okT and isFiniteCoord(tx) and isFiniteCoord(ty) then
+                            sx, sy, sz = tx, ty, tz or 0
+                            updateEntryWorldCalibration(entry, tx, ty, tz)
+                        end
+                    elseif entry.isDead then
+                        -- Only project stationary world coordinates for DEAD fishes;
+                        -- live fishes swim around and AAClassic's API blocks position reads on unselected units.
+                        local pjx, pjy, pjz = projectEntryWorldToScreen(entry)
+                        if pjx and pjy then
+                            sx, sy, sz = pjx, pjy, pjz or 0
+                        end
+                    end
+
+                    if sx and sy and (sz == nil or (sz >= 0 and sz <= 250)) and sx > -100 and sx < 4000 and sy > -100 and sy < 3000 then
+                        usedSlots[m] = true
+                        local ax = math.floor(sx + 0.5)
+                        local ay = math.floor(sy - 55 + 0.5)
+                        if ui.lastAx ~= ax or ui.lastAy ~= ay then
+                            ui.canvas:RemoveAllAnchors()
+                            ui.canvas:AddAnchor("CENTER", "UIParent", "TOPLEFT", ax, ay)
+                            ui.lastAx = ax
+                            ui.lastAy = ay
+                        end
+                        ui.canvas:Show(true)
+                    end
+                end
+            end
+        end
+
+        for i = 1, 9 do
+            if not usedSlots[i] and customMarkerUI[i] and customMarkerUI[i].canvas then
+                customMarkerUI[i].canvas:Show(false)
+            end
+        end
+    else
+        HideAllCustomFishMarkers()
+    end
 end
 
 function fish_tracker:OnUnload()
@@ -737,10 +1192,12 @@ function fish_tracker:OnUnload()
             markedFishUI[i].canvas:Show(false)
         end
     end
+    HideAllCustomFishMarkers()
     if fish_tracker.deadFishDragBox ~= nil then
         fish_tracker.deadFishDragBox:Show(false)
     end
     deadFishes = {}
+    customMarkedFishes = {}
 end
 
 return fish_tracker

@@ -790,7 +790,8 @@ function M.CreateUI(wndParent)
 
     local checkboxGap = 6
     local labelWidth = enableLbl:GetWidth() or 220
-    local totalWidth = 18 + checkboxGap + labelWidth
+    local iconsSpace = 10 + 24 + 6 + 20
+    local totalWidth = 18 + checkboxGap + labelWidth + iconsSpace
     local containerWidth = container:GetWidth() or 500
     local startX = math.floor((containerWidth - totalWidth) / 2)
     enableCheck:RemoveAllAnchors()

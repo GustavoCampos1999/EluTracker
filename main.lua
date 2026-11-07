@@ -475,6 +475,7 @@ local function CreateFishingWindow(wndParent)
         
         if fishTrackerAddon and fishTrackerAddon.CreateUI then fishTrackerAddon.CreateUI(settingsWnd) end
         if spotTrackerAddon and spotTrackerAddon.CreateUI then spotTrackerAddon.CreateUI(settingsWnd) end
+        if fishTrackerAddon and fishTrackerAddon.CreateCustomMarkersUI then fishTrackerAddon.CreateCustomMarkersUI(settingsWnd) end
         
         _fishingSettingsWnd = settingsWnd
     end
@@ -622,19 +623,22 @@ local function CreateMiscWindow(wndParent)
     bg:AddAnchor("BOTTOMRIGHT", wnd, -10, -10)
     
     local title = wnd:CreateChildWidget("label", "title", 0, true)
-    title:SetAutoResize(true)
+    title:SetAutoResize(false)
+    title:SetExtent(300, 26)
+    title.style:SetAlign(ALIGN.CENTER)
     title.style:SetFontSize(FONT_SIZE.XXLARGE)
     ApplyTextColor(title, FONT_COLOR.TITLE)
     title:SetText("Tools")
-    title:AddAnchor("TOP", wnd, 0, 20)
+    title:AddAnchor("TOP", wnd, "TOP", 0, 20)
     local toolsRow = wnd:CreateChildWidget("emptywidget", "toolsRow", 0, true)
     toolsRow:SetExtent(500, 30)
-    toolsRow:AddAnchor("TOP", title, "BOTTOM", 0, 12)
+    toolsRow:AddAnchor("TOP", wnd, "TOP", 0, 54)
 
     local toggleBtn = toolsRow:CreateChildWidget("button", "toggleBtn", 0, true)
     toggleBtn:SetText("Toggle Trip Counter")
     toggleBtn:AddAnchor("LEFT", toolsRow, 0, 0)
     ApplyButtonSkin(toggleBtn, BUTTON_BASIC.DEFAULT)
+    toggleBtn:SetExtent(150, 30)
     function toggleBtn:OnClick()
         BuildTripOverlay()
         if tripOverlay then
@@ -649,6 +653,7 @@ local function CreateMiscWindow(wndParent)
     toggleStopwatchBtn:SetText("Toggle Stopwatch")
     toggleStopwatchBtn:AddAnchor("RIGHT", toolsRow, 0, 0)
     ApplyButtonSkin(toggleStopwatchBtn, BUTTON_BASIC.DEFAULT)
+    toggleStopwatchBtn:SetExtent(150, 30)
     function toggleStopwatchBtn:OnClick()
         if stopwatchAddon and stopwatchAddon.ToggleStopwatch then
             stopwatchAddon.ToggleStopwatch()
@@ -666,7 +671,7 @@ local function CreateMiscWindow(wndParent)
     -- is called -- no bridge, no "other addon" to fail to find.
     local toggleFuncBtn = toolsRow:CreateChildWidget("button", "toggleFuncBtn", 0, true)
     ApplyButtonSkin(toggleFuncBtn, BUTTON_BASIC.DEFAULT)
-    toggleFuncBtn:SetExtent(140, 25)
+    toggleFuncBtn:SetExtent(140, 30)
 
     local function RefreshToggleFuncBtnText()
         if eluFunctionsToolsAddon and eluFunctionsToolsAddon.IsVisible then
@@ -740,7 +745,8 @@ local function CreateMiscWindow(wndParent)
         end)
     end)
 
-    local sectionGap = 10
+    local sectionGap = 22
+    local toggleGap = 6
     local lastSection = toolsRow
 
     local quickEquipSection
@@ -749,7 +755,7 @@ local function CreateMiscWindow(wndParent)
     end
     if quickEquipSection then
         quickEquipSection:RemoveAllAnchors()
-        quickEquipSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, sectionGap)
+        quickEquipSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, 16)
         lastSection = quickEquipSection
     end
 
@@ -759,7 +765,7 @@ local function CreateMiscWindow(wndParent)
     end
     if speedometerSection then
         speedometerSection:RemoveAllAnchors()
-        speedometerSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, 4)
+        speedometerSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, toggleGap)
         lastSection = speedometerSection
     end
 
@@ -769,7 +775,7 @@ local function CreateMiscWindow(wndParent)
     end
     if chatLanguageSection then
         chatLanguageSection:RemoveAllAnchors()
-        chatLanguageSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, 4)
+        chatLanguageSection:AddAnchor("TOP", lastSection, "BOTTOM", 0, toggleGap)
         lastSection = chatLanguageSection
     end
 
@@ -805,9 +811,9 @@ local function CreateMiscWindow(wndParent)
 
     local lpBtn = wnd:CreateChildWidget("button", "lpBtn", 0, true)
     lpBtn:SetText("Open Regrade Log")
-    lpBtn:SetExtent(200, 30)
-    lpBtn:AddAnchor("TOP", lastSection, "BOTTOM", 0, sectionGap)
     api.Interface:ApplyButtonSkin(lpBtn, BUTTON_BASIC.DEFAULT)
+    lpBtn:SetExtent(160, 30)
+    lpBtn:AddAnchor("TOP", lastSection, "BOTTOM", 0, 18)
     function lpBtn:OnClick()
         if lossPornAddon and lossPornAddon.Toggle then
             lossPornAddon.Toggle()
