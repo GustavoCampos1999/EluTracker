@@ -406,7 +406,7 @@ function fish_tracker.CreateCustomMarkersUI(wndParent)
 
     local cmLbl = container:CreateChildWidget("label", "eluCustomFishMarkerLbl", 0, true)
     cmLbl:SetAutoResize(true)
-    cmLbl:SetText("Enable Fish Markers (1-9)")
+    cmLbl:SetText("Enable Fish Markers (1-9) [BETA]")
     cmLbl:AddAnchor("LEFT", cmToggle, "RIGHT", 5, 0)
     if FONT_COLOR and FONT_COLOR.DEFAULT then
         ApplyTextColor(cmLbl, FONT_COLOR.DEFAULT)
@@ -425,6 +425,8 @@ function fish_tracker.CreateCustomMarkersUI(wndParent)
     cmToggle:SetHandler("OnCheckChanged", cmToggle.OnCheckChanged)
 end
 
+local ownedFishesByUnitId = {}
+
 local function RemoveDeadFishByUnitId(uid)
     if not uid then return end
     for k, v in pairs(deadFishes) do
@@ -432,6 +434,124 @@ local function RemoveDeadFishByUnitId(uid)
             deadFishes[k] = nil
         end
     end
+end
+
+local function HasDeadFishTimerForUnitId(uid)
+    if not uid then return false end
+    for _, v in pairs(deadFishes) do
+        if type(v) == "table" and v.unitId == uid then
+            return true
+        end
+    end
+    return false
+end
+
+local function EnsureDeadFishTimer(uid, currentTime)
+    if not uid or HasDeadFishTimerForUnitId(uid) then return end
+    local mIdx = nil
+    local isAutoMarked = false
+    for i = 1, 9 do
+        local mUnit = safeGetOverHeadMarkerUnitId(i)
+        if mUnit and mUnit == uid then
+            mIdx = i
+            break
+        end
+    end
+    if not mIdx and fish_tracker.enableCustomFishMarkers and customMarkedFishes[uid] then
+        mIdx = customMarkedFishes[uid].marker
+        isAutoMarked = true
+    elseif fish_tracker.enableCustomFishMarkers and customMarkedFishes[uid] then
+        isAutoMarked = true
+    end
+
+    local okInfo, uInfo = pcall(api.Unit.GetUnitInfoById, api.Unit, uid)
+    fish_tracker.nextDeadFishId = (fish_tracker.nextDeadFishId or 0) + 1
+    local uniqueKey = uid .. "_" .. tostring(fish_tracker.nextDeadFishId)
+
+    deadFishes[uniqueKey] = {
+        time = (customMarkedFishes[uid] and customMarkedFishes[uid].deathTime) or currentTime,
+        marker = mIdx,
+        unitId = uid,
+        autoMarked = isAutoMarked,
+        hadUnitInfo = (okInfo and uInfo ~= nil) or (customMarkedFishes[uid] and customMarkedFishes[uid].hadUnitInfo == true) or false,
+    }
+end
+
+local function ClearLootedDeadFish()
+    local px, py, pz = api.Unit:UnitWorldPosition("player")
+    if isFiniteCoord(px) and isFiniteCoord(py) and isFiniteCoord(pz) then
+        local closestId = nil
+        local closestDistSq = 400 -- within 20m of player
+        for uid, entry in pairs(customMarkedFishes) do
+            if entry.isDead and isFiniteCoord(entry.wx) and isFiniteCoord(entry.wy) and isFiniteCoord(entry.wz) then
+                local dx = entry.wx - px
+                local dy = entry.wy - py
+                local dz = entry.wz - pz
+                local dSq = dx * dx + dy * dy + dz * dz
+                if dSq < closestDistSq then
+                    closestDistSq = dSq
+                    closestId = uid
+                end
+            end
+        end
+        if closestId then
+            customMarkedFishes[closestId] = nil
+            RemoveDeadFishByUnitId(closestId)
+            return
+        end
+    end
+
+    local currentTarget = api.Unit:GetUnitId("target")
+    if currentTarget and customMarkedFishes[currentTarget] and customMarkedFishes[currentTarget].isDead then
+        customMarkedFishes[currentTarget] = nil
+        RemoveDeadFishByUnitId(currentTarget)
+        return
+    end
+
+    -- Fallback: if there is only 1 dead marked fish in the water, clear it
+    local singleDeadUid = nil
+    local deadCount = 0
+    for uid, entry in pairs(customMarkedFishes) do
+        if entry.isDead then
+            singleDeadUid = uid
+            deadCount = deadCount + 1
+        end
+    end
+    if deadCount == 1 and singleDeadUid then
+        customMarkedFishes[singleDeadUid] = nil
+        RemoveDeadFishByUnitId(singleDeadUid)
+    end
+end
+
+local function AllocateNextFishMarker()
+    -- Smart Reset: if there are no active fishes left in the water (alive or dead),
+    -- automatically reset the counter back to 1!
+    if next(customMarkedFishes) == nil and next(deadFishes) == nil then
+        fish_tracker.nextCustomFishMarker = 1
+        return 1
+    end
+
+    -- Otherwise, advance in chronological sequence (1 -> 9), skipping any slot currently in use if a free slot exists
+    local used = {}
+    for _, entry in pairs(customMarkedFishes) do
+        if entry.marker then used[entry.marker] = true end
+    end
+    for _, dEntry in pairs(deadFishes) do
+        if type(dEntry) == "table" and dEntry.marker then used[dEntry.marker] = true end
+    end
+
+    local base = fish_tracker.nextCustomFishMarker or 0
+    for step = 1, 9 do
+        local candidate = ((base + step - 1) % 9) + 1
+        if not used[candidate] then
+            fish_tracker.nextCustomFishMarker = candidate
+            return candidate
+        end
+    end
+
+    -- If all 9 slots are somehow active simultaneously, overwrite the oldest one in sequence
+    fish_tracker.nextCustomFishMarker = (base % 9) + 1
+    return fish_tracker.nextCustomFishMarker
 end
 
 local function BuildCustomMarkerPool()
@@ -516,41 +636,15 @@ local function BuildCustomMarkerPool()
     }
 
     customMarkerEventWnd = api.Interface:CreateEmptyWindow("eluCustomFishMarkerEvents", "UIParent")
-    customMarkerEventWnd:Show(false)
+    customMarkerEventWnd:Show(true)
     function customMarkerEventWnd:OnEvent(event, ...)
         if event == "UNIT_EQUIPMENT_CHANGED" then
-            local args = {...}
+            local args = arg or {...}
             local unit = args[1]
             local equipString = args[3]
             if unit == "player" and equipString and string.find(tostring(equipString), "i;") then
-                -- Player just equipped a pack onto their back; if they looted a dead marked fish nearby, clear it
-                local currentTarget = api.Unit:GetUnitId("target")
-                if currentTarget and customMarkedFishes[currentTarget] and customMarkedFishes[currentTarget].isDead then
-                    customMarkedFishes[currentTarget] = nil
-                    RemoveDeadFishByUnitId(currentTarget)
-                    return
-                end
-                local px, py, pz = api.Unit:UnitWorldPosition("player")
-                if isFiniteCoord(px) and isFiniteCoord(py) and isFiniteCoord(pz) then
-                    local closestId = nil
-                    local closestDistSq = 144 -- within 12m
-                    for uid, entry in pairs(customMarkedFishes) do
-                        if entry.isDead and isFiniteCoord(entry.wx) and isFiniteCoord(entry.wy) and isFiniteCoord(entry.wz) then
-                            local dx = entry.wx - px
-                            local dy = entry.wy - py
-                            local dz = entry.wz - pz
-                            local dSq = dx * dx + dy * dy + dz * dz
-                            if dSq < closestDistSq then
-                                closestDistSq = dSq
-                                closestId = uid
-                            end
-                        end
-                    end
-                    if closestId then
-                        customMarkedFishes[closestId] = nil
-                        RemoveDeadFishByUnitId(closestId)
-                    end
-                end
+                -- Player just equipped a pack onto their back; clear the closest looted dead fish
+                ClearLootedDeadFish()
             end
         end
     end
@@ -716,6 +810,7 @@ function fish_tracker:OnLoad()
 
     deadFishes = {}
     customMarkedFishes = {}
+    ownedFishesByUnitId = {}
     fish_tracker.nextCustomFishMarker = 0
 
 end
@@ -726,6 +821,21 @@ function fish_tracker:OnUpdate(dt)
     local currentTime = api.Time:GetUiMsec()
     local currentTarget = api.Unit:GetUnitId("target")
     local targetName = nil
+
+    -- Poll backpack state as a backup so picking up a dead fish pack always clears the closest dead fish marker
+    if next(customMarkedFishes) ~= nil or next(deadFishes) ~= nil then
+        local okPack, packInfo = pcall(function()
+            local slot = (EQUIP_SLOT and EQUIP_SLOT.BACKPACK) or 20
+            return api.Equipment:GetEquippedItemTooltipInfo(slot)
+        end)
+        local hasPackNow = (okPack and packInfo ~= nil and packInfo.itemType ~= nil)
+        if hasPackNow and not fish_tracker.hadPackEquipped then
+            ClearLootedDeadFish()
+        end
+        fish_tracker.hadPackEquipped = hasPackNow
+    else
+        fish_tracker.hadPackEquipped = false
+    end
 
     local hp = nil
     if currentTarget then
@@ -739,11 +849,13 @@ function fish_tracker:OnUpdate(dt)
         local playerUnit = api.Unit:GetUnitId("player")
         if targetOfTarget and playerUnit and targetOfTarget == playerUnit then
             isTargetingMe = true
+            ownedFishesByUnitId[currentTarget] = true
         end
     end
 
     if hp ~= nil and hp > 0 then
-        fish_tracker.lastTargetTargetingMe = isTargetingMe
+        -- Preserve ownership if the fish was already seen targeting the player (prevents 1-frame targettarget drop right before death)
+        fish_tracker.lastTargetTargetingMe = isTargetingMe or (currentTarget ~= nil and ownedFishesByUnitId[currentTarget] == true)
     end
 
     if currentTarget and hp ~= nil and hp <= 0 then
@@ -758,16 +870,16 @@ function fish_tracker:OnUpdate(dt)
         BuildCustomMarkerPool()
         local isKnownFish = (targetName ~= nil and fishNamesToAlert[targetName] == true)
 
-        if currentTarget and isKnownFish and isTargetingMe and hp ~= nil and hp > 0 then
+        if currentTarget and isKnownFish and (isTargetingMe or ownedFishesByUnitId[currentTarget]) and hp ~= nil and hp > 0 then
             if not customMarkedFishes[currentTarget] then
-                fish_tracker.nextCustomFishMarker = ((fish_tracker.nextCustomFishMarker or 0) % 9) + 1
-                local markerNum = fish_tracker.nextCustomFishMarker
+                local markerNum = AllocateNextFishMarker()
                 for uid, existing in pairs(customMarkedFishes) do
                     if existing.marker == markerNum then
                         customMarkedFishes[uid] = nil
                     end
                 end
                 local wx, wy, wz = api.Unit:UnitWorldPosition("target")
+                local okInfo, uInfo = pcall(api.Unit.GetUnitInfoById, api.Unit, currentTarget)
                 customMarkedFishes[currentTarget] = {
                     unitId = currentTarget,
                     marker = markerNum,
@@ -775,6 +887,7 @@ function fish_tracker:OnUpdate(dt)
                     wy = wy,
                     wz = wz,
                     isDead = false,
+                    hadUnitInfo = (okInfo and uInfo ~= nil),
                     createdTime = currentTime,
                     lastSeenTime = currentTime,
                 }
@@ -798,6 +911,9 @@ function fish_tracker:OnUpdate(dt)
                     customMarkedFishes[currentTarget] = nil
                     RemoveDeadFishByUnitId(currentTarget)
                     cEntry = nil
+                else
+                    -- Guarantee a Dead Fish Timer entry exists for any marked fish that died
+                    EnsureDeadFishTimer(currentTarget, currentTime)
                 end
             elseif hp ~= nil and hp > 0 then
                 -- Check fishing buffs on live fish to know exact timeout / despawn
@@ -852,36 +968,10 @@ function fish_tracker:OnUpdate(dt)
     if currentTarget and targetName and fishNamesToAlert[targetName] then
         if hp ~= nil and hp <= 0 then
             local prevHp = fish_tracker.lastTargetHp
-            if prevHp ~= nil and prevHp > 0 then
-                if not fish_tracker.enableOnlyMyFishes or fish_tracker.lastTargetTargetingMe then
-                    local mIdx = nil
-                    local isAutoMarked = false
-                    for i = 1, 9 do
-                        local mUnit = safeGetOverHeadMarkerUnitId(i)
-                        if mUnit and mUnit == currentTarget then
-                            mIdx = i
-                            break
-                        end
-                    end
-                    if not mIdx and fish_tracker.enableCustomFishMarkers and customMarkedFishes[currentTarget] then
-                        mIdx = customMarkedFishes[currentTarget].marker
-                        isAutoMarked = true
-                    elseif fish_tracker.enableCustomFishMarkers and customMarkedFishes[currentTarget] then
-                        isAutoMarked = true
-                    end
-
-                    local okInfo, uInfo = pcall(api.Unit.GetUnitInfoById, api.Unit, currentTarget)
-                    
-                    fish_tracker.nextDeadFishId = (fish_tracker.nextDeadFishId or 0) + 1
-                    local uniqueKey = currentTarget .. "_" .. tostring(fish_tracker.nextDeadFishId)
-                    
-                    deadFishes[uniqueKey] = {
-                        time = currentTime,
-                        marker = mIdx,
-                        unitId = currentTarget,
-                        autoMarked = isAutoMarked,
-                        hadUnitInfo = (okInfo and uInfo ~= nil),
-                    }
+            local isMyFish = fish_tracker.lastTargetTargetingMe or ownedFishesByUnitId[currentTarget] or (customMarkedFishes[currentTarget] ~= nil)
+            if (prevHp ~= nil and prevHp > 0) or (customMarkedFishes[currentTarget] ~= nil and not HasDeadFishTimerForUnitId(currentTarget)) then
+                if not fish_tracker.enableOnlyMyFishes or isMyFish then
+                    EnsureDeadFishTimer(currentTarget, currentTime)
                 end
             end
         end
@@ -1297,8 +1387,13 @@ function fish_tracker:OnUnload()
     if fish_tracker.deadFishDragBox ~= nil then
         fish_tracker.deadFishDragBox:Show(false)
     end
+    if customMarkerEventWnd ~= nil then
+        pcall(function() customMarkerEventWnd:ReleaseHandler("OnEvent") end)
+        customMarkerEventWnd:Show(false)
+    end
     deadFishes = {}
     customMarkedFishes = {}
+    ownedFishesByUnitId = {}
 end
 
 return fish_tracker
