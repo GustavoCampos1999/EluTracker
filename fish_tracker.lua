@@ -425,6 +425,13 @@ function fish_tracker.CreateCustomMarkersUI(wndParent)
     cmToggle:SetHandler("OnCheckChanged", cmToggle.OnCheckChanged)
 end
 
+-- 'next' is not exposed in the AAClassic addon sandbox, so use pairs instead.
+local function IsTableEmpty(t)
+    if type(t) ~= "table" then return true end
+    for _ in pairs(t) do return false end
+    return true
+end
+
 local ownedFishesByUnitId = {}
 
 local function RemoveDeadFishByUnitId(uid)
@@ -526,7 +533,7 @@ end
 local function AllocateNextFishMarker()
     -- Smart Reset: if there are no active fishes left in the water (alive or dead),
     -- automatically reset the counter back to 1!
-    if next(customMarkedFishes) == nil and next(deadFishes) == nil then
+    if IsTableEmpty(customMarkedFishes) and IsTableEmpty(deadFishes) then
         fish_tracker.nextCustomFishMarker = 1
         return 1
     end
@@ -823,7 +830,7 @@ function fish_tracker:OnUpdate(dt)
     local targetName = nil
 
     -- Poll backpack state as a backup so picking up a dead fish pack always clears the closest dead fish marker
-    if next(customMarkedFishes) ~= nil or next(deadFishes) ~= nil then
+    if not IsTableEmpty(customMarkedFishes) or not IsTableEmpty(deadFishes) then
         local okPack, packInfo = pcall(function()
             local slot = (EQUIP_SLOT and EQUIP_SLOT.BACKPACK) or 20
             return api.Equipment:GetEquippedItemTooltipInfo(slot)

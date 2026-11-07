@@ -268,8 +268,8 @@ function speedometer_addon.OnUpdate(dt)
         return
     end
 
-    local speed = api.SiegeWeapon:GetSiegeWeaponSpeed()
-    if not speed or speed == 0 then
+    local okSpeed, speed = pcall(function() return api.SiegeWeapon:GetSiegeWeaponSpeed() end)
+    if not okSpeed or type(speed) ~= "number" or speed == 0 or not speedBar or not speedLabel then
         if canvas:IsVisible() then
             canvas:Show(false)
         end

@@ -474,17 +474,7 @@ function processNextEquip()
             api:DoIn(retryDelay, processNextEquip)
         else
             -- Move on immediately once the item is confirmed equipped (or
-            -- retries are exhausted) -- no need for a second delay stacked
-            -- on top of the retryDelay wait we already just did. The
-            -- original Set Swap addon had a bug here (it called
-            -- processNextEquip() immediately and passed its return value
-            -- to api:DoIn(), rather than passing the function itself),
-            -- which made every item equip roughly retryDelay (~50ms) apart
-            -- in practice, not retryDelay+betweenItemDelay (~150ms). That
-            -- accidental fast cadence is what people are used to from it;
-            -- doing it correctly-but-slower here just made this feel
-            -- sluggish by comparison. Replicate the fast, intended
-            -- behavior on purpose instead of by accident.
+            -- retries are exhausted); fast cadence is intentional.
             processNextEquip()
         end
     end)

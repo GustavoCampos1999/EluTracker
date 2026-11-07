@@ -98,10 +98,28 @@ local function GetAHPriceSafe(itemId)
 end
 
 local bagFrameFixed = false
+local function SafeCall(fn, ...)
+    if not fn then return end
+    local ok, err = pcall(fn, ...)
+    if not ok and api and api.Log and true then
+        -- log each distinct error only once to avoid chat spam
+        _eluUpdateErrSeen = _eluUpdateErrSeen or {}
+        local key = tostring(err)
+        if not _eluUpdateErrSeen[key] then
+            _eluUpdateErrSeen[key] = true
+            pcall(function() api.Log:Err("[Elu Tracker] " .. key) end)
+        end
+    end
+end
+
+local bagFrameFixed = false
 local function OnUpdate(dt)
-    -- Range finder and chat-language icon first: top priority HUD elements.
-    if rangeMeterAddon and rangeMeterAddon.OnUpdate then rangeMeterAddon.OnUpdate(dt) end
-    if chatLanguageAddon and chatLanguageAddon.OnUpdate then chatLanguageAddon.OnUpdate(dt) end
+    -- Every module runs isolated in pcall: one failing module must never
+    -- stop the others (speedometer, quick equip, etc.) from updating.
+    if rangeMeterAddon then SafeCall(rangeMeterAddon.OnUpdate, dt) end
+    if chatLanguageAddon then SafeCall(chatLanguageAddon.OnUpdate, dt) end
+    if speedometerAddon then SafeCall(speedometerAddon.OnUpdate, dt) end
+    if quickEquipAddon then SafeCall(quickEquipAddon.OnUpdate, quickEquipAddon, dt) end
 
     priceUpdateTimer = priceUpdateTimer + (type(dt) == "number" and dt or 0)
     if priceUpdateTimer > 2000 then 
@@ -113,12 +131,9 @@ local function OnUpdate(dt)
         end
     end
     
-    if fishTrackerAddon and fishTrackerAddon.OnUpdate then
-        fishTrackerAddon:OnUpdate(dt)
-    end
-    
-    if packsAddon and packsAddon.OnUpdate then packsAddon.OnUpdate(dt) end
-    if fishingAddon and fishingAddon.OnUpdate then fishingAddon.OnUpdate(dt) end
+    if fishTrackerAddon then SafeCall(fishTrackerAddon.OnUpdate, fishTrackerAddon, dt) end
+    if packsAddon then SafeCall(packsAddon.OnUpdate, dt) end
+    if fishingAddon then SafeCall(fishingAddon.OnUpdate, dt) end
     
     if not bagFrameFixed then
         local bagFrame = ADDON:GetContent(UIC.BAG)
@@ -132,31 +147,15 @@ local function OnUpdate(dt)
         end
     end
     
-    if guildCheckAddon and guildCheckAddon.OnUpdate then
-        guildCheckAddon:OnUpdate(dt)
-    end
-    
-    if spotTrackerAddon and spotTrackerAddon.OnUpdate then
-        spotTrackerAddon:OnUpdate(dt)
-    end
-    
-    if stopwatchAddon and stopwatchAddon.OnUpdate then
-        stopwatchAddon:OnUpdate(dt)
-    end
-    
-    if raidInviteAddon and raidInviteAddon.OnUpdate then
-        raidInviteAddon.OnUpdate(dt)
-    end
-    
-    if crashAlertAddon and crashAlertAddon.OnUpdate then crashAlertAddon.OnUpdate(dt) end
-    if lossPornAddon and lossPornAddon.OnUpdate then lossPornAddon.OnUpdate(dt) end
-    if zealAlertAddon and zealAlertAddon.OnUpdate then
-        zealAlertAddon:OnUpdate(dt)
-    end
-    if quickEquipAddon and quickEquipAddon.OnUpdate then quickEquipAddon:OnUpdate(dt) end
-    if lootTrackerAddon and lootTrackerAddon.OnUpdate then lootTrackerAddon.OnUpdate(dt) end
-    if eluFunctionsToolsAddon and eluFunctionsToolsAddon.OnUpdate then eluFunctionsToolsAddon.OnUpdate(dt) end
-    if speedometerAddon and speedometerAddon.OnUpdate then speedometerAddon.OnUpdate(dt) end
+    if guildCheckAddon then SafeCall(guildCheckAddon.OnUpdate, guildCheckAddon, dt) end
+    if spotTrackerAddon then SafeCall(spotTrackerAddon.OnUpdate, spotTrackerAddon, dt) end
+    if stopwatchAddon then SafeCall(stopwatchAddon.OnUpdate, stopwatchAddon, dt) end
+    if raidInviteAddon then SafeCall(raidInviteAddon.OnUpdate, dt) end
+    if crashAlertAddon then SafeCall(crashAlertAddon.OnUpdate, dt) end
+    if lossPornAddon then SafeCall(lossPornAddon.OnUpdate, dt) end
+    if zealAlertAddon then SafeCall(zealAlertAddon.OnUpdate, zealAlertAddon, dt) end
+    if lootTrackerAddon then SafeCall(lootTrackerAddon.OnUpdate, dt) end
+    if eluFunctionsToolsAddon then SafeCall(eluFunctionsToolsAddon.OnUpdate, dt) end
 
     if eluDisplayWindow then
         local isVis = eluDisplayWindow:IsVisible()
@@ -168,7 +167,6 @@ local function OnUpdate(dt)
         eluWasVisible = isVis
     end
 end
-
 
 local _commerceWnd = nil
 
