@@ -15,12 +15,6 @@ local ui = require("Elu_Tracker/loss_porn_ui")
 
 local lossPornWindow
 
--- Was missing "local" -- leaked into the global namespace (_G), where it
--- could collide with another addon's or the client's own globals. Behaves
--- the same functionally either way (both forms persist for the life of the
--- process, since require() caches this module and OnLoad's later reload
--- cycles don't re-run top-of-file code), so this is a namespace-hygiene fix,
--- not a behavior change.
 local LossPornSessionWiped = false
 
 local clockTimer = 0
@@ -70,12 +64,12 @@ local function getGradeColor(gradeId)
     elseif gradeId == 4 then hex = "FF2593d6"
     elseif gradeId == 5 then hex = "FFc267cd"
     elseif gradeId == 6 then hex = "FFdf8236"
-    elseif gradeId == 7 then hex = "FFf95252" -- Celestial
-    elseif gradeId == 8 then hex = "FFcf7d5d" -- Divine
-    elseif gradeId == 9 then hex = "FF8fa5ca" -- Epic
-    elseif gradeId == 10 then hex = "FFbf7900" -- Legendary
-    elseif gradeId == 11 then hex = "FFc90b0b" -- Mythic
-    elseif gradeId == 12 then hex = "FFc90b0b" -- Primordial
+    elseif gradeId == 7 then hex = "FFf95252"
+    elseif gradeId == 8 then hex = "FFcf7d5d"
+    elseif gradeId == 9 then hex = "FF8fa5ca"
+    elseif gradeId == 10 then hex = "FFbf7900"
+    elseif gradeId == 11 then hex = "FFc90b0b"
+    elseif gradeId == 12 then hex = "FFc90b0b"
     end
     return "|c" .. hex
 end
@@ -129,7 +123,6 @@ local function handleRegradeEvent(characterName, resultCode, itemLink, oldGrade,
 
     local itemId = itemIdFromItemLinkText(itemLink)
 
-    -- Deduplicate identical broadcast events firing within 2 seconds
     local nowMs = (api.Time and api.Time.GetUiMsec and api.Time:GetUiMsec()) or 0
     local eventKey = tostring(characterName) .. "|" .. tostring(resultCode) .. "|" .. tostring(itemId or itemLink) .. "|" .. tostring(oldGrade) .. "|" .. tostring(newGrade)
     local prevKey = sharedRuntime.lastKey or lastRegradeEventKey
@@ -191,11 +184,6 @@ local function handleRegradeEvent(characterName, resultCode, itemLink, oldGrade,
     end 
     
     if msg ~= "" then
-        -- chatMode: 1 = Off, 2 = System Chat (yellow, api.Log:Info), 3 =
-        -- Alert Chat (red, api.Log:Err) -- these two are the only chat
-        -- output functions the addon API actually exposes, so they're
-        -- used as the closest match to the game's own System/Alert
-        -- channel colors.
         if settings.chatMode == 2 then
             api.Log:Info(msg)
         elseif settings.chatMode == 3 then
@@ -226,10 +214,6 @@ local function handleRegradeEvent(characterName, resultCode, itemLink, oldGrade,
 end
 
 local function OnLoad()
-    -- One-time migration from the old boolean "Show Fails in Chat"
-    -- checkbox to the new 3-way Off/System Chat/Alert Chat field: preserve
-    -- whatever the player had (on -> System Chat, off -> Off) instead of
-    -- silently resetting everyone to the new default.
     if settings.chatMode == nil and settings.showInChat ~= nil then
         settings.chatMode = settings.showInChat and 2 or 1
         settings.showInChat = nil
@@ -241,15 +225,6 @@ local function OnLoad()
         LossPornSessionWiped = true
     end
 
-    -- The visible log window (ui.Initialize) is intentionally NOT built
-    -- here anymore. ui.Toggle() (wired to the "Open Regrade Log" button and
-    -- to the shared addon-manager hook below) already lazily calls
-    -- ui.Initialize() itself the first time it's needed, and ui.RefreshList
-    -- is already nil-safe when the window doesn't exist yet -- so building
-    -- it unconditionally on every load was pure waste for the many
-    -- sessions that never open this log. This only defers window creation;
-    -- nothing about when/whether regrades are recorded changes, since that
-    -- is handled by lossPornWindow's event listener below, not by the UI.
     local myGen = (tonumber(sharedRuntime.gen) or 0) + 1
     sharedRuntime.gen = myGen
     if not lossPornWindow and sharedRuntime.window then
@@ -316,13 +291,11 @@ local function OnUnload()
         end
     end)
 
-	-- CHAT_MESSAGE/UPDATE are dispatched centrally; nothing to unregister here.
 end
 
 loss_porn_addon.OnLoad = OnLoad
 loss_porn_addon.OnUnload = OnUnload
 loss_porn_addon.OnUpdate = OnUpdate
 loss_porn_addon.Toggle = function() if ui and ui.Toggle then ui.Toggle() end end
-
 
 return loss_porn_addon

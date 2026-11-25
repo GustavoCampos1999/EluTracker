@@ -27,16 +27,6 @@ local function DataSetFunc(subItem, data, setValue)
 end
 
 local function LayoutSetFunc(frame, rowIndex, colIndex, subItem)
-    -- Guard fixed 2026-09-14: this used to check "subItem.bg", a field this
-    -- function never actually sets (see subItem.customBg below) and no
-    -- "return" followed it either, so it was dead code -- every single
-    -- relayout of a row (every RefreshList(), i.e. every new loss logged
-    -- and every time the log window is opened) created a brand new
-    -- background drawable + textbox on top of whatever was already there,
-    -- never freeing the old ones. Same bug class, same fix, as the
-    -- (correctly guarded) SessionsColumnLayoutSetFunc in loot.lua/
-    -- fishing.lua/packs.lua: check the field this function itself sets, and
-    -- bail out before creating anything if the row was already built.
     if subItem.customBg then return end
 
     local rowBg = subItem:CreateColorDrawable(0.93, 0.90, 0.83, 1, "background")
@@ -109,17 +99,13 @@ function ui.Initialize()
         end
     end
 
-    -- Fails-in-chat mode: Off / System Chat / Alert Chat
-    -- Centered as a unit across the window's width, and vertically
-    -- centered inside the darker header stripe (that strip spans y=1..35,
-    -- see topBar above -- center is y=18).
     local chatModeLabel = logWindow:CreateChildWidget("label", "chatModeLabel", 0, true)
     chatModeLabel:SetAutoResize(true)
     chatModeLabel:SetHeight(20)
     chatModeLabel:SetText("Fails in Chat:")
     chatModeLabel.style:SetColor(0.2, 0.2, 0.2, 1)
     chatModeLabel.style:SetAlign(ALIGN.LEFT)
-    chatModeLabel:AddAnchor("TOPLEFT", logWindow, 0, 8) -- placeholder, recentered below
+    chatModeLabel:AddAnchor("TOPLEFT", logWindow, 0, 8)
 
     local comboWidth = 115
     local chatModeCombo = W_CTRL.CreateComboBox(logWindow)
@@ -128,18 +114,11 @@ function ui.Initialize()
     chatModeCombo.dropdownItem = { "Off", "System Chat", "Alert Chat" }
     chatModeCombo:Select(settings.chatMode or 1)
 
-    -- NOTE: the correct selection callback for this widget is
-    -- :SelectedProc(index) -- SetHandler("OnSelect", ...) never fires on
-    -- this ComboBox type (a bug found and fixed elsewhere in this addon).
     function chatModeCombo:SelectedProc(index)
         settings.chatMode = index
         SaveSettings()
     end
 
-    -- Now that the label has its real text, measure it and re-anchor the
-    -- label+combo pair centered as a whole (the combo, anchored relative
-    -- to the label, follows automatically). Same centering technique used
-    -- elsewhere in this addon (see quick_equip.lua's enable checkbox row).
     local labelWidth = chatModeLabel:GetWidth() or 90
     local gap = 6
     local totalWidth = labelWidth + gap + comboWidth
@@ -148,8 +127,6 @@ function ui.Initialize()
     chatModeLabel:RemoveAllAnchors()
     chatModeLabel:AddAnchor("TOPLEFT", logWindow, startX, 8)
 
-
-    -- Close Button
     closeBtn = logWindow:CreateChildWidget("button", "closeBtn", 0, true)
     closeBtn:SetExtent(30, 30)
     closeBtn:AddAnchor("TOPRIGHT", logWindow, -5, 2)
@@ -172,7 +149,6 @@ function ui.Initialize()
     function closeBtn:OnLeave() btnBg:SetColor(0, 0, 0, 0) end
     closeBtn:SetHandler("OnLeave", closeBtn.OnLeave)
 
-    -- The Scrolling List Box
     if W_CTRL and W_CTRL.CreatePageScrollListCtrl then
         logList = W_CTRL.CreatePageScrollListCtrl("lossPornLogList_v20", logWindow)
         logList:Show(true)

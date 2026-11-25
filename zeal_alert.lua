@@ -7,11 +7,6 @@ local zeal_alert = {}
 local zealOverlay = nil
 local zealLabel = nil
 local zealIcon = nil
--- Both of these were missing "local" -- leaking into the global namespace,
--- and (worse than loss_porn.lua's similar global) never nil'd in OnUnload
--- either, so after a Free(zealOverlay) they were left as dangling
--- references to an already-freed child widget until the next OnLoad
--- happened to overwrite them.
 local moveModeLabel = nil
 local zealBg = nil
 local buffIdToTrack = 495
@@ -79,7 +74,7 @@ end
 function zeal_alert.CreateUI(wndParent)
     local container = wndParent:CreateChildWidget("emptywidget", "zealAlertContainer", 0, true)
     container:SetExtent(500, 94)
-    container:AddAnchor("TOP", wndParent, 0, 385) -- fallback position; main.lua re-anchors this under the previous Misc section
+    container:AddAnchor("TOP", wndParent, 0, 385)
     
     local title = container:CreateChildWidget("label", "title", 0, true)
     title:SetAutoResize(false)
@@ -92,7 +87,7 @@ function zeal_alert.CreateUI(wndParent)
     
     local enableCheck = container:CreateChildWidget("checkbutton", "enableCheck", 0, true)
     enableCheck:SetExtent(18, 17)
-    enableCheck:AddAnchor("TOP", container, "TOP", 0, 34) -- temporary; recentered below once the label's width is known
+    enableCheck:AddAnchor("TOP", container, "TOP", 0, 34)
     local bg1 = enableCheck:CreateImageDrawable("ui/button/check_button.dds", "background")
     bg1:SetExtent(18, 17)
     bg1:AddAnchor("CENTER", enableCheck, 0, 0)
@@ -123,8 +118,6 @@ function zeal_alert.CreateUI(wndParent)
     enableLbl:AddAnchor("LEFT", enableCheck, "RIGHT", 5, 0)
     ApplyTextColor(enableLbl, FONT_COLOR.DEFAULT)
 
-    -- Center the checkbox+label pair under the title based on the label's
-    -- actual rendered width, instead of a fixed guessed offset.
     do
         local checkboxGap = 5
         local labelWidth = enableLbl:GetWidth() or 150
@@ -173,10 +166,6 @@ function zeal_alert.CreateUI(wndParent)
 
     local moveBtn = rowZeal:CreateChildWidget("button", "moveBtn", 0, true)
     ApplyButtonSkin(moveBtn, BUTTON_BASIC.DEFAULT)
-    -- Bug fix: "isMoving" was never defined anywhere in this file (always
-    -- nil), so this button's initial label was always "Move UI" even when
-    -- settings.moving was already true (e.g. right after a reload while
-    -- mid-drag-setup). settings.moving is the actual state this tracks.
     moveBtn:SetText(settings.moving and "Save UI" or "Move UI")
     moveBtn:SetExtent(100, 28)
     moveBtn:AddAnchor("LEFT", applyScaleBtn, "RIGHT", 10, 0)

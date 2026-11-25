@@ -1,8 +1,3 @@
--- Was missing this -- every api.X call below was silently relying on some
--- OTHER module (loaded earlier by main.lua's own require chain) having
--- left "api" as a real global. Worked by accident of load order rather
--- than by design, unlike every other module in this addon, which all
--- explicitly require("api") for themselves.
 local api = require("api")
 
 local settingsManager = require('Elu_Tracker/settings_manager')
@@ -57,11 +52,6 @@ local function LoadPosition()
     end
 end
 
--- Built lazily the first time the stopwatch is actually toggled on (see
--- ToggleStopwatch below) instead of unconditionally in OnLoad -- most
--- sessions never open the stopwatch, so this saves a window plus ~9 child
--- widgets every single load. Safe to call more than once: it's a no-op if
--- swOverlay already exists.
 local function BuildOverlay()
     if swOverlay then return end
 
@@ -158,8 +148,6 @@ local function BuildOverlay()
 end
 
 function stopwatch_addon:OnLoad()
-    -- swOverlay is no longer built here -- BuildOverlay() above now runs
-    -- lazily the first time ToggleStopwatch() is actually called.
 end
 
 function stopwatch_addon.ToggleStopwatch()

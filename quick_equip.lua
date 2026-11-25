@@ -1,17 +1,3 @@
--- quick_equip.lua
--- Gear set swapper, integrated into Elu Tracker (formerly the standalone
--- "set_swap" addon by Winterflame). Save your currently equipped gear as a
--- named preset and re-equip the whole set with one click.
---
--- Controls:
---   Left-click a preset      -> equip that gear set
---   Right-click a preset     -> context menu: Replace / Rename / Delete
---                                (Ctrl + click also supported as fallback)
---   Shift + drag a preset    -> reorder it among the other presets
---   Shift + drag empty bar   -> move the whole Quick Equip bar
---   "+" button               -> save currently equipped gear as a new preset
---                                (Esc or the X closes the popup without saving)
-
 local api = require('api')
 local settingsManager = require('Elu_Tracker/settings_manager')
 local EluTrackerSettings = settingsManager.Settings
@@ -19,13 +5,9 @@ local SaveEluTrackerSettings = settingsManager.SaveSettings
 
 local quick_equip_addon = {}
 
--- Equip-slot ids to snapshot/equip, in the same order as the original addon.
 local GEAR_PIECES = { 1, 3, 4, 8, 6, 9, 5, 7, 15, 2, 10, 11, 12, 13, 16, 17, 18, 19, 28 }
 local ALT_SLOTS = { [11] = true, [13] = true, [17] = true }
 
--- Starts disabled on a fresh install; the saved value (once the user turns
--- it on from the Misc tab) persists across reload/relog like every other
--- Elu Tracker setting.
 local settings = {
     enabled = false,
     x = 200,
@@ -33,9 +15,6 @@ local settings = {
     gear_sets = {}
 }
 
--- Default on-screen position used by the reset button in the Misc tab.
--- Defined as constants so CreateUI and renderGearSetUI always agree on
--- what "default" means without duplicating the numbers.
 local DEFAULT_X = 200
 local DEFAULT_Y = 40
 
@@ -89,9 +68,6 @@ local function CloneGearSets(src)
     return copy
 end
 
--- Checks whether the currently logged-in character owns the legacy gear sets
--- (by matching equipped or bag items), so migrating pre-existing global sets
--- gives them to the character that actually owns that gear instead of an alt.
 local function CharacterOwnsLegacySets(legacySets)
     if type(legacySets) ~= "table" or #legacySets == 0 then
         return false
@@ -176,8 +152,6 @@ local function LoadQuickEquipSettings()
             settings.y = charData.y or data.y or DEFAULT_Y
             settings.gear_sets = type(charData.gear_sets) == "table" and charData.gear_sets or {}
         else
-            -- First time this character is seen under per-character storage:
-            -- only migrate legacy top-level gear_sets if this character actually owns those items.
             local hasUnclaimedLegacy = (not data.legacyClaimed) and type(data.gear_sets) == "table" and #data.gear_sets > 0
             if hasUnclaimedLegacy and CharacterOwnsLegacySets(data.gear_sets) then
                 settings.enabled = (data.enabled == true)
@@ -200,7 +174,6 @@ local function LoadQuickEquipSettings()
             SaveEluTrackerSettings()
         end
     else
-        -- Player unit not ready yet at require-time: load safe defaults until OnLoad/OnUpdate detects character
         settings.enabled = false
         settings.x = data.x or DEFAULT_X
         settings.y = data.y or DEFAULT_Y
@@ -208,59 +181,32 @@ local function LoadQuickEquipSettings()
     end
 end
 
--- Load immediately at require-time (not only inside :OnLoad()). CreateUI()
--- for the Misc tab is invoked by CreateWindow's subWindowConstructor, which
--- runs BEFORE :OnLoad() later in main.lua's load sequence -- if we only
--- loaded from :OnLoad(), the checkbox would render the stale module-level
--- default (enabled=false) even when the saved value on disk was true,
--- desyncing the checkbox from the addon's real state after every reload.
 LoadQuickEquipSettings()
 
 local mainCanvas
 local promptCanvas
 local contextMenu
 local gearSetButtons = {}
-local buttonRects = {} -- absolute on-screen x1/x2 per button, rebuilt on every render
+local buttonRects = {}
 local addSetButton
 local widgetCounter = 0
 
-local enqueuedItems = {}
-local isProcessingEquip = false
-local retryDelay = 50        -- Delay before checking whether an equip attempt landed, and before retrying if not
-local maxRetries = 1         -- Maximum number of retries for an item
+local MIN_EQUIP_GAP_MS = 60
+local POLL_INTERVAL_MS = 30
+local WAIT_TIMEOUT_MS = 1300
+local MAX_RETRIES = 1
+local gear_to_process = {}
+local inFlightEquip = nil
 
-local dragState = nil -- { index = n } while a shift-drag reorder is in progress
-local buttonLocalX = {} -- canvas-relative x1/x2 per button, parallel to buttonRects; used to
-                         -- position the live drop-target highlight without depending on the
-                         -- bar's absolute screen position
-local dragIndicator = nil -- highlight widget shown over the slot a dragged preset would land in
-local BAR_HEIGHT = 40 -- shared with renderGearSetUI's mainCanvas height, so the highlight always matches the bar
+local dragState = nil
+local buttonLocalX = {}
+local dragIndicator = nil
+local BAR_HEIGHT = 40
 
-local processNextEquip     -- forward declaration
-local renderGearSetUI      -- forward declaration
-local closeContextMenu     -- forward declaration
-local closePrompt          -- forward declaration
+local renderGearSetUI
+local closeContextMenu
+local closePrompt
 
--- Singleton architecture: Widgets are created once and reused forever with fixed IDs.
--- In ArcheAge Classic (CryEngine 32-bit), api.Interface:Free() does not exist in the C++ engine.
--- Destroying and recreating widgets creates memory leaks and duplicates in the C++ UI tree.
--- By reusing the existing widgets, zero new memory or windows are allocated on reloads or preset changes.
-
--- Hover tooltips: flip near a screen edge, same idea as the ctrl+click
--- context menu (openContextMenu) -- try to show the tooltip below the
--- button, and flip it above when there isn't room below.
---
--- Quirks of api.Interface:SetTooltipOnPos with this widget/anchor combo
--- (mainCanvas as target, self:GetOffset() as the base position), found by
--- live debug logging:
---   * self:GetOffset() on these buttons returns the button's ABSOLUTE
---     screen Y, not a parent-relative offset.
---   * the tooltip box anchors from its own BOTTOM edge and grows upward
---     from the Y coordinate given -- it is not a normal top-left anchor.
--- So "show below the button" means anchoring the Y coordinate *further
--- down* than the button (bottom edge + gap + box height), and "show
--- above" means anchoring it *just above* the button (top edge - gap);
--- the box then grows upward from that point in both cases.
 local TOOLTIP_GAP = 6
 local hoverTooltipWnd = nil
 
@@ -360,22 +306,8 @@ local function showHoverTooltip(targetBtn, lines, isCompact)
     pcall(function() hoverTooltipWnd:Raise() end)
 end
 
--- ===== Equip queue (unchanged logic from the original addon) =====
-
-local function equipBagItem(slot, equipmentSlot)
-    api.Bag:EquipBagItem(slot, ALT_SLOTS[equipmentSlot] == true)
-end
-
-local function enqueueItemEquip(item, bagSlot, equipmentSlot, retryCount)
-    if not item or not bagSlot then
-        return
-    end
-    table.insert(enqueuedItems, {
-        bagSlot = bagSlot,
-        item = item,
-        equipmentSlot = equipmentSlot,
-        retryCount = retryCount or 0
-    })
+local function equipBagItem(slot, equip_alternate_slot)
+    api.Bag:EquipBagItem(slot, equip_alternate_slot)
 end
 
 local function disableAllGearSetButtons()
@@ -390,7 +322,6 @@ local function enableAllGearSetButtons()
     end
 end
 
--- Snapshot of the currently active title (appellation), if any.
 local function captureCurrentTitle()
     if not api.Player or not api.Player.GetShowingAppellation then
         return nil, nil
@@ -428,59 +359,71 @@ local function applySavedTitle(loadout)
     end
 end
 
-local function enqueueLoadoutEquipment(loadout)
-    applySavedTitle(loadout)
+local function isItemEquippedInSlot(slotId, itemName, itemGrade)
+    if not slotId then
+        return false
+    end
+    local ok, eq = pcall(function()
+        return api.Equipment:GetEquippedItemTooltipInfo(slotId)
+    end)
+    return ok and eq ~= nil and eq.name == itemName and eq.itemGrade == itemGrade
+end
 
-    local maxBagSlots = 150
-    for loadoutItemIndex = 1, #(loadout.gear or {}) do
-        local loadoutItem = loadout.gear[loadoutItemIndex]
-        for bagSlot = 1, maxBagSlots do
-            local bagItem = api.Bag:GetBagItemInfo(1, bagSlot)
-            if bagItem and bagItem.name == loadoutItem.name and bagItem.itemGrade == loadoutItem.grade then
-                enqueueItemEquip(bagItem, bagSlot, loadoutItem.slot, 0)
-                break
+local function findItemInBag(itemName, itemGrade)
+    for slot_num = 1, 150 do
+        local bagItem = api.Bag:GetBagItemInfo(1, slot_num)
+        if bagItem ~= nil and bagItem.name == itemName and bagItem.itemGrade == itemGrade then
+            return slot_num
+        end
+    end
+    return nil
+end
+
+local function startNextEquip()
+    inFlightEquip = nil
+    while #gear_to_process > 0 do
+        local gearItem = table.remove(gear_to_process, 1)
+        if gearItem and gearItem.name then
+            if not isItemEquippedInSlot(gearItem.slot, gearItem.name, gearItem.grade) then
+                local bagSlot = findItemInBag(gearItem.name, gearItem.grade)
+                if bagSlot then
+                    local isAlt = (gearItem.alternative == true) or (gearItem.slot ~= nil and ALT_SLOTS[gearItem.slot] == true)
+                    equipBagItem(bagSlot, isAlt)
+                    inFlightEquip = {
+                        gear_item = gearItem,
+                        bagSlot = bagSlot,
+                        elapsedMs = 0,
+                        pollAccum = 0,
+                        retryCount = 0,
+                    }
+                    return
+                end
             end
         end
     end
-
-    if not isProcessingEquip then
-        processNextEquip()
-    else
-        enableAllGearSetButtons()
-    end
+    enableAllGearSetButtons()
 end
 
-function processNextEquip()
-    if #enqueuedItems == 0 then
-        isProcessingEquip = false
+local function enqueueLoadoutEquipment(loadout)
+    applySavedTitle(loadout)
+
+    gear_to_process = {}
+    inFlightEquip = nil
+    local gearList = (type(loadout) == "table" and type(loadout.gear) == "table") and loadout.gear or {}
+
+    for i = 1, #gearList do
+        table.insert(gear_to_process, gearList[i])
+    end
+
+    if #gear_to_process == 0 then
         enableAllGearSetButtons()
         return
     end
 
-    isProcessingEquip = true
-    local equipableItem = table.remove(enqueuedItems, 1)
-
-    equipBagItem(equipableItem.bagSlot, equipableItem.equipmentSlot)
-
-    api:DoIn(retryDelay, function()
-        local equippedItem = api.Equipment:GetEquippedItemTooltipInfo(equipableItem.equipmentSlot)
-        local wasEquipped = equippedItem
-            and equippedItem.name == equipableItem.item.name
-            and equippedItem.itemGrade == equipableItem.item.itemGrade
-
-        if not wasEquipped and equipableItem.retryCount < maxRetries then
-            equipableItem.retryCount = equipableItem.retryCount + 1
-            table.insert(enqueuedItems, 1, equipableItem)
-            api:DoIn(retryDelay, processNextEquip)
-        else
-            -- Move on immediately once the item is confirmed equipped (or
-            -- retries are exhausted); fast cadence is intentional.
-            processNextEquip()
-        end
-    end)
+    disableAllGearSetButtons()
+    startNextEquip()
 end
 
--- Snapshot of the currently equipped gear, in the shape a preset expects.
 local function captureCurrentGear()
     local items = {}
     for _, slotId in ipairs(GEAR_PIECES) do
@@ -495,9 +438,6 @@ local function captureCurrentGear()
     end
     return items
 end
-
--- ===== Small reusable "name" prompt popup (Save / Rename) =====
--- Built once with static IDs and reused forever; zero new windows allocated.
 
 function closePrompt()
     if promptCanvas then
@@ -532,7 +472,6 @@ local function openNamePrompt(question, defaultText, onConfirm)
         function popup:OnDragStop() self:StopMovingOrSizing() end
         popup:SetHandler("OnDragStop", popup.OnDragStop)
 
-        -- X button: cancel without saving
         local closeBtn = popup:CreateChildWidget("button", "closeBtn", 0, true)
         closeBtn:SetText("X")
         closeBtn:SetExtent(18, 18)
@@ -580,9 +519,6 @@ local function openNamePrompt(question, defaultText, onConfirm)
     pcall(function() promptCanvas:Raise() end)
     return promptCanvas
 end
-
--- ===== Ctrl+Click context menu (Replace / Rename / Delete) =====
--- Built once with static ID "eluQuickEquip_ctxMenu" and reused.
 
 function closeContextMenu()
     if contextMenu then
@@ -637,8 +573,6 @@ local function openContextMenu(gearSetIndex)
             local btn = menu:CreateChildWidget("button", "eluQuickEquip_ctxOpt" .. i, 0, true)
             btn:SetText(optName)
             api.Interface:ApplyButtonSkin(btn, BUTTON_BASIC.DEFAULT)
-            -- SetExtent MUST be called after ApplyButtonSkin so BUTTON_BASIC.DEFAULT
-            -- does not overwrite the button height and cause vertical overlap.
             btn:SetExtent(menuWidth - (padX * 2), btnHeight)
             btn:RemoveAllAnchors()
             btn:AddAnchor("TOP", menu, 0, padY + (i - 1) * (btnHeight + btnGap))
@@ -716,7 +650,6 @@ local function openContextMenu(gearSetIndex)
         anchorX = mx or (settings.x or DEFAULT_X)
     end
 
-    -- Anchor cleanly above or below the Quick Equip bar so the popup never covers the preset buttons.
     if (canvasY + BAR_HEIGHT + menuHeight + 6) > screenH or canvasY > (screenH * 0.55) then
         anchorY = canvasY - menuHeight - 4
     else
@@ -736,9 +669,6 @@ local function openContextMenu(gearSetIndex)
     pcall(function() contextMenu:Raise() end)
 end
 
--- ===== Shift + drag reorder helper =====
-
--- Returns the index of the preset whose button center is closest to mx.
 local function findClosestButtonIndex(mx)
     local closestIndex = nil
     local closestDist = nil
@@ -753,12 +683,6 @@ local function findClosestButtonIndex(mx)
     return closestIndex
 end
 
--- Live "drop here" highlight shown while a shift+drag reorder is in
--- progress (driven by quick_equip_addon:OnUpdate, wired into main.lua's
--- central UPDATE dispatcher). It always uses the same findClosestButtonIndex
--- the actual drop (setBtn:OnDragStop) uses, so the highlighted slot always
--- matches where the preset will really land -- this is purely visual
--- feedback, it does not change the reorder logic itself.
 local function updateDragIndicator()
     if not dragState or not mainCanvas or not dragIndicator then
         if dragIndicator then dragIndicator:Show(false) end
@@ -782,18 +706,6 @@ local function moveGearSet(fromIndex, targetIndex)
         return
     end
     local moved = table.remove(settings.gear_sets, fromIndex)
-    -- The dragged preset should land exactly on the slot it was dropped on
-    -- (targetIndex, in the ORIGINAL numbering), with whatever was between
-    -- fromIndex and targetIndex sliding over by one to make room. Because
-    -- targetIndex is expressed in the original numbering and we already
-    -- removed fromIndex above, no extra "-1" adjustment is needed here for
-    -- forward moves (targetIndex > fromIndex): the list is one shorter now,
-    -- so inserting at targetIndex already lands the moved item on the slot
-    -- that used to be targetIndex.
-    -- (A previous version subtracted 1 for forward moves, which meant
-    -- "insert before the target" instead of "take the target's slot" -- for
-    -- a 2-item list that made dragging item 1 onto item 2 a visible no-op,
-    -- since "before the only remaining item" is that item's own position.)
     local insertAt = targetIndex
     if insertAt < 1 then insertAt = 1 end
     if insertAt > #settings.gear_sets + 1 then insertAt = #settings.gear_sets + 1 end
@@ -801,8 +713,6 @@ local function moveGearSet(fromIndex, targetIndex)
     SaveQuickEquipSettings()
     renderGearSetUI()
 end
-
--- ===== Main bar UI =====
 
 function renderGearSetUI()
     closeContextMenu()
@@ -970,7 +880,6 @@ function renderGearSetUI()
         setBtn:SetHandler("OnLeave", setBtn.OnLeave)
     end
 
-    -- Hide any extra buttons that were previously created
     for j = numGearSets + 1, #gearSetButtons do
         if gearSetButtons[j] then
             gearSetButtons[j]:Show(false)
@@ -1059,7 +968,7 @@ function renderGearSetUI()
     dragIndicator:SetExtent(buttonBaseWidth, baseCanvasHeight - 4)
     dragIndicator:Show(false)
 
-    if #enqueuedItems == 0 then
+    if not inFlightEquip and #gear_to_process == 0 then
         enableAllGearSetButtons()
     end
 
@@ -1067,9 +976,6 @@ function renderGearSetUI()
     mainCanvas:EnableDrag(true)
 end
 
--- ===== Enable / disable (Misc tab toggle) =====
-
--- Hides the bar (and any open popup/menu) without touching settings.
 local function destroyBarUI()
     closeContextMenu()
     closePrompt()
@@ -1091,8 +997,6 @@ local function setEnabled(enabled)
     end
 end
 
--- ===== Misc tab section: just the enable/disable toggle =====
-
 function quick_equip_addon.CreateUI(wndParent)
     LoadQuickEquipSettings()
 
@@ -1101,7 +1005,7 @@ function quick_equip_addon.CreateUI(wndParent)
 
     local enableCheck = container:CreateChildWidget("checkbutton", "quickEquipEnableCheck", 0, true)
     enableCheck:SetExtent(18, 17)
-    enableCheck:AddAnchor("TOPLEFT", container, 0, 5) -- temporary; recentered below once the label's width is known
+    enableCheck:AddAnchor("TOPLEFT", container, 0, 5)
     enableCheckWidget = enableCheck
 
     local bg1 = enableCheck:CreateImageDrawable("ui/button/check_button.dds", "background")
@@ -1134,8 +1038,6 @@ function quick_equip_addon.CreateUI(wndParent)
     enableLbl:AddAnchor("LEFT", enableCheck, "RIGHT", 6, 0)
     ApplyTextColor(enableLbl, FONT_COLOR.DEFAULT)
 
-    -- Center the checkbox + label + reset button row as a whole inside the
-    -- 500-wide section so the entire group is visually centered.
     local checkboxGap = 6
     local labelWidth = enableLbl:GetWidth() or 220
     local resetBtnSpace = 12 + 24
@@ -1152,9 +1054,6 @@ function quick_equip_addon.CreateUI(wndParent)
     end
     enableCheck:SetHandler("OnCheckChanged", enableCheck.OnCheckChanged)
 
-    -- ===== Reset position button =====
-    -- Small native reset arrow button to the right of the label. Clicking it
-    -- snaps the bar back to the default position (DEFAULT_X, DEFAULT_Y) and saves.
     local resetPosBtn = container:CreateChildWidget("button", "quickEquipResetPosBtn", 0, true)
     resetPosBtn:AddAnchor("LEFT", enableLbl, "RIGHT", 12, 0)
     api.Interface:ApplyButtonSkin(resetPosBtn, BUTTON_BASIC.RESET)
@@ -1174,14 +1073,10 @@ function quick_equip_addon.CreateUI(wndParent)
         settings.x = DEFAULT_X
         settings.y = DEFAULT_Y
         SaveQuickEquipSettings()
-        -- If the bar is currently enabled (and therefore rendered), move it
-        -- to the new position immediately without requiring a relog.
         if settings.enabled and mainCanvas then
             mainCanvas:RemoveAllAnchors()
             mainCanvas:AddAnchor("TOPLEFT", "UIParent", DEFAULT_X, DEFAULT_Y)
         elseif settings.enabled then
-            -- Bar was enabled but mainCanvas is gone (rare edge case);
-            -- re-render it from scratch so it appears at the default spot.
             renderGearSetUI()
         end
     end
@@ -1189,8 +1084,6 @@ function quick_equip_addon.CreateUI(wndParent)
 
     return container
 end
-
--- ===== Lifecycle =====
 
 local function SyncCharacterStateIfNeeded()
     local ck = GetCurrentCharKey()
@@ -1222,14 +1115,49 @@ end
 function quick_equip_addon:OnUnload()
     enableCheckWidget = nil
     currentCharKey = nil
+    gear_to_process = {}
+    inFlightEquip = nil
     destroyBarUI()
 end
 
--- Called every tick from main.lua's central UPDATE dispatcher (see the
--- module-level comment at the top of main.lua's own OnUpdate about why
--- every sub-module funnels through there instead of registering its own
--- api.On("UPDATE", ...)).
 function quick_equip_addon:OnUpdate(dt)
+    local stepMs = (type(dt) == "number" and dt > 0) and dt or 16
+    if inFlightEquip then
+        inFlightEquip.elapsedMs = inFlightEquip.elapsedMs + stepMs
+        inFlightEquip.pollAccum = inFlightEquip.pollAccum + stepMs
+        if inFlightEquip.elapsedMs >= MIN_EQUIP_GAP_MS and inFlightEquip.pollAccum >= POLL_INTERVAL_MS then
+            inFlightEquip.pollAccum = 0
+            local gItem = inFlightEquip.gear_item
+            local landed = false
+            if gItem.slot then
+                landed = isItemEquippedInSlot(gItem.slot, gItem.name, gItem.grade)
+            else
+                local cur = api.Bag:GetBagItemInfo(1, inFlightEquip.bagSlot)
+                landed = not (cur and cur.name == gItem.name and cur.itemGrade == gItem.grade)
+            end
+
+            if landed then
+                startNextEquip()
+            elseif inFlightEquip.elapsedMs >= WAIT_TIMEOUT_MS then
+                if inFlightEquip.retryCount < MAX_RETRIES then
+                    local retrySlot = findItemInBag(gItem.name, gItem.grade)
+                    if retrySlot then
+                        inFlightEquip.retryCount = inFlightEquip.retryCount + 1
+                        inFlightEquip.bagSlot = retrySlot
+                        inFlightEquip.elapsedMs = 0
+                        inFlightEquip.pollAccum = 0
+                        local isAlt = (gItem.alternative == true) or (gItem.slot ~= nil and ALT_SLOTS[gItem.slot] == true)
+                        equipBagItem(retrySlot, isAlt)
+                    else
+                        startNextEquip()
+                    end
+                else
+                    startNextEquip()
+                end
+            end
+        end
+    end
+
     charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
     if charCheckTimer >= 500 then
         charCheckTimer = 0

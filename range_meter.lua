@@ -5,11 +5,6 @@ local SaveSettings = settingsManager.SaveSettings
 
 local range_meter = {}
 
--- Same fix as guild_check.lua's stepper buttons and the same root cause:
--- BUTTON_BASIC.DEFAULT's native skin has a fixed minimum render size well
--- beyond a 20x20 box, so a tiny stepper button using it renders visually
--- oversized regardless of :SetExtent(). Swapped in the addon's own smaller
--- nine-slice skin (copied verbatim from stopwatch.lua's proven-working BSCBTN).
 local SMALL_BTN_SKIN = {
     path = "ui/common/default.dds",
     fontColor = {
@@ -55,16 +50,15 @@ local lastR, lastG, lastB, lastA = nil, nil, nil, nil
 local lateHookRegistered = false
 local raiseTimer = 0
 
--- Exact original 8 colors from upstream
 local PALETTE_COLORS = {
-    { r = 1, g = 1,   b = 1   }, -- White
-    { r = 1, g = 0,   b = 0   }, -- Red
-    { r = 0, g = 1,   b = 0   }, -- Green
-    { r = 0, g = 0,   b = 1   }, -- Blue
-    { r = 1, g = 1,   b = 0   }, -- Yellow
-    { r = 1, g = 0.5, b = 0   }, -- Orange
-    { r = 0, g = 1,   b = 1   }, -- Cyan
-    { r = 1, g = 0,   b = 1   }, -- Magenta
+    { r = 1, g = 1,   b = 1   },
+    { r = 1, g = 0,   b = 0   },
+    { r = 0, g = 1,   b = 0   },
+    { r = 0, g = 0,   b = 1   },
+    { r = 1, g = 1,   b = 0   },
+    { r = 1, g = 0.5, b = 0   },
+    { r = 0, g = 1,   b = 1   },
+    { r = 1, g = 0,   b = 1   },
 }
 
 local function GetColorIndex(color)
@@ -173,7 +167,6 @@ function range_meter.OnUpdate(dt)
         return
     end
 
-    -- Cache target type validity per targetId (avoid per-frame unit info lookups)
     if targetId ~= cachedTargetId then
         cachedTargetId = targetId
         cachedTargetValid = true
@@ -186,7 +179,6 @@ function range_meter.OnUpdate(dt)
         if info and info.type ~= "character" and info.type ~= "npc" and info.type ~= "monster" then
             cachedTargetValid = false
         end
-        -- Keep range HUD placed strictly on top of target buff icons (TTP)
         if canvas then
             pcall(function() canvas:Raise() end)
         end
@@ -196,7 +188,6 @@ function range_meter.OnUpdate(dt)
         return
     end
 
-    -- Periodically re-raise canvas above TTP (TrackThatPlease creates/shows buff icon frames dynamically)
     raiseTimer = raiseTimer + (dt or 0.016)
     if raiseTimer >= 0.5 then
         raiseTimer = 0
@@ -232,7 +223,7 @@ function range_meter.OnUpdate(dt)
                 local c2 = settings.c2 or {r=1, g=0, b=0}
                 r, g, b = c2.r or 1, c2.g or 0, c2.b or 0
             end
-        else -- 3 colors
+        else
             if dist <= t1 then
                 local c1 = settings.c1 or {r=0, g=1, b=0}
                 r, g, b = c1.r or 0, c1.g or 1, c1.b or 0
@@ -276,7 +267,6 @@ function range_meter.OnUpdate(dt)
     
     canvas:Show(true)
 end
-
 
 function range_meter.CreateUI(wndParent)
     local function ApplyCheckSkin(chk)
@@ -361,7 +351,6 @@ function range_meter.CreateUI(wndParent)
     wnd:SetExtent(350, 140)
     wnd:AddAnchor("TOP", wndParent, 0, 480)
 
-    -- Header
     local title = wnd:CreateChildWidget("label", "title", 0, true)
     title:SetAutoResize(false)
     title:SetExtent(300, 26)
@@ -371,7 +360,6 @@ function range_meter.CreateUI(wndParent)
     title.style:SetFontSize(FONT_SIZE.XXLARGE)
     ApplyTextColor(title, FONT_COLOR.TITLE)
 
-    -- Row 1 Container (Centered)
     local r1 = wnd:CreateChildWidget("emptywidget", "r1", 0, true)
     r1:SetExtent(330, 25)
     r1:AddAnchor("TOP", wnd, "TOP", 0, 36)
@@ -402,7 +390,6 @@ function range_meter.CreateUI(wndParent)
     end)
     fontGrp:AddAnchor("LEFT", toggleBtn, "RIGHT", 8, 0)
 
-    -- Static Color Swatch beside Font Size (cycles on click, moved slightly right to avoid overlapping with fontGrp)
     local colorLbl = r1:CreateChildWidget("label", "colorLbl", 0, true)
     colorLbl:SetText("Color:")
     colorLbl:SetExtent(36, 25)
@@ -440,7 +427,6 @@ function range_meter.CreateUI(wndParent)
         ApplyStaticColor(col)
     end)
 
-    -- Row 2 Container (Centered)
     local r2 = wnd:CreateChildWidget("emptywidget", "r2", 0, true)
     r2:SetExtent(290, 25)
     r2:AddAnchor("TOP", wnd, "TOP", 0, 72)
@@ -468,7 +454,6 @@ function range_meter.CreateUI(wndParent)
     dynBtn:SetExtent(120, 25)
     dynBtn:AddAnchor("RIGHT", r2, 0, 0)
 
-    -- Reset Defaults (Centered Below Row 2)
     local r3 = wnd:CreateChildWidget("emptywidget", "r3", 0, true)
     r3:SetExtent(120, 25)
     r3:AddAnchor("TOP", wnd, "TOP", 0, 108)
@@ -514,7 +499,6 @@ function range_meter.CreateUI(wndParent)
         api.Log:Info("Range Meter reset! Settings applied.")
     end)
     
-    -- Popup Window for Colors (Using EXACT model from raid_invite.lua whitelist/blacklist manager)
     if not dynWnd then
         dynWnd = api.Interface:CreateWindow("eluRangeDynWnd", "Color Settings", 0, 0)
         dynWnd:SetExtent(300, 210)
@@ -592,7 +576,6 @@ function range_meter.CreateUI(wndParent)
             return buttons
         end
 
-        -- Row 1: Checkbox on left, Variety dropdown on right
         local topRow = dynWnd:CreateChildWidget("emptywidget", "topRow", 0, true)
         topRow:SetExtent(270, 22)
         topRow:AddAnchor("TOP", dynWnd, 0, 46)
@@ -614,7 +597,6 @@ function range_meter.CreateUI(wndParent)
             ForceUpdateRangeLabel()
         end)
 
-        -- Variety Selector (2 Colors vs 3 Colors)
         local varietyLbl = topRow:CreateChildWidget("label", "varietyLbl", 0, true)
         varietyLbl:SetText("Colors:")
         varietyLbl:SetExtent(40, 20)
@@ -634,7 +616,6 @@ function range_meter.CreateUI(wndParent)
             ForceUpdateRangeLabel()
         end
 
-        -- Row 2: Opacity Control
         local opacityRow = dynWnd:CreateChildWidget("emptywidget", "opacityRow", 0, true)
         opacityRow:SetExtent(270, 20)
         opacityRow:AddAnchor("TOP", dynWnd, 0, 74)
@@ -646,7 +627,6 @@ function range_meter.CreateUI(wndParent)
         end)
         alphaGrp:AddAnchor("LEFT", opacityRow, 0, 0)
 
-        -- Threshold editing logic with re-entrancy protection
         local isUpdatingThresholds = false
         local function SafeThreshold1Changed()
             if isUpdatingThresholds then return end
@@ -691,8 +671,6 @@ function range_meter.CreateUI(wndParent)
             isUpdatingThresholds = true
             local val = tonumber(t2Edit:GetText())
             local t1 = tonumber(settings.threshold1) or 0
-            -- Only update live if the user typed a valid number strictly greater than t1.
-            -- Do NOT force t2Edit:SetText here while typing, so the user can freely backspace and type!
             if val and val > t1 and val <= 99 then
                 settings.threshold2 = val
                 SaveSettings()
@@ -718,7 +696,6 @@ function range_meter.CreateUI(wndParent)
             isUpdatingThresholds = false
         end
 
-        -- Row 3: Range 1 [ Swatch 1 ] 0m to [ X ] m: [Palette 1]
         r1Row = dynWnd:CreateChildWidget("emptywidget", "r1Row", 0, true)
         r1Row:SetExtent(270, 22)
         r1Row:AddAnchor("TOP", dynWnd, 0, 104)
@@ -764,7 +741,6 @@ function range_meter.CreateUI(wndParent)
         t1Edit:SetHandler("OnKillFocus", FinalizeThreshold1)
         t1Edit:SetHandler("OnEnterPressed", FinalizeThreshold1)
 
-        -- Row 4: Range 2 [ Swatch 2 ] [ X ]m to [ Y ] m: [Palette 2] (or > [ X ]m: if 2 Colors)
         r2Row = dynWnd:CreateChildWidget("emptywidget", "r2Row", 0, true)
         r2Row:SetExtent(270, 22)
         r2Row:AddAnchor("TOP", dynWnd, 0, 134)
@@ -810,7 +786,6 @@ function range_meter.CreateUI(wndParent)
         t2Edit:SetHandler("OnKillFocus", FinalizeThreshold2)
         t2Edit:SetHandler("OnEnterPressed", FinalizeThreshold2)
 
-        -- Row 5: Range 3 [ Swatch 3 ] > [ Y ]m: [Palette 3]
         r3Row = dynWnd:CreateChildWidget("emptywidget", "r3Row", 0, true)
         r3Row:SetExtent(270, 22)
         r3Row:AddAnchor("TOP", dynWnd, 0, 164)
@@ -839,7 +814,6 @@ function range_meter.CreateUI(wndParent)
             ForceUpdateRangeLabel()
         end)
     else
-        -- Re-opening this tab: refresh the cached controls to reflect current settings
         RefreshDynWnd()
     end
 
@@ -857,7 +831,6 @@ function range_meter.CreateUI(wndParent)
 
     return wnd
 end
-
 
 function range_meter.OnLoad()
     if not canvas then
@@ -897,7 +870,6 @@ function range_meter.OnLoad()
         end)
     end
 end
-
 
 function range_meter.OnUnload()
     if canvas then

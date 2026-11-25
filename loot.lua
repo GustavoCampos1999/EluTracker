@@ -11,42 +11,19 @@ local elu_loot_tracker_addon = {
 	desc = "Tracks farming/looting sessions: profit, kills and labor spent."
 }
 
---- Item Task Type IDs
---> AAC 9 = harvested wild potato
 local ITEM_TASK_ID_FARMED = 9
---> AAC 10 = looted from monsters
 local ITEM_TASK_ID_LOOTED_FROM_MONSTER = 10
---> AAC 41 = From dawnsdrop pickaxe
 local ITEM_TASK_ID_DAWNSDROP_PICKAXE = 41
 
 local AH_PRICES
 
--- Top-level windows owned by this module. Each one is created at most once
--- per OnLoad and explicitly freed in OnUnload (see the bottom of this file)
--- -- creating a fresh one every reload/click without freeing the old one is
--- exactly the kind of leak that has previously taken this addon's window
--- count from 30 to 60 in a few seconds (see main.lua's OnLoad guard).
 local eluLootEventWindow
 local lootTrackerOverlay
 
--- Set by CreateUI (called once by main.lua's subWindowConstructor guard) so
--- OnLoad/OnUpdate can reach the tab's own widgets directly, without poking
--- through eluDisplayWindow.tab.window[n] -- see fish_tracker.lua / packs.lua
--- for the same module-level-local convention.
 local sessionScrollList
 
--- Session details popup. Built once, lazily, the first time the player
--- actually clicks into a past session (most players click into very few of
--- their sessions) -- and reused after that. The original version of this
--- file called api.Interface:CreateWindow("lootSessionDetailsWindow", ...)
--- on every single click with no cache and no Free(), leaking one full
--- window (plus ~10 child widgets) per click for the lifetime of the
--- session. That was the single biggest source of "extra windows" this
--- tab was creating.
 local lootSessionDetailsWindow
 local lootSessionItemsList
--- true once lootSessionItemsList holds rows from a previously opened session
--- (so the next open knows it has to wipe them first).
 local lootSessionItemsListHasRows = false
 
 local lastKnownZone
@@ -63,45 +40,13 @@ local LABOR_USED_TIMER_RATE = 300
 local sessionClockRefreshTimer = 0
 local SESSION_CLOCK_REFRESH_RATE = 1000
 
--- BUG FOUND: the live session clock used to accumulate the `dt` passed into
--- OnUpdate every tick ("lootTrackerSessionTimer = lootTrackerSessionTimer +
--- dt"), and every profit/kills-per-hour figure on the live overlay was
--- computed from that same accumulated value. On this client, that ran the
--- clock roughly 2x real speed -- a real 30-minute farming session showed up
--- as ~1h on the overlay, and profit/kills per hour were understated by
--- half to match. stopwatch.lua's own OnUpdate never had this problem
--- because it was written to NOT trust dt for elapsed time at all -- it
--- tracks a wall-clock start timestamp (api.Time:GetUiMsec()) and computes
--- elapsed as a plain timestamp difference every time it needs one instead.
--- This session clock now uses that same proven approach:
---   lootTrackerSessionTimer -- elapsed ms banked from all PREVIOUS running
---                              segments (i.e. frozen at whatever it was the
---                              last time the session was paused, ended, or
---                              first started). Still persisted to disk as
---                              savedSessionTimer, same as before.
---   sessionSegmentStartMs   -- api.Time:GetUiMsec() timestamp of when the
---                              CURRENT running segment began (session
---                              start, resume, or restoring an
---                              already-running session on reload).
--- GetLiveSessionElapsedMs() (below, near OnUpdate) adds the two together
--- only while actually running, exactly mirroring swElapsedMs/startTimeMs/
--- swRunning in stopwatch.lua.
 local lootTrackerSessionTimer = 0
 local sessionSegmentStartMs = 0
 local sessionPaused
 
--- Wall-clock (api.Time:GetUiMsec) stamp of the last time the live session was
--- written to EluTrackerSettings.activeLootSession, and how often that
--- happens while a session runs. See PersistActiveSession() below.
 local lastPersistMs = 0
 local PERSIST_INTERVAL_MS = 5000
 
--- See the comment on lootTrackerSessionTimer/sessionSegmentStartMs above --
--- this is the single source of truth for "how much time has this session
--- actually been running", used for the overlay, the per-hour math, the
--- persisted state and the duration stored on a finished session, so they can
--- never drift apart from each other. (Defined here, rather than next to
--- OnUpdate, because saveCurrentSessionToFile/PersistActiveSession need it.)
 local function GetLiveSessionElapsedMs()
     local elapsed = lootTrackerSessionTimer
     if currentSession ~= nil and sessionPaused ~= true then
@@ -113,14 +58,10 @@ end
 local displayRefreshCounter = 0
 local DISPLAY_REFRESH_MS = 60000
 
-local pageSize = 20 --> number of sessions on page
--- Cap matches packs.lua's MAX_SESSIONS (pageSize * 10) -- previously hardcoded
--- to 160 here while packs used 200, which meant loot sessions were being
--- silently evicted 40 entries sooner than pack sessions.
+local pageSize = 20
 local MAX_SESSIONS = pageSize * 10
 local maxPage
 
--- helpers
 local function split(s, sep)
     local fields = {}
 
@@ -135,10 +76,6 @@ local function ConvertColor(color)
     return color / 255
 end
 
--- Guards every division below against a zero (or nil) denominator, which
--- the original code did not -- a session ended in the same second it was
--- started (duration == 0), or one with zero labor spent, produced "inf"/
--- "nan" being formatted straight into the UI (e.g. "Profit: 12g (infg/hr)").
 local function safeDiv(numerator, denominator)
     numerator = tonumber(numerator) or 0
     denominator = tonumber(denominator)
@@ -148,9 +85,6 @@ local function safeDiv(numerator, denominator)
     return numerator / denominator
 end
 
--- Local-time stamps are epoch seconds stored as plain integer strings (e.g.
--- "1789329750"). Accept strings or numbers, and tolerate a millisecond epoch
--- should the client ever return one. Returns nil if it can't be parsed.
 local function timestampToSeconds(timestamp)
     local n = tonumber(timestamp)
     if n == nil then return nil end
@@ -167,11 +101,6 @@ local function differenceBetweenTimestamps(time1, time2)
     return diff
 end
 
--- Duration (in seconds) of a finished session. Sessions saved by this
--- version store durationSec -- the time the session was actually RUNNING,
--- paused time excluded. Older sessions don't have it, so fall back to the
--- span between their start and end timestamps (what every version before
--- this one used, pauses included).
 local function getSessionDurationSeconds(session)
     if session == nil then return 0 end
     local stored = tonumber(session.durationSec)
@@ -207,10 +136,6 @@ local function safeTimeToDate(timestamp)
     return dateStr or ""
 end
 
--- "MM/DD/YYYY" for a session timestamp, or "--/--/----" if the client
--- couldn't turn it into a date (safeTimeToDate returns "" on failure, and
--- indexing .month/.day/.year on that and handing nil to %02d used to throw
--- while drawing the row).
 local function formatSessionDate(timestamp)
     local date = safeTimeToDate(timestamp)
     if type(date) == "table" and date.month and date.day and date.year then
@@ -227,9 +152,6 @@ local function updateLastKnownChannel(channelId, channelName)
       lastKnownZone = currentZone
     end
     currentZone = channelName
-    -- A session started before the zone was known (right after a reload the
-    -- client has usually already announced it) would otherwise be saved as
-    -- "Unknown Zone".
     if currentSession ~= nil and currentSession["zone"] == nil then
         currentSession["zone"] = currentZone
     end
@@ -237,7 +159,6 @@ end
 
 local function getCleanedItemId(itemId)
     itemId = tostring(itemId)
-    -- Remove the first and last characters of the Item ID string
     if string.sub(itemId, 1, 1) == "[" and string.sub(itemId, -1) == "]" then
         return string.sub(itemId, 2, #itemId - 1)
     end
@@ -254,18 +175,10 @@ local function fillSessionTableData(itemScrollList, pageIndex)
 
     if pastSessions == nil or pastSessions["sessions"] == nil then return end
 
-    -- ipairs, not pairs: pastSessions.sessions is a proper array (built via
-    -- table.insert(...,1,...) / table.remove(...), never given holes), and
-    -- the rest of this file already relies on ipairs for it (see
-    -- saveCurrentSessionToFile/drawLootSessionDetails below). pairs() over
-    -- an array isn't guaranteed to visit 1..n in order, which is exactly
-    -- what "count" here needs to line up with the correct page slice and
-    -- with the "index" each row hands back to drawLootSessionDetails.
     local count = 1
     for _, sessionObject in ipairs(pastSessions["sessions"]) do
         if count >= startingIndex and count < endingIndex then
             local itemData = {
-                -- Sessions data fields
                 localTimestamp = sessionObject.localTimestamp,
                 endTimestamp = sessionObject.endTimestamp,
                 items = sessionObject.items,
@@ -277,7 +190,6 @@ local function fillSessionTableData(itemScrollList, pageIndex)
                 durationSec = sessionObject.durationSec,
                 index = count,
 
-                -- Required fields
                 isViewData = true,
                 isAbstention = false
             }
@@ -287,8 +199,6 @@ local function fillSessionTableData(itemScrollList, pageIndex)
     end
 end
 
--- Page currently shown in the sessions tab (1 if unknown). Same
--- pageControl:GetCurrentPageIndex() call fishing.lua already relies on.
 local function getCurrentSessionPage()
     if sessionScrollList == nil then return 1 end
     local ok, page = pcall(function() return sessionScrollList.pageControl:GetCurrentPageIndex() end)
@@ -320,10 +230,8 @@ local function saveCurrentSessionToFile()
 
     local items = currentSession["items"] or {}
     currentSession["items"] = items
-    -- Let's fill in the AH prices
     currentSession["profitTotal"] = 0
     for itemId, itemCount in pairs(items) do
-        -- item IDs are stored in [itemId] format in the current session
         local cleanedItemId = getCleanedItemId(itemId)
         local itemPrice = AH_PRICES[tonumber(cleanedItemId)]
 
@@ -334,17 +242,12 @@ local function saveCurrentSessionToFile()
         end
         currentSession["profitTotal"] = currentSession["profitTotal"] + (itemPrice * itemCount)
     end
-    -- TODO: Fill in loot session costs
     currentSession["endTimestamp"] = api.Time:GetLocalTime()
     currentSession["costTotal"] = "Unknown"
-    -- Real running time, pauses excluded -- see getSessionDurationSeconds().
     currentSession["durationSec"] = GetLiveSessionElapsedMs() / 1000
-    -- Live-only bookkeeping (see PersistActiveSession) that has no business
-    -- in the history file.
     currentSession["savedSessionTimer"] = nil
     currentSession["paused"] = nil
 
-    -- Iterate through old sessions and change their item arrays to use [itemId] format
     for _, pastSession in ipairs(pastSessions.sessions) do
         local oldItems = pastSession.items or {}
         local newItems = {}
@@ -357,7 +260,6 @@ local function saveCurrentSessionToFile()
         end
         pastSession.items = newItems
     end
-    -- Insert it into the top position (to sort by most recent)
     table.insert(pastSessions["sessions"], 1, currentSession)
 
     while #pastSessions.sessions > MAX_SESSIONS do
@@ -368,15 +270,6 @@ local function saveCurrentSessionToFile()
     refreshSessionList(1)
 end
 
--- Writes the live session to EluTrackerSettings.activeLootSession so it
--- survives a reload (main.lua deliberately does a full OnUnload+OnLoad a few
--- seconds after loading, and the client can reload the UI at any time).
--- Besides the session's own data this records:
---   savedSessionTimer -- full elapsed running time in ms (banked + current
---                        segment), so a reload doesn't drop what has elapsed
---                        since the segment began
---   paused            -- whether the session was paused, so a reload while
---                        paused doesn't silently resume it
 local function PersistActiveSession()
     if currentSession == nil then return end
     currentSession["savedSessionTimer"] = GetLiveSessionElapsedMs()
@@ -437,16 +330,12 @@ local function startLootTrackerSession()
     sessionToStart["costTotal"] = 0
     sessionToStart["items"] = {}
 
-    -- Before overwriting the old session, if it isn't null, then let's save it.
     endLootTrackerSession()
 
     currentSession = sessionToStart
     lootTrackerSessionTimer = 0
     sessionPaused = false
-    -- New running segment starts right now -- see the comment on
-    -- sessionSegmentStartMs near the top of this file.
     sessionSegmentStartMs = api.Time:GetUiMsec()
-    -- Persist right away so a reload in the first few seconds can't lose it.
     PersistActiveSession()
     refreshOverlayLabels()
 end
@@ -463,7 +352,6 @@ local function addItemToSession(itemId, itemCount)
         currentSession["items"][itemId] = currentSession["items"][itemId] + itemCount
     end
 
-    -- Add to the display for total profit
     local itemPrice = AH_PRICES[tonumber(cleanItemId)]
     if itemPrice ~= nil then
         itemPrice = itemPrice.average or 0
@@ -476,14 +364,11 @@ end
 
 local function laborPointsChanged(diff, laborPoints)
     diff = tonumber(diff) or 0
-    -- If labor is spent, start the labor used timer for accurate kill tracking
     if diff < 0 then
         laborUsedTimer = 0
         laborUsed = true
     end
 
-    -- Paused sessions ignore labor the same way addItemToSession ignores
-    -- loot, otherwise a paused session kept accumulating labor.
     if diff < 0 and currentSession ~= nil and not sessionPaused then
         currentSession["laborSpent"] = currentSession["laborSpent"] + (diff*-1)
         refreshOverlayLabels()
@@ -508,9 +393,6 @@ local function itemIdFromItemLinkText(itemLinkText)
 end
 
 local function removedItem(itemLinkText, itemCount, removeState, itemTaskType, tradeOtherName)
-    -- Nothing tracked on removal today -- kept as a hook point (mirrors
-    -- packs.lua's own REMOVED_ITEM handling) in case cost-tracking is added
-    -- later.
 end
 
 local function lootedItem(itemLinkText, itemCount, itemTaskType, tradeOtherName)
@@ -523,19 +405,17 @@ end
 
 local function fillInAHPricesForCrates()
     local CRATE_IDS = {
-        42074, -- Noble's Crate
-        42075, -- Jester's Crate
-        42076, -- Prince's Crate
-        42077, -- Queen's Crate
-        43177, -- Ancestral Crate
+        42074,
+        42075,
+        42076,
+        42077,
+        43177,
     }
     for _, crateId in ipairs(CRATE_IDS) do
-        -- Jester's and Noble's
         local sunDustId = 16347
         local moonDustId = 16348
         local starDustId = 16349
-        -- Prince's, Queen's and Ancestrals
-        local mgpId = 23653 --> Mysterious Garden Powder
+        local mgpId = 23653
 
         local sunDustPrice = (AH_PRICES[sunDustId] and AH_PRICES[sunDustId].average) or 0
         local moonDustPrice = (AH_PRICES[moonDustId] and AH_PRICES[moonDustId].average) or 0
@@ -546,19 +426,14 @@ local function fillInAHPricesForCrates()
         local treePrice = 0.5
 
         if crateId == 42074 then
-            -- Nobles
             AH_PRICES[crateId] = { average = (sunDustPrice * 1.8) + (moonDustPrice * 1.8) + (starDustPrice * 0.9) + (mgpPrice * 0.18) }
         elseif crateId == 42075 then
-            -- Jesters
             AH_PRICES[crateId] = { average = (sunDustPrice * 2.2) + (moonDustPrice * 2.2) + (starDustPrice * 1.1) + (mgpPrice * 0.20) }
         elseif crateId == 42076 then
-            -- Princes
             AH_PRICES[crateId] = { average = (brazierPrice * 1) + (treePrice * 1) + (mgpPrice * 0.2) }
         elseif crateId == 42077 then
-            -- Queens
             AH_PRICES[crateId] = { average = (brazierPrice * 2.25) + (treePrice * 2.25) + (mgpPrice * 0.25) }
         elseif crateId == 43177 then
-            -- Ancestrals
             AH_PRICES[crateId] = { average = (brazierPrice * 5) + (treePrice * 5) + (mgpPrice * 0.8) }
         end
     end
@@ -580,7 +455,6 @@ local function fillInRegradeBrazierPrices()
         ["Lucky Sunpoint"] = 28300,
     }
 
-    -- Basic Regrade Point Fragments
     local sunpointPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Sunpoint"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Sunpoint"]].average) or 0
     local moonpointPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Moonpoint"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Moonpoint"]].average) or 0
     local starpointPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Starpoint"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Starpoint"]].average) or 0
@@ -593,7 +467,6 @@ local function fillInRegradeBrazierPrices()
     if starpointPrice ~= nil then
         AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Starpoint Fragment"]] = { average = starpointPrice / 10 }
     end
-    -- Lucky Regrade Point Shards
     local luckySunpointPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Sunpoint"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Sunpoint"]].average) or 0
     local luckyMoonpointPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Moonpoint"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Moonpoint"]].average) or 0
     local luckyStarpointPrice = (AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Starpoint"]] and AH_PRICES[REGRADE_BRAZIER_LOOT_IDS["Lucky Starpoint"]].average) or 0
@@ -618,11 +491,11 @@ local function fillInPureOrePrices()
         ["Pure Archeum Ore"] = 17715,
     }
 
-    local ironPrice = ((AH_PRICES[8022] and AH_PRICES[8022].average) or 0) * PURE_ORE_CONVERSION_MULTIPLIER -- Iron Ore
-    local copperPrice = ((AH_PRICES[3411] and AH_PRICES[3411].average) or 0) * PURE_ORE_CONVERSION_MULTIPLIER -- Copper Ore
-    local silverPrice = ((AH_PRICES[8023] and AH_PRICES[8023].average) or 0) * PURE_ORE_CONVERSION_MULTIPLIER -- Silver Ore
-    local goldPrice = ((AH_PRICES[8027] and AH_PRICES[8027].average) or 0) * PURE_ORE_CONVERSION_MULTIPLIER -- Gold Ore
-    local archeumPrice = ((AH_PRICES[1386] and AH_PRICES[1386].average) or 0) * PURE_ORE_CONVERSION_MULTIPLIER -- Archeum Ore
+    local ironPrice = ((AH_PRICES[8022] and AH_PRICES[8022].average) or 0) * PURE_ORE_CONVERSION_MULTIPLIER
+    local copperPrice = ((AH_PRICES[3411] and AH_PRICES[3411].average) or 0) * PURE_ORE_CONVERSION_MULTIPLIER
+    local silverPrice = ((AH_PRICES[8023] and AH_PRICES[8023].average) or 0) * PURE_ORE_CONVERSION_MULTIPLIER
+    local goldPrice = ((AH_PRICES[8027] and AH_PRICES[8027].average) or 0) * PURE_ORE_CONVERSION_MULTIPLIER
+    local archeumPrice = ((AH_PRICES[1386] and AH_PRICES[1386].average) or 0) * PURE_ORE_CONVERSION_MULTIPLIER
 
     AH_PRICES[PURE_ORE_IDS["Pure Iron Ore"]] = { average = ironPrice }
     AH_PRICES[PURE_ORE_IDS["Pure Copper Ore"]] = { average = copperPrice }
@@ -631,8 +504,6 @@ local function fillInPureOrePrices()
     AH_PRICES[PURE_ORE_IDS["Pure Archeum Ore"]] = { average = archeumPrice }
 end
 
---- Loot Session Details Window (built once, reused -- see the comment on
---- lootSessionDetailsWindow above)
 local function BuildLootSessionDetailsWindow()
     if lootSessionDetailsWindow then return end
 
@@ -642,9 +513,6 @@ local function BuildLootSessionDetailsWindow()
     lootSessionDetailsWindow:Show(false)
     pcall(function() lootSessionDetailsWindow:SetCloseOnEscape(true) end)
 
-    -- Match the rest of the addon's dark theme (the original popup used
-    -- whatever the engine's default window skin is, which stood out next
-    -- to every other window in this addon).
     if lootSessionDetailsWindow.titleBar and lootSessionDetailsWindow.titleBar.bg then
         lootSessionDetailsWindow.titleBar.bg:SetColor(ConvertColor(40), ConvertColor(44), ConvertColor(52), 1.0)
     end
@@ -652,12 +520,6 @@ local function BuildLootSessionDetailsWindow()
         lootSessionDetailsWindow.bg:SetColor(ConvertColor(24), ConvertColor(26), ConvertColor(31), 0.95)
     end
 
-    -- Zone/date subtitle. The window's own chrome title is set once at
-    -- creation and left alone from then on (there is no confirmed API to
-    -- rename a window's title bar after creation -- every other cached
-    -- popup window in this addon, e.g. main.lua's _fishingSettingsWnd,
-    -- follows the same convention of a static chrome title). This label is
-    -- what actually changes per-session.
     local lootSessionSubtitleLabel = lootSessionDetailsWindow:CreateChildWidget("label", "lootSessionSubtitleLabel", 0, true)
     lootSessionSubtitleLabel.style:SetFontSize(FONT_SIZE.LARGE)
     lootSessionSubtitleLabel.style:SetAlign(ALIGN.LEFT)
@@ -666,7 +528,6 @@ local function BuildLootSessionDetailsWindow()
     lootSessionSubtitleLabel:SetAutoResize(true)
     lootSessionDetailsWindow.lootSessionSubtitleLabel = lootSessionSubtitleLabel
 
-    --- Session Summary Statistics
     local lootSessionProfitLabel = lootSessionDetailsWindow:CreateChildWidget("label", "lootSessionProfitLabel", 0, true)
     lootSessionProfitLabel.style:SetFontSize(FONT_SIZE.LARGE)
     lootSessionProfitLabel.style:SetAlign(ALIGN.LEFT)
@@ -723,7 +584,6 @@ local function BuildLootSessionDetailsWindow()
     ApplyButtonSkin(lootSessionDeleteBtn, BUTTON_BASIC.DEFAULT)
     lootSessionDetailsWindow.lootSessionDeleteBtn = lootSessionDeleteBtn
 
-    --- Session Details Items List (built once here; refilled per-open below)
     lootSessionItemsList = W_CTRL.CreateScrollListBox("lootSessionItemsList", lootSessionDetailsWindow, "TYPE2")
     lootSessionItemsList:AddAnchor("TOPLEFT", lootSessionDetailsWindow, 10, 100)
     lootSessionItemsList:AddAnchor("BOTTOMRIGHT", lootSessionDetailsWindow, -10, -60)
@@ -731,13 +591,6 @@ local function BuildLootSessionDetailsWindow()
     lootSessionItemsListHasRows = false
 end
 
--- Clears a W_CTRL.CreateScrollListBox widget. The exact clear method's name
--- isn't documented anywhere we can see, so try the plausible candidates (each
--- inside a pcall, since probing a widget for a missing method can itself
--- throw). Returns true if one of them ran. The old code only tried
--- DeleteAllItems inside a pcall and ignored the result: if that name didn't
--- exist, every session opened after the first showed ITS items stacked under
--- the previous session's rows.
 local LIST_CLEAR_METHODS = {
     "DeleteAllItems", "ClearItems", "ClearItem", "RemoveAllItems", "Clear", "DeleteAllDatas",
 }
@@ -754,19 +607,12 @@ local function clearItemsList(list)
     return false
 end
 
---- Refreshes the (already-built, cached) session details window with a
---- specific session's data and shows it -- this used to rebuild the entire
---- window from scratch on every call.
 local function drawLootSessionDetails(sessionIndex)
     local session = pastSessions["sessions"][sessionIndex]
     if session == nil then return end
 
     BuildLootSessionDetailsWindow()
 
-    -- Wipe the previous session's item rows. If this widget exposes no
-    -- working clear method, fall back to freeing the whole popup and
-    -- building a fresh one (the same Free() OnUnload already uses) -- slower
-    -- but always correct.
     if lootSessionItemsListHasRows and not clearItemsList(lootSessionItemsList) then
         lootSessionDetailsWindow:Show(false)
         pcall(function() api.Interface:Free(lootSessionDetailsWindow) end)
@@ -799,7 +645,6 @@ local function drawLootSessionDetails(sessionIndex)
     lootSessionDetailsWindow.lootSessionPerKillLabel:SetText("Profit per Kill: " .. string.format('%.2f', safeDiv(profitTotal, kills)) .. "g")
     lootSessionDetailsWindow.lootSessionPerLaborLabel:SetText("Silver Per Labor: " .. string.format('%.2f', silverPerLabor) .. "s")
 
-    -- Flip flop between labor and kills being displayed based on labor spent being higher than kills
     if laborSpent > kills then
         lootSessionDetailsWindow.lootSessionKillsLabel:Show(false)
         lootSessionDetailsWindow.lootSessionPerKillLabel:Show(false)
@@ -813,10 +658,6 @@ local function drawLootSessionDetails(sessionIndex)
     end
 
     function lootSessionDetailsWindow.lootSessionDeleteBtn:OnClick()
-        -- Find the session by reference at click time. The index captured
-        -- when the popup was opened goes stale if the list changes while it
-        -- is open (e.g. a session ends and a new one is inserted at the
-        -- top), which would delete the WRONG session.
         local indexToRemove = nil
         for i, s in ipairs(pastSessions["sessions"]) do
             if s == session then
@@ -827,7 +668,6 @@ local function drawLootSessionDetails(sessionIndex)
         if indexToRemove ~= nil then
             table.remove(pastSessions["sessions"], indexToRemove)
         end
-        -- Iterate through old sessions and change their item arrays to use [itemId] format
         for _, pastSession in ipairs(pastSessions.sessions) do
             local oldItems = pastSession.items or {}
             local newItems = {}
@@ -840,7 +680,6 @@ local function drawLootSessionDetails(sessionIndex)
             end
             pastSession.items = newItems
         end
-        -- Finally, write it.
         api.File:Write(pastSessionsFilename, pastSessions)
 
         lootSessionDetailsWindow:Show(false)
@@ -848,7 +687,6 @@ local function drawLootSessionDetails(sessionIndex)
     end
     lootSessionDetailsWindow.lootSessionDeleteBtn:SetHandler("OnClick", lootSessionDetailsWindow.lootSessionDeleteBtn.OnClick)
 
-    -- Sort the list of items by its value, most valuable at the top
     local sortedItemsByAHPrice = {}
     if items then
         for itemId, itemCount in pairs(items) do
@@ -865,8 +703,6 @@ local function drawLootSessionDetails(sessionIndex)
         return a.totalValue > b.totalValue
     end)
 
-    -- The list was already cleared (or the whole popup rebuilt) at the top
-    -- of this function; just fill it in with this session's items.
     for count, item in ipairs(sortedItemsByAHPrice) do
         local itemInfo = api.Item:GetItemInfoByType(tonumber(getCleanedItemId(item.itemId)))
         local itemName = itemInfo and itemInfo.name or ("Item " .. tostring(getCleanedItemId(item.itemId)))
@@ -889,8 +725,6 @@ local function OnUpdate(dt)
     if isLootWindowOpen() then
         if displayRefreshCounter + dt > DISPLAY_REFRESH_MS then
             displayRefreshCounter = 0
-            -- Stay on the page the player is looking at instead of
-            -- yanking them back to page 1 every minute.
             refreshSessionList(getCurrentSessionPage())
         end
         displayRefreshCounter = displayRefreshCounter + dt
@@ -898,7 +732,6 @@ local function OnUpdate(dt)
         displayRefreshCounter = DISPLAY_REFRESH_MS
     end
 
-    -- Labor used timer for excluding from kill count
     if laborUsedTimer + dt > LABOR_USED_TIMER_RATE then
         laborUsedTimer = 0
         laborUsed = false
@@ -911,12 +744,6 @@ local function OnUpdate(dt)
     end
     sessionClockRefreshTimer = sessionClockRefreshTimer + dt
 
-    -- Persist the running session every PERSIST_INTERVAL_MS (wall-clock, so
-    -- it doesn't depend on dt) instead of rewriting the whole settings file
-    -- every second. A paused session doesn't change, and Pause/Resume
-    -- persist themselves the moment they happen. OnUnload persists one last
-    -- time, so the reload main.lua does a few seconds after loading can't
-    -- lose anything between two of these ticks.
     if currentSession ~= nil and sessionPaused ~= true then
         if api.Time:GetUiMsec() - lastPersistMs >= PERSIST_INTERVAL_MS then
             PersistActiveSession()
@@ -924,11 +751,9 @@ local function OnUpdate(dt)
     end
 end
 
---- Session Scroll List Functions
 local function SessionSetFunc(subItem, data, setValue)
     if not setValue then return end
 
-    -- Data Assignments
     local sessionIndex = data.index
     local items = data.items
     local lootZone = data.zone
@@ -940,7 +765,6 @@ local function SessionSetFunc(subItem, data, setValue)
     local durationStr = displayTimeString(duration)
     local durationHours = duration / 3600
 
-    -- Display Strings
     local leftTextStr = ""
     if items then
         local highestCrateItemId, highestCrateItemCount = nil, 0
@@ -1010,13 +834,11 @@ local function SessionSetFunc(subItem, data, setValue)
 
     local titleStr = "Unknown Zone Loot Session"
     if kills > laborSpent then
-        -- Larceny session, depicted by more kills than labor spent
         if lootZone ~= nil then
             titleStr = lootZone .. " Loot Session"
         end
         subItem.bg:SetColor(ConvertColor(210),ConvertColor(94),ConvertColor(84),0.4)
     else
-        -- Harvesting session
         if lootZone ~= nil then
             titleStr = lootZone .. " Harvesting Session"
         end
@@ -1037,7 +859,6 @@ end
 local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     if subItem.bg then return end
     subItem:SetExtent(580, 70)
-    -- Background colouring
     local bg = subItem:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
     bg:SetColor(ConvertColor(210),ConvertColor(94),ConvertColor(84),0.4)
     bg:SetTextureInfo("bg_quest")
@@ -1045,7 +866,6 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     bg:AddAnchor("BOTTOMRIGHT", subItem, 0, -4)
     bg:Show(true)
     subItem.bg = bg
-    -- Top-left Session Title
     local sessionTitle = subItem:CreateChildWidget("label", "sessionTitle", 0, true)
     sessionTitle.style:SetFontSize(FONT_SIZE.LARGE)
     ApplyTextColor(sessionTitle, FONT_COLOR.DEFAULT)
@@ -1053,7 +873,6 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     sessionTitle:AddAnchor("TOPLEFT", subItem, 10, 10)
     sessionTitle:SetAutoResize(true)
     sessionTitle.style:SetAlign(ALIGN.LEFT)
-    -- Pack Item Icon
     local subItemIcon = CreateItemIconButton("subItemIcon", sessionTitle)
     subItemIcon:Show(true)
     F_SLOT.ApplySlotSkin(subItemIcon, subItemIcon.back, SLOT_STYLE.BUFF)
@@ -1061,7 +880,6 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     subItemIcon:AddAnchor("TOPLEFT", sessionTitle, 0, 10)
     subItem.subItemIcon = subItemIcon
 
-    -- Top-right Session Date Label
     local sessionDateLabel = subItem:CreateChildWidget("label", "sessionDateLabel", 0, true)
     sessionDateLabel.style:SetFontSize(FONT_SIZE.LARGE)
     ApplyTextColor(sessionDateLabel, FONT_COLOR.DEFAULT)
@@ -1070,31 +888,24 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     sessionDateLabel:SetAutoResize(true)
     sessionDateLabel.style:SetAlign(ALIGN.RIGHT)
 
-    -- Left-side Text
     local textboxLeft = subItem:CreateChildWidget("textbox", "textboxLeft", 0, true)
     textboxLeft:AddAnchor("TOPLEFT", subItem, 55, 10)
     textboxLeft:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)
     textboxLeft.style:SetAlign(ALIGN.LEFT)
     ApplyTextColor(textboxLeft, FONT_COLOR.DEFAULT)
     subItem.textboxLeft = textboxLeft
-    -- Right-side Text
     local textboxRight = subItem:CreateChildWidget("textbox", "textboxRight", 0, true)
     textboxRight:AddAnchor("TOPLEFT", subItem, 55, 10)
     textboxRight:AddAnchor("BOTTOMRIGHT", subItem, -12, 0)
     textboxRight.style:SetAlign(ALIGN.RIGHT)
     ApplyTextColor(textboxRight, FONT_COLOR.DEFAULT)
     subItem.textboxRight = textboxRight
-    -- Interact Layer overtop of everything
     local clickOverlay = subItem:CreateChildWidget("button", "clickOverlay", 0, true)
     clickOverlay:AddAnchor("TOPLEFT", subItem, 0, 0)
     clickOverlay:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)
     subItem.clickOverlay = clickOverlay
 end
 
---- Builds the "Loot Tracker" tab contents. Called at most once by main.lua's
---- CreateLootWindow (which itself guards against rebuilding on every tab
---- activation -- see main.lua). Only builds widgets; OnLoad fills in the
---- actual session data once it has loaded it from disk.
 local function CreateUI(wndParent)
     local title = wndParent:CreateChildWidget("label", "title", 0, true)
     title:SetAutoResize(true)
@@ -1133,25 +944,15 @@ local function CreateUI(wndParent)
     end
     toggleOverlayBtn:SetHandler("OnClick", toggleOverlayBtn.OnClick)
 
-    -- Now that the widgets exist, show whatever data has already been
-    -- loaded (nothing yet on a first-ever load -- OnLoad calls this again
-    -- once pastSessions has actually been read from disk).
     refreshSessionList(1)
 end
 
---- Builds the small draggable HUD overlay (start/pause/end session, live
---- profit/kills/labor). Built once and reused; the toggle button in the
---- tab just shows/hides it rather than rebuilding it.
 local function BuildLootTrackerOverlay()
     if lootTrackerOverlay ~= nil then return end
 
     local overlaySettings = EluTrackerSettings.lootOverlay or { x = 0, y = 0, visible = false }
 
     lootTrackerOverlay = api.Interface:CreateEmptyWindow("lootTrackerOverlay", "UIParent")
-    -- Card stays at its original 220x80 -- only the two buttons themselves
-    -- get smaller/tidier below (see the comment further down): one row
-    -- instead of two stacked, and shrunk down, so they take up noticeably
-    -- less of the card without changing the card's own size.
     lootTrackerOverlay:SetExtent(220, 80)
     if (overlaySettings.x or 0) == 0 and (overlaySettings.y or 0) == 0 then
         lootTrackerOverlay:AddAnchor("CENTER", "UIParent", 0, 0)
@@ -1168,7 +969,6 @@ local function BuildLootTrackerOverlay()
     bg:AddAnchor("BOTTOMRIGHT", lootTrackerOverlay, 0, 0)
     lootTrackerOverlay.bg = bg
 
-    -- Timer clock icon and label
     local timerLabel = lootTrackerOverlay:CreateChildWidget("label", "timerLabel", 0, true)
     timerLabel.style:SetShadow(true)
     timerLabel.style:SetAlign(ALIGN.RIGHT)
@@ -1183,7 +983,6 @@ local function BuildLootTrackerOverlay()
     clockIconTexture:SetTextureInfo("clock")
     clockIconTexture:AddAnchor("TOPLEFT", clockIcon, 0, 0)
 
-    -- Profit, Labor and kill count labels
     local profitLabel = lootTrackerOverlay:CreateChildWidget("label", "profitLabel", 0, true)
     profitLabel.style:SetShadow(true)
     profitLabel.style:SetAlign(ALIGN.LEFT)
@@ -1222,28 +1021,12 @@ local function BuildLootTrackerOverlay()
     end
     closeBtn:SetHandler("OnClick", closeBtn.OnClick)
 
-    -- Pause/Resume and End, stacked in the same narrow top-right control
-    -- column the original buttons used -- back to stacked (not side by
-    -- side) on request: side by side needed roughly double the width of a
-    -- single button, which reached far enough left to cut into the
-    -- Profit/Kills/Labor text next to it. A single narrower column reaches
-    -- much less far left, so it clears that text -- and each button is a
-    -- bit taller than the original 20px.
     local overlayBtnW = 54
     local overlayBtnH = 22
     local overlayBtnGapV = 3
     local overlayBtnX = -10
     local overlayBtnY = 30
 
-    -- BUG FOUND (this is why Pause/End visually overlapped when they were
-    -- briefly side by side): ApplyButtonSkin silently regrows a widget back
-    -- toward its skin's own natural size -- the exact same gotcha already
-    -- documented in elu_functions_tools.lua, which is why every
-    -- *ButtonVisual function over there re-asserts :SetExtent() AFTER
-    -- ApplyButtonSkin, not before. Keeping that ordering here too (skin
-    -- first, size after) even though stacking gives more breathing room
-    -- than the side-by-side layout did, so the same mistake can't quietly
-    -- creep back in later.
     local startBtn = lootTrackerOverlay:CreateChildWidget("button", "startBtn", 0, true)
     startBtn:AddAnchor("TOPRIGHT", lootTrackerOverlay, overlayBtnX, overlayBtnY)
     ApplyButtonSkin(startBtn, BUTTON_BASIC.DEFAULT)
@@ -1255,10 +1038,6 @@ local function BuildLootTrackerOverlay()
     ApplyButtonSkin(saveBtn, BUTTON_BASIC.DEFAULT)
     saveBtn:SetExtent(overlayBtnW, overlayBtnH)
     saveBtn:SetText("End")
-    -- Soft red tint on the label only (skin/background stay the same
-    -- BUTTON_BASIC.DEFAULT as Start/Pause/Resume) -- just enough to read as
-    -- the "ends the session" action without looking like a different,
-    -- heavier button style bolted on next to it.
     ApplyTextColor(saveBtn, {1, 0.45, 0.45, 1})
 
     if currentSession ~= nil then
@@ -1280,21 +1059,12 @@ local function BuildLootTrackerOverlay()
             saveBtn:Show(true)
             sessionPaused = false
         elseif not sessionPaused then
-            -- Pausing: bank the elapsed time from the segment that's ending
-            -- into lootTrackerSessionTimer (see the comment on it near the
-            -- top of this file) before flipping sessionPaused -- from this
-            -- point on GetLiveSessionElapsedMs() stops adding any more time
-            -- until Resume starts a new segment below.
             lootTrackerSessionTimer = lootTrackerSessionTimer + (api.Time:GetUiMsec() - sessionSegmentStartMs)
             sessionPaused = true
             startBtn:SetText("Resume")
-            -- Persist the paused state right away: OnUpdate stops
-            -- persisting while paused, so without this a reload while
-            -- paused would restore the session as running.
             PersistActiveSession()
             refreshOverlayLabels()
         else
-            -- Resuming: a new running segment starts right now.
             sessionSegmentStartMs = api.Time:GetUiMsec()
             sessionPaused = false
             startBtn:SetText("Pause")
@@ -1303,9 +1073,6 @@ local function BuildLootTrackerOverlay()
         end
     end
     startBtn:SetHandler("OnClick", startBtn.OnClick)
-    -- Same ApplyButtonSkin-then-SetExtent ordering as the creation above --
-    -- ApplyButtonSkin on hover would otherwise regrow startBtn back to its
-    -- natural size on every mouse-over, right back into saveBtn next to it.
     function startBtn:OnEnter()
         ApplyButtonSkin(startBtn, BUTTON_BASIC.DEFAULT)
         startBtn:SetExtent(overlayBtnW, overlayBtnH)
@@ -1317,13 +1084,6 @@ local function BuildLootTrackerOverlay()
     end
     startBtn:SetHandler("OnLeave", startBtn.OnLeave)
 
-    -- ApplyTextColor is a one-shot style override the engine doesn't
-    -- reliably restore on mouse leave (same lesson already learned the hard
-    -- way in elu_functions_tools.lua) -- re-assert it on every hover
-    -- transition so End doesn't silently fade back to the default button
-    -- color the first time someone mouses over it. ApplyTextColor doesn't
-    -- touch the widget's size the way ApplyButtonSkin does, so no
-    -- SetExtent needed here.
     function saveBtn:OnClick()
         endLootTrackerSession()
         startBtn:SetText("Start")
@@ -1336,7 +1096,6 @@ local function BuildLootTrackerOverlay()
     function saveBtn:OnLeave() ApplyTextColor(saveBtn, {1, 0.45, 0.45, 1}) end
     saveBtn:SetHandler("OnLeave", saveBtn.OnLeave)
 
-    --- Add dragable bar across top
     local moveWnd = lootTrackerOverlay:CreateChildWidget("label", "moveWnd", 0, true)
     moveWnd:AddAnchor("TOPLEFT", lootTrackerOverlay, 0, 0)
     moveWnd:AddAnchor("TOPRIGHT", lootTrackerOverlay, -25, 0)
@@ -1372,14 +1131,10 @@ local function OnLoad()
     AH_PRICES = require("Elu_Tracker/data/auction_house_prices")
     sessionPaused = false
 
-    -- Fill in AH prices for noble's, jester's, prince's, queen's and ancestral crates
     fillInAHPricesForCrates()
-    -- Fill in regrade brazier loot prices
     fillInRegradeBrazierPrices()
-    -- Fill in pure ore prices
     fillInPureOrePrices()
 
-    -- Load previous sessions, or make empty file.
     pastSessions = api.File:Read(pastSessionsFilename)
     if pastSessions ~= nil then
         if pastSessions.sessions ~= nil then
@@ -1398,26 +1153,20 @@ local function OnLoad()
     local activeSession = EluTrackerSettings.activeLootSession
     if type(activeSession) == "table" and activeSession.localTimestamp ~= nil then
         currentSession = activeSession
-        -- Defensive defaults so a half-written/old settings entry can't make
-        -- the first kill/labor/item event throw on a nil field.
         currentSession["items"] = currentSession["items"] or {}
         currentSession["kills"] = tonumber(currentSession["kills"]) or 0
         currentSession["laborSpent"] = tonumber(currentSession["laborSpent"]) or 0
         currentSession["profitTotal"] = tonumber(currentSession["profitTotal"]) or 0
         lootTrackerSessionTimer = tonumber(activeSession.savedSessionTimer) or 0
-        -- Restore Pause too -- it used to always come back running.
         sessionPaused = (activeSession.paused == true)
     else
         currentSession = nil
         lootTrackerSessionTimer = 0
         sessionPaused = false
     end
-    -- A running segment (if the session is not paused) effectively begins
-    -- right now; the time already elapsed is in lootTrackerSessionTimer.
     sessionSegmentStartMs = api.Time:GetUiMsec()
     lastPersistMs = sessionSegmentStartMs
 
-    -- Initialize the addon-wide loot event window
     if not eluLootEventWindow then
         eluLootEventWindow = api.Interface:CreateEmptyWindow("eluLootEventWindow", "UIParent")
         eluLootEventWindow:Show(true)
@@ -1458,23 +1207,10 @@ local function OnLoad()
         eluLootEventWindow:Show(true)
     end
 
-    -- Now that data is loaded, refresh the tab's session list (CreateUI may
-    -- have already run once with no data, if this is the very first build).
     refreshSessionList(1)
 
-    -- Initialize Loot Tracker overlay (eager: this is this tab's core
-    -- feature, not an optional extra, so it's built up front like the
-    -- original -- but now properly freed on unload, see OnUnload below).
     BuildLootTrackerOverlay()
 
-    -- Note: deliberately NOT calling api.On("UPDATE", OnUpdate) here.
-    -- main.lua is the single owner of the UPDATE event and calls
-    -- lootTrackerAddon.OnUpdate(dt) itself once per tick alongside every
-    -- other module (see main.lua's own OnUpdate) -- exactly like
-    -- packs.lua/fish_tracker.lua do. Registering our own UPDATE handler
-    -- here would silently replace main.lua's, breaking every other
-    -- tracker's OnUpdate (the same class of bug main.lua's OnChatMessage
-    -- comment warns about for CHAT_MESSAGE).
     SaveEluTrackerSettings()
 end
 

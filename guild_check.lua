@@ -6,21 +6,6 @@ local api = require("api")
 
 local guild_check = {}
 
--- ROOT CAUSE of the oversized "-"/"+" stepper buttons below: BUTTON_BASIC.
--- DEFAULT is the client's native button skin, and its nine-slice texture
--- has a fixed minimum render size well beyond the 20x20 box these steppers
--- ask for -- the client renders the skin at its own natural size instead of
--- shrinking it to fit, so a tiny stepper button ends up visually huge
--- compared to its declared box. This isn't something any addon Lua edit
--- caused (confirmed: this file is byte-for-byte identical to the upstream
--- GitHub source everywhere else) -- it's how BUTTON_BASIC.DEFAULT has
--- always rendered small buttons in this client.
---
--- The addon's own stopwatch.lua already solves exactly this problem for
--- its Start/Stop/Reset buttons with a custom, smaller nine-slice skin
--- table (there called BSCBTN) instead of BUTTON_BASIC.DEFAULT. Copied
--- verbatim here (same texture, same coords, same proven-working values --
--- not guessed) for the same reason.
 local SMALL_BTN_SKIN = {
     path = "ui/common/default.dds",
     fontColor = {
@@ -174,8 +159,6 @@ local function refreshGuildText(forceInfo)
     local targetId = api.Unit:GetUnitId("target")
     
     if targetId then
-        -- Same target as last time: only re-query unit info every 500ms
-        -- (the guild name can arrive late) instead of every frame.
         if not forceInfo and targetId == lastTargetId then
             return
         end
@@ -190,7 +173,7 @@ local function refreshGuildText(forceInfo)
         end
         
         if targetId == lastTargetId and guildName == lastTargetGuild then
-            return -- No changes, avoid redrawing
+            return
         end
         
         lastTargetId = targetId
@@ -204,7 +187,7 @@ local function refreshGuildText(forceInfo)
         end
     else
         if lastTargetId == nil and lastTargetGuild == nil then
-            return -- No changes
+            return
         end
         lastTargetId = nil
         lastTargetGuild = nil
@@ -217,9 +200,6 @@ end
 function guild_check:OnUpdate(dt)
     if not settings.enabled then return end
 
-    -- Target id lookup is cheap and runs each frame to catch target changes;
-    -- the heavier unit-info refresh for an unchanged target runs every 500ms
-    -- only while no guild name has been found yet.
     local forceInfo = false
     if lastTargetId ~= nil and not currentGuildText then
         guildRefreshTimer = guildRefreshTimer + (type(dt) == "number" and dt or 0)
@@ -270,7 +250,6 @@ function guild_check:OnLoad()
                 settings.f1_x = ox + (w / 2)
                 settings.f1_y = oy + (h / 2)
                 
-                -- Re-anchor to center so it expands correctly immediately
                 self:RemoveAllAnchors()
                 self:AddAnchor("CENTER", "UIParent", "TOPLEFT", settings.f1_x, settings.f1_y)
             end
@@ -278,7 +257,6 @@ function guild_check:OnLoad()
         end
         f1Window:SetHandler("OnDragStop", f1Window.OnDragStop)
 
-        -- Explicitly proxy label drags to the parent window
         f1Label:EnableDrag(true)
         f1Label:SetHandler("OnDragStart", function() f1Window:OnDragStart() end)
         f1Label:SetHandler("OnDragStop", function() f1Window:OnDragStop() end)
@@ -316,7 +294,6 @@ function guild_check:OnLoad()
                 settings.f2_x = ox + (w / 2)
                 settings.f2_y = oy + (h / 2)
                 
-                -- Re-anchor to center so it expands correctly immediately
                 self:RemoveAllAnchors()
                 self:AddAnchor("CENTER", "UIParent", "TOPLEFT", settings.f2_x, settings.f2_y)
             end
@@ -324,7 +301,6 @@ function guild_check:OnLoad()
         end
         f2Window:SetHandler("OnDragStop", f2Window.OnDragStop)
 
-        -- Explicitly proxy label drags to the parent window
         f2Label:EnableDrag(true)
         f2Label:SetHandler("OnDragStart", function() f2Window:OnDragStart() end)
         f2Label:SetHandler("OnDragStop", function() f2Window:OnDragStop() end)
@@ -445,12 +421,6 @@ function guild_check.CreateUI(container)
         end
     end
 
-
-    -- The checkbox+label pair lives in its own row, sized to fit its actual
-    -- rendered content and then centered under the title as a whole --
-    -- rather than guessing a fixed offset for the checkbox alone -- so the
-    -- panel below (anchored off this row) stays perfectly centered
-    -- regardless of the label's rendered width.
     local enableRow = container:CreateChildWidget("emptywidget", "enableRow", 0, true)
     enableRow:SetExtent(250, 20)
     enableRow:AddAnchor("TOP", title, "BOTTOM", 0, 20)
@@ -526,10 +496,6 @@ function guild_check.CreateUI(container)
     end
     resetBtn:SetHandler("OnClick", resetBtn.OnClick)
 
-    -- Symmetric margins around the panel's own center (panel is 500 wide),
-    -- assuming a max column content width of ~180px (the widest row is the
-    -- 160-wide Font Size stepper) with a 40px gap between columns:
-    -- leftMargin = (500 - 2*180 - 40) / 2 = 50, so col2_x = 50 + 180 + 40.
     local col1_x = 50
     
     local f1Title = panel:CreateChildWidget("label", "f1Title", 0, true)

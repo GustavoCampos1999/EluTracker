@@ -1,4 +1,3 @@
-
 local your_packs_addon = {
 	name = "Packs",
 	author = "Michaelqt",
@@ -58,14 +57,6 @@ local PACK_TIMER_8HRS_IN_SECS = 28800
 local pageSize = 20
 local maxPage
 
--- 2026-09-15: raised from a hardcoded 160 (8 pages) to 10 pages, and named
--- so both places that enforced the old cap (saveCurrentSessionToFile and
--- the OnLoad backfill below) move together. See
--- analise_crashes_elu_tracker.md: this cap was already silently evicting
--- the oldest sessions on this account (file was exactly at 160/160,
--- missing everything before 29/08 despite lifetimeGold showing much more
--- history existed) -- lifetimeGold/lifetimePacks below are what keep the
--- all-time totals correct regardless of this cap.
 local MAX_SESSIONS = pageSize * 10
 
 function split(s, sep)
@@ -80,7 +71,6 @@ end
 local function ConvertColor(color)
     return color / 255
 end 
-
 
 local function differenceBetweenTimestamps(time1, time2)
     local time1Prefix = string.sub(time1, 1, 2)
@@ -110,7 +100,6 @@ local function updateLastKnownChannel(channelId, channelName)
     end 
     currentZone = channelName
 end 
-
 
 local function getTotalGoldMadeFromPacks()
     if pastSessions == nil then return 0 end
@@ -258,25 +247,6 @@ local function saveCurrentSessionToFile()
     end 
     currentSession["costTotal"] = "Unknown"
 
-    -- Lifetime counters, tracked by DELTA against what THIS session has
-    -- already contributed (countedProfit/countedPackCount, stashed right on
-    -- the session object), not by re-adding its current total.
-    --
-    -- 2026-09-15 bug fix: the increment used to live entirely inside the
-    -- "if not found" block below, which only runs on a session's very FIRST
-    -- save (startPackTurnInSession -> addPackToSession -> here). Every
-    -- LATER pack added to that same session (addPackToSession keeps calling
-    -- this as packCount/refundTotal/profitTotal keep growing, until the 45s
-    -- timeout) called this again with "found" now true, so those later
-    -- increases were never added to lifetimeGold/lifetimePacks at all --
-    -- silently undercounting every session with more than one pack turned
-    -- in. Moved outside the found-check and switched to delta-tracking so
-    -- it's correct whether this is a brand new session or the Nth update to
-    -- one already in progress. This does NOT retroactively fix the totals
-    -- already saved on disk (that undercount is baked into the current
-    -- lifetimeGold/lifetimePacks, and separately, real history was already
-    -- evicted by the old 160 cap -- see analise_crashes_elu_tracker.md) --
-    -- it only stops it from getting worse going forward.
     if pastSessions.lifetimeGold == nil then
         pastSessions.lifetimeGold = getTotalGoldMadeFromPacks()
         pastSessions.lifetimePacks = getTotalPacksTurnedIn()
@@ -606,11 +576,9 @@ local function SessionsColumnLayoutSetFunc(frame, rowIndex, colIndex, subItem)
     clickOverlay:AddAnchor("TOPLEFT", subItem, 0, 0)
     clickOverlay:AddAnchor("BOTTOMRIGHT", subItem, 0, 0)
     function clickOverlay:OnClick()
-        -- Removed spam
     end 
     clickOverlay:SetHandler("OnClick", clickOverlay.OnClick)
 end
-
 
 local function OnLoad()
     packs_helper = require("Elu_Tracker/packs_helper")
@@ -630,7 +598,6 @@ local function OnLoad()
     lastSeenCoinType = nil
     pastSessionsFilename = "elu_tracker_pack_sessions.lua"
 
-    -- Load past sessions
     pastSessions = api.File:Read(pastSessionsFilename)
     if pastSessions == nil or pastSessions.sessions == nil then
         local ok, backupData = pcall(require, "pack_sessions")
@@ -648,15 +615,12 @@ local function OnLoad()
         maxPage = math.ceil(#pastSessions.sessions / pageSize)
     end
     
-    -- Sync data from your_paystub_pack_sessions.lua without duplicating
     local paystubSessions = api.File:Read("your_paystub_pack_sessions.lua")
     if paystubSessions and paystubSessions.sessions then
         local seen = {}
         local merged = {}
         
-        -- Helper function to add a session if not seen
         local function addSession(session)
-            -- Create a unique key, localTimestamp + packId
             local key = tostring(session.localTimestamp) .. "_" .. tostring(session.packId)
             if not seen[key] then
                 seen[key] = true
@@ -664,23 +628,19 @@ local function OnLoad()
             end
         end
 
-        -- Add current elu tracker sessions
         for _, s in ipairs(pastSessions.sessions) do
             addSession(s)
         end
         
-        -- Add paystub sessions
         for _, s in ipairs(paystubSessions.sessions) do
             addSession(s)
         end
         
-        -- Sort by localTimestamp descending (most recent first)
         table.sort(merged, function(a, b)
             return tonumber(a.localTimestamp or 0) > tonumber(b.localTimestamp or 0)
         end)
         
         pastSessions.sessions = merged
-        -- Write to elu_tracker_pack_sessions to persist the merged state
         api.File:Write(pastSessionsFilename, pastSessions)
         maxPage = math.ceil(#pastSessions.sessions / pageSize)
         if maxPage == 0 then maxPage = 1 end

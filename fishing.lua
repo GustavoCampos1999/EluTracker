@@ -9,8 +9,6 @@ local ITEM_TASK_ID_PACK_IN_VEHICLE = 16
 local ITEM_TASK_ID_PACK_DROPPED = 61
 local ITEM_TASK_ID_PACK_TURNED_IN = 109
 
--- local locale = require("locale")
-
 local function safeTimeToDate(timestamp)
     local dateStr = ""
     if api.Time and api.Time.TimeToDate then
@@ -47,32 +45,26 @@ local DISPLAY_REFRESH_MS = 60000
 local pageSize = 20
 local maxPage
 
--- 2026-09-15: cap the detailed session list at 10 pages so it can't grow
--- forever, WITHOUT losing the all-time totals -- see lifetimeGold/
--- lifetimeFish below (getTotalGoldMadeFromFishing/getTotalFishSold), which
--- are tracked as running counters independent of how many session rows are
--- actually kept on screen, so "Total Gold from Fishing" / "Total Fish Sold"
--- never shrink even as old rows get pruned.
 local MAX_SESSIONS = pageSize * 10
 
 local function ConvertColor(color) return color / 255 end 
 
 local FISH_IDS = {
-    [27604] = true, [27603] = true, [27602] = true, -- Blue Marlin
-    [27601] = true, [27600] = true, [27599] = true, -- Sailfish
-    [27501] = true, [27458] = true, [27457] = true, -- Bluefin
-    [39735] = true, [39734] = true, [39733] = true, -- Sunfish
-    [27607] = true, [27606] = true, [27605] = true, -- Sturgeon
-    [27504] = true, [27503] = true, [27502] = true, -- Carp
-    [42160] = true, [27612] = true, [27611] = true, -- Electric Eel
-    [27610] = true, [27609] = true, [27608] = true, -- Arowana
+    [27604] = true, [27603] = true, [27602] = true,
+    [27601] = true, [27600] = true, [27599] = true,
+    [27501] = true, [27458] = true, [27457] = true,
+    [39735] = true, [39734] = true, [39733] = true,
+    [27607] = true, [27606] = true, [27605] = true,
+    [27504] = true, [27503] = true, [27502] = true,
+    [42160] = true, [27612] = true, [27611] = true,
+    [27610] = true, [27609] = true, [27608] = true,
 }
 
 local PINK_FISH_IDS = {
-    [30422] = true, -- Small Pink Marlin
-    [30428] = true, -- Medium Pink Marlin
-    [30429] = true, -- Gargantuan Pink Marlin
-    [31691] = true, -- Pink Pufferfish
+    [30422] = true,
+    [30428] = true,
+    [30429] = true,
+    [31691] = true,
 }
 
 local function isAFish(itemArg)
@@ -134,9 +126,6 @@ local function split(s, sep)
     return fields
 end
 
--- ==========================================
--- PREVENÇÃO CONTRA NOTAÇÃO CIENTÍFICA (BUG DE 1969)
--- ==========================================
 local function getSafeTimestamp()
     local t = api.Time:GetLocalTime()
     return string.format("%.0f", tonumber(t) or 0)
@@ -151,10 +140,6 @@ end
 local function getTotalGoldMadeFromFishing()
     local totalGold = 0
     if pastSessions == nil then return totalGold end
-    -- lifetimeGold, once present, IS the all-time total -- kept correct by
-    -- saveCurrentSessionToFile() below even after old sessions get pruned
-    -- off the visible list. Only fall back to summing the (possibly
-    -- already-pruned) visible sessions if it hasn't been computed yet.
     if pastSessions.lifetimeGold ~= nil then return pastSessions.lifetimeGold end
     if pastSessions["sessions"] == nil then return totalGold end
     for _, sessionObject in pairs(pastSessions["sessions"]) do
@@ -233,17 +218,6 @@ local function saveCurrentSessionToFile()
         currentSession["profitTotal"] = 0
     end
 
-    -- Lifetime counters, tracked by DELTA against what THIS session has
-    -- already contributed (countedProfit/countedFish, stashed directly on
-    -- the session object) rather than by re-adding its current total every
-    -- save. A session can be saved many times as more fish get added to it
-    -- (addFishToSession -> saveCurrentSessionToFile on every catch until the
-    -- ~17s timeout), so re-adding the full total each time would massively
-    -- over-count; only adding on the very first save (like packs.lua used
-    -- to, see the fix there and analise_crashes_elu_tracker.md) would
-    -- under-count instead. Tracking the delta is correct either way, and
-    -- getTotalGoldMadeFromFishing()/getTotalFishSold() seed the counter
-    -- from the current session list the first time this runs.
     if pastSessions.lifetimeGold == nil then pastSessions.lifetimeGold = getTotalGoldMadeFromFishing() end
     if pastSessions.lifetimeFish == nil then pastSessions.lifetimeFish = getTotalFishSold() end
 
@@ -265,10 +239,6 @@ local function saveCurrentSessionToFile()
 
     if not found then
         table.insert(pastSessions.sessions, 1, currentSession)
-        -- Cap the detailed list at 10 pages (MAX_SESSIONS) -- oldest first,
-        -- since new sessions are always inserted at position 1. The totals
-        -- above are already updated by this point and don't reference the
-        -- sessions list at all, so pruning here never touches them.
         while #pastSessions.sessions > MAX_SESSIONS do
             table.remove(pastSessions.sessions)
         end
@@ -341,9 +311,6 @@ local function attemptFishSaleMatch(forceSave)
     end
 end
 
--- ==========================================
--- CAPTURA PRECISA DA BALANÇA E EQUIPAMENTO
--- ==========================================
 local function traderDialogOpened(...)
     local args = arg or {...}
     local refund = tonumber(args[1])
@@ -422,9 +389,6 @@ local function handleEquipmentChanged(...)
     end
 end
 
--- ==========================================
--- ESTATÍSTICAS E TABELA 
--- ==========================================
 local previousPlayerGold = -1
 local function GetGoldString() return tonumber(X2Util.GetMyMoneyString()) or 0 end
 local function CheckMoney()
@@ -507,7 +471,6 @@ local function OnUpdate(dt)
         if sessionTimeoutCounter > SESSION_TIMEOUT_MS then
             local fishInfo = api.Item:GetItemInfoByType(tonumber(currentSession.packId) or 0)
             local fishName = fishInfo and fishInfo.name or "Fish"
-            -- Removed spam log
             
             currentSession = nil
             sessionTimeoutCounter = 0
@@ -635,17 +598,6 @@ local function OnLoad()
         maxPage = math.ceil(#pastSessions.sessions / pageSize)
     end
 
-    -- One-time correction, 2026-09-15: this file already had lifetimeGold/
-    -- lifetimeFish fields sitting in it from some earlier version, but they
-    -- were never actually maintained by any code in this file (grep found
-    -- no reader/writer for them anywhere) and did not match the real sum of
-    -- the saved sessions (checked directly: file had lifetimeGold=2876,
-    -- lifetimeFish=95, but the 48 sessions on disk summed to ~3192g / 63
-    -- fish). Since no sessions have ever been pruned from this file (no cap
-    -- existed until MAX_SESSIONS above), summing what's currently on disk
-    -- is still the exact true total -- so this recomputes it once, marks it
-    -- verified, and from then on saveCurrentSessionToFile()'s delta-based
-    -- updates keep it correct even after pruning starts.
     if pastSessions and (not pastSessions.lifetimeVerified or (not pastSessions.lifetimePinkSynced and pastSessions.sessions and #pastSessions.sessions < MAX_SESSIONS)) then
         local sumGold = 0
         local sumFish = 0
@@ -680,20 +632,6 @@ local function OnLoad()
     eluFishingEventWindow:RegisterEvent("CHAT_JOINED_CHANNEL")
     eluFishingEventWindow:RegisterEvent("UPDATE_SPECIALTY_RATIO")
 
-    -- Guard against building this tab's widgets twice onto the same
-    -- fishingWindow container. In the normal case fishingWindow is a brand
-    -- new container every time this runs (main.lua fully Free()s and
-    -- rebuilds eluDisplayWindow -- and resets its own _fishingWnd cache --
-    -- on every OnUnload+OnLoad cycle before this OnLoad ever gets called
-    -- again), so this guard is a no-op there. It exists as the same
-    -- defense-in-depth every other tab/popup builder in this addon already
-    -- has (see loot.lua's BuildLootTrackerOverlay, main.lua's _fishingWnd
-    -- guard on the container itself, etc.) in case that invariant is ever
-    -- broken by a future change -- without it, a second run here would
-    -- stack an entire duplicate set of ~15 widgets (including a second
-    -- InsertColumn/InsertRows on the scroll list) on top of the first,
-    -- exactly the anti-pattern that used to cost this addon dozens of
-    -- leaked windows before it was fixed elsewhere.
     if not fishingWindow.eluWidgetsBuilt then
         fishingWindow.eluWidgetsBuilt = true
 
@@ -874,10 +812,6 @@ local function OnLoad()
     clearPinkBtn:AddAnchor("LEFT", favouritePackStr, "RIGHT", 15, 0)
 
     else
-        -- Widgets already exist (see the guard comment above) -- still
-        -- refresh the list against pastSessions, which was just re-read
-        -- from disk a few lines up, instead of leaving it showing whatever
-        -- it last had.
         if fishingWindow.sessionScrollList then
             fillSessionTableData(fishingWindow.sessionScrollList, 1)
             fishingWindow.sessionScrollList.pageControl.maxPage = maxPage

@@ -48,7 +48,7 @@ fish_tracker.enableSkillIndicators = false
 fish_tracker.enableCustomFishMarkers = false
 fish_tracker.enableDebugMode = true
 fish_tracker.enableOnlyMyFishes = true
-fish_tracker.deadFishContainerPos = {0, 200} -- default position relative to center
+fish_tracker.deadFishContainerPos = {0, 200}
 
 local sortedFishes_cache = {}
 local markerColors = {
@@ -84,18 +84,15 @@ local actionBuffs = {
 }
 
 local fishNamesToAlert = {
-	-- English
 	["Marlin"] = true, ["Blue Marlin"] = true, ["Tuna"] = true, ["Blue Tuna"] = true, ["Bluefin"] = true, ["Bluefin Tuna"] = true, ["Sunfish"] = true,
 	["Sailfish"] = true, ["Sturgeon"] = true, ["Pink Pufferfish"] = true,
 	["Carp"] = true, ["Arowana"] = true, ["Pufferfish"] = true, ["Eel"] = true, ["Electric Eel"] = true,
 	["Pink Marlin"] = true, ["Small Pink Marlin"] = true, ["Medium Pink Marlin"] = true, ["Gargantuan Pink Marlin"] = true, ["Treasure Mimic"] = true,
-	-- Korean
 	["철갑상어"] = true,
 	["청새치"] = true,
 	["참다랑어"] = true,
 	["돛새치"] = true,
 	["개복치"] = true,
-	-- Chinese
 	["鲟鱼"] = true,
 	["枪鱼"] = true,
 	["蓝鳍金枪鱼"] = true,
@@ -273,7 +270,6 @@ function fish_tracker.CreateUI(wndParent)
     end
     wndParent.eluFishTrackerToggles = container
     
-    -- Dead Fish Timers Toggle
     local deadFishToggle = container:CreateChildWidget("checkbutton", "deadFishToggle", 0, true)
     deadFishToggle:SetExtent(18, 17)
     deadFishToggle:AddAnchor("TOPLEFT", container, "TOPLEFT", 45, 10)
@@ -314,7 +310,6 @@ function fish_tracker.CreateUI(wndParent)
     end
     deadFishToggle:SetHandler("OnCheckChanged", deadFishToggle.OnCheckChanged)
     
-    -- Fish Skill Indicators Toggle
     local skillIndToggle = container:CreateChildWidget("checkbutton", "skillIndToggle", 0, true)
     skillIndToggle:SetExtent(18, 17)
     skillIndToggle:AddAnchor("TOPLEFT", deadFishToggle, "BOTTOMLEFT", 0, 15)
@@ -425,7 +420,6 @@ function fish_tracker.CreateCustomMarkersUI(wndParent)
     cmToggle:SetHandler("OnCheckChanged", cmToggle.OnCheckChanged)
 end
 
--- 'next' is not exposed in the AAClassic addon sandbox, so use pairs instead.
 local function IsTableEmpty(t)
     if type(t) ~= "table" then return true end
     for _ in pairs(t) do return false end
@@ -488,7 +482,7 @@ local function ClearLootedDeadFish()
     local px, py, pz = api.Unit:UnitWorldPosition("player")
     if isFiniteCoord(px) and isFiniteCoord(py) and isFiniteCoord(pz) then
         local closestId = nil
-        local closestDistSq = 400 -- within 20m of player
+        local closestDistSq = 400
         for uid, entry in pairs(customMarkedFishes) do
             if entry.isDead and isFiniteCoord(entry.wx) and isFiniteCoord(entry.wy) and isFiniteCoord(entry.wz) then
                 local dx = entry.wx - px
@@ -515,7 +509,6 @@ local function ClearLootedDeadFish()
         return
     end
 
-    -- Fallback: if there is only 1 dead marked fish in the water, clear it
     local singleDeadUid = nil
     local deadCount = 0
     for uid, entry in pairs(customMarkedFishes) do
@@ -531,14 +524,11 @@ local function ClearLootedDeadFish()
 end
 
 local function AllocateNextFishMarker()
-    -- Smart Reset: if there are no active fishes left in the water (alive or dead),
-    -- automatically reset the counter back to 1!
     if IsTableEmpty(customMarkedFishes) and IsTableEmpty(deadFishes) then
         fish_tracker.nextCustomFishMarker = 1
         return 1
     end
 
-    -- Otherwise, advance in chronological sequence (1 -> 9), skipping any slot currently in use if a free slot exists
     local used = {}
     for _, entry in pairs(customMarkedFishes) do
         if entry.marker then used[entry.marker] = true end
@@ -556,7 +546,6 @@ local function AllocateNextFishMarker()
         end
     end
 
-    -- If all 9 slots are somehow active simultaneously, overwrite the oldest one in sequence
     fish_tracker.nextCustomFishMarker = (base % 9) + 1
     return fish_tracker.nextCustomFishMarker
 end
@@ -650,7 +639,6 @@ local function BuildCustomMarkerPool()
             local unit = args[1]
             local equipString = args[3]
             if unit == "player" and equipString and string.find(tostring(equipString), "i;") then
-                -- Player just equipped a pack onto their back; clear the closest looted dead fish
                 ClearLootedDeadFish()
             end
         end
@@ -659,20 +647,6 @@ local function BuildCustomMarkerPool()
     pcall(function() customMarkerEventWnd:RegisterEvent("UNIT_EQUIPMENT_CHANGED") end)
 end
 
--- The dead-fish-timer UI -- the drag box used to reposition it, plus the
--- 9-slot "marked dead fish" pool (10 windows + ~27 child widgets total) --
--- is only ever shown when Enable Dead Fish Timers is on. Both used to be
--- built unconditionally in OnLoad (the drag box directly there, the pool
--- via this function), so every player paid for all of it whether or not
--- they ever turned the feature on. Found 2026-09-07 while reviewing a real
--- gameplay session: the pool itself had already been made lazy, but the
--- drag box was missed -- it's built here too now, lazily, once, the first
--- time it's actually needed (see the enableDeadFishTimers check in OnLoad
--- below, and the safety-net call in OnUpdate in case the setting gets
--- turned on after load). Safe to call more than once: it's a no-op once
--- everything already exists. dfMoveBtn's OnClick handler (above) already
--- nil-checks fish_tracker.deadFishDragBox before using it, so there's
--- nothing else to guard.
 local function BuildMarkedFishPool()
     if markedFishPoolBuilt then return end
     markedFishPoolBuilt = true
@@ -803,11 +777,6 @@ function fish_tracker:OnLoad()
         strengthContestTimeLabel.style:SetColor(1, 1, 0, 1)
     end
 
-    -- Dead-fish-timer UI (drag box + 9-slot marker pool) is built lazily by
-    -- BuildMarkedFishPool -- only up front here if the feature is already
-    -- on (so returning users see zero behavior change). If it's off,
-    -- OnUpdate's safety-net call builds it the moment it's turned on
-    -- instead. See the comment on BuildMarkedFishPool above.
     if fish_tracker.enableDeadFishTimers then
         BuildMarkedFishPool()
     end
@@ -829,7 +798,6 @@ function fish_tracker:OnUpdate(dt)
     local currentTarget = api.Unit:GetUnitId("target")
     local targetName = nil
 
-    -- Poll backpack state as a backup so picking up a dead fish pack always clears the closest dead fish marker
     if not IsTableEmpty(customMarkedFishes) or not IsTableEmpty(deadFishes) then
         local okPack, packInfo = pcall(function()
             local slot = (EQUIP_SLOT and EQUIP_SLOT.BACKPACK) or 20
@@ -861,7 +829,6 @@ function fish_tracker:OnUpdate(dt)
     end
 
     if hp ~= nil and hp > 0 then
-        -- Preserve ownership if the fish was already seen targeting the player (prevents 1-frame targettarget drop right before death)
         fish_tracker.lastTargetTargetingMe = isTargetingMe or (currentTarget ~= nil and ownedFishesByUnitId[currentTarget] == true)
     end
 
@@ -919,11 +886,9 @@ function fish_tracker:OnUpdate(dt)
                     RemoveDeadFishByUnitId(currentTarget)
                     cEntry = nil
                 else
-                    -- Guarantee a Dead Fish Timer entry exists for any marked fish that died
                     EnsureDeadFishTimer(currentTarget, currentTime)
                 end
             elseif hp ~= nil and hp > 0 then
-                -- Check fishing buffs on live fish to know exact timeout / despawn
                 local bCount = api.Unit:UnitBuffCount("target") or 0
                 local hasContest = false
                 for bi = 1, bCount do
@@ -939,7 +904,6 @@ function fish_tracker:OnUpdate(dt)
                     end
                 end
                 if cEntry.hadStrengthContest and not hasContest then
-                    -- Strength Contest buff ended while fish still had HP > 0 -> fish escaped!
                     customMarkedFishes[currentTarget] = nil
                     RemoveDeadFishByUnitId(currentTarget)
                     cEntry = nil
@@ -949,7 +913,6 @@ function fish_tracker:OnUpdate(dt)
                 cEntry.wx, cEntry.wy, cEntry.wz = wx, wy, wz
             end
         elseif fish_tracker.lastTargetId and customMarkedFishes[fish_tracker.lastTargetId] and currentTarget == nil then
-            -- Target suddenly became nil; check if the previously targeted fish despawned
             local prevUid = fish_tracker.lastTargetId
             local prevEntry = customMarkedFishes[prevUid]
             if prevEntry then
@@ -971,7 +934,6 @@ function fish_tracker:OnUpdate(dt)
         fish_tracker.lastTargetHp = hp
     end
 
-    -- 1. Track Target Deaths for Dead Fish Timer
     if currentTarget and targetName and fishNamesToAlert[targetName] then
         if hp ~= nil and hp <= 0 then
             local prevHp = fish_tracker.lastTargetHp
@@ -988,8 +950,6 @@ function fish_tracker:OnUpdate(dt)
     end
     
 
-
-    -- Update Dead Fish Timers UI
     if fish_tracker.enableDeadFishTimers then
         BuildMarkedFishPool()
         local activeTimerCount = 0
@@ -1020,8 +980,6 @@ function fish_tracker:OnUpdate(dt)
             local elapsed = currentTime - deathTime
             local remaining = MARKED_FISH_TIMER - elapsed
 
-            -- When Auto Mark (Enable Fish Markers 1-9) is enabled, automatically remove the Dead Fish Timer
-            -- as soon as the fish's marker / entity disappears from the world (looted or despawned).
             if remaining > 0 and type(data) == "table" and data.unitId and (fish_tracker.enableCustomFishMarkers or data.autoMarked) then
                 if data.autoMarked and not customMarkedFishes[data.unitId] then
                     remaining = 0
@@ -1113,7 +1071,6 @@ function fish_tracker:OnUpdate(dt)
         end
     end
 
-    -- 2. Owner Mark & Skill Indicators
     if currentTarget then
         local x, y, z = safeGetUnitScreenPosition("target")
         if prevX ~= x or prevY ~= y or prevZ ~= z then
@@ -1173,7 +1130,6 @@ function fish_tracker:OnUpdate(dt)
             end
         end
 
-        -- Fish Skill Indicators Logic
         local showSkillIndicators = fish_tracker.enableSkillIndicators
         if fish_tracker.enableOnlyMyFishes and not isTargetingMe then
             showSkillIndicators = false
@@ -1222,11 +1178,6 @@ function fish_tracker:OnUpdate(dt)
                 if strengthContestBuff ~= nil then
                     strengthContestIcon:Show(true)
                     F_SLOT.SetIconBackGround(strengthContestIcon, GetCachedIconPath(5715))
-                    -- SetIconBackGround appears to auto-size this icon to
-                    -- buff 5715's own native texture, which renders bigger
-                    -- than targetFishIcon's icons. Force it back to match
-                    -- targetFishIcon's actual current size so both skill
-                    -- indicators always look the same size.
                     strengthContestIcon:SetExtent(targetFishIcon:GetExtent())
 
                     local timeLeftSecs = math.max(0, strengthContestBuff.timeLeft / 1000)
@@ -1255,7 +1206,6 @@ function fish_tracker:OnUpdate(dt)
         if fishTrackerCanvas then fishTrackerCanvas:Show(false) end
     end
 
-    -- 3. Update Custom Fish Markers (1-9)
     if fish_tracker.enableCustomFishMarkers then
         BuildCustomMarkerPool()
         local usedSlots = {}
@@ -1298,8 +1248,6 @@ function fish_tracker:OnUpdate(dt)
                             updateEntryWorldCalibration(entry, tx, ty, tz)
                         end
                     elseif entry.isDead then
-                        -- Only project stationary world coordinates for DEAD fishes;
-                        -- live fishes swim around and AAClassic's API blocks position reads on unselected units.
                         local pjx, pjy, pjz = projectEntryWorldToScreen(entry)
                         if pjx and pjy then
                             sx, sy, sz = pjx, pjy, pjz or 0
@@ -1404,16 +1352,3 @@ function fish_tracker:OnUnload()
 end
 
 return fish_tracker
-
-
-
-
-
-
-
-
-
-
-
-
-

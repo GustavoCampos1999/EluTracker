@@ -102,7 +102,6 @@ local function SafeCall(fn, ...)
     if not fn then return end
     local ok, err = pcall(fn, ...)
     if not ok and api and api.Log and true then
-        -- log each distinct error only once to avoid chat spam
         _eluUpdateErrSeen = _eluUpdateErrSeen or {}
         local key = tostring(err)
         if not _eluUpdateErrSeen[key] then
@@ -114,8 +113,6 @@ end
 
 local bagFrameFixed = false
 local function OnUpdate(dt)
-    -- Every module runs isolated in pcall: one failing module must never
-    -- stop the others (speedometer, quick equip, etc.) from updating.
     if rangeMeterAddon then SafeCall(rangeMeterAddon.OnUpdate, dt) end
     if chatLanguageAddon then SafeCall(chatLanguageAddon.OnUpdate, dt) end
     if speedometerAddon then SafeCall(speedometerAddon.OnUpdate, dt) end
@@ -171,10 +168,6 @@ end
 local _commerceWnd = nil
 
 local function CreateCommerceWindow(wndParent)
-    -- Same fix as Misc./Guild Check below: subWindowConstructor fires on
-    -- every tab activation, not just the first, so without this guard every
-    -- visit to Commerce rebuilt (and leaked) a whole new copy of this tab's
-    -- inputs, buttons and session list on top of the previous one.
     if _commerceWnd then
         return _commerceWnd
     end
@@ -191,7 +184,6 @@ local function CreateCommerceWindow(wndParent)
     ApplyTextColor(title, FONT_COLOR.TITLE)
     title:SetText("Pending Pack Payments")
     title:AddAnchor("TOP", wnd, 0, 10)
-
 
     local charcoalLabel = wnd:CreateChildWidget("label", "charcoalLabel", 0, true)
     charcoalLabel.style:SetFontSize(FONT_SIZE.LARGE)
@@ -210,7 +202,6 @@ local function CreateCommerceWindow(wndParent)
     resetPriceBtn:SetText("Reset")
     resetPriceBtn:AddAnchor("RIGHT", setPriceBtn, "LEFT", -5, 0)
     api.Interface:ApplyButtonSkin(resetPriceBtn, ELU_SMALL_BTN_SKIN)
-
 
     function resetPriceBtn:OnClick()
         local dataFile = api.File:Read("elu_commerce_prices.txt")
@@ -421,12 +412,6 @@ local _fishingSettingsWnd = nil
 local _fishingWnd = nil
 
 local function CreateFishingWindow(wndParent)
-    -- Same fix as Misc./Guild Check/Commerce above: subWindowConstructor
-    -- fires on every tab activation, not just the first, so without this
-    -- guard every visit to Fishing rebuilt (and leaked) a whole new copy of
-    -- this tab on top of the previous one. Note this is a SEPARATE guard
-    -- from _fishingSettingsWnd below, which only covers the "Fishing
-    -- Settings" popup opened from a button inside this tab.
     if _fishingWnd then
         return _fishingWnd
     end
@@ -455,8 +440,6 @@ local function CreateFishingWindow(wndParent)
     api.Interface:ApplyButtonSkin(settingsBtn, BUTTON_BASIC.DEFAULT)
     settingsBtn:AddAnchor("BOTTOMRIGHT", wnd, -25, 25)
     
-    -- Reuse a single settings window instead of creating (and leaking) a new
-    -- one every time this tab is opened.
     if not _fishingSettingsWnd then
         local settingsWnd = api.Interface:CreateWindow("eluFishingSettingsWnd", "Fishing Settings", 0, 0)
         settingsWnd:SetExtent(300, 400)
@@ -491,10 +474,6 @@ end
 local _lootWnd = nil
 
 local function CreateLootWindow(wndParent)
-    -- Same fix as Commerce/Fishing/Misc/Guild Check above: subWindowConstructor
-    -- fires on every tab activation, not just the first, so without this
-    -- guard every visit to Loot Tracker would rebuild (and leak) a whole
-    -- new copy of this tab on top of the previous one.
     if _lootWnd then
         return _lootWnd
     end
@@ -511,12 +490,6 @@ local function CreateLootWindow(wndParent)
     return wnd
 end
 
--- Built lazily the first time "Toggle Trip Counter" is actually clicked
--- (see toggleBtn:OnClick below) instead of unconditionally in OnLoad --
--- most sessions never touch the Trip Counter, so this saves a whole
--- top-level window plus 5 child widgets (bg, closeBtn, resetOverlayBtn,
--- countLabel, compBtn) on every single load. Safe to call more than once:
--- it's a no-op if tripOverlay already exists.
 local function BuildTripOverlay()
     if tripOverlay then return end
 
@@ -659,14 +632,6 @@ local function CreateMiscWindow(wndParent)
     end
     toggleStopwatchBtn:SetHandler("OnClick", toggleStopwatchBtn.OnClick)
 
-    -- Third button, centered in toolsRow between the other two. Used to
-    -- reach a separate "Unsafe Portals" addon through a hand-rolled
-    -- api.UnsafePortalsBridge global (bare globals aren't shared between
-    -- addons in this sandbox -- each addon script gets its own isolated
-    -- global environment). That addon is now merged directly into this file
-    -- as the eluFunctionsToolsAddon module (required at the top of this
-    -- file), so this button calls it the same way every other module here
-    -- is called -- no bridge, no "other addon" to fail to find.
     local toggleFuncBtn = toolsRow:CreateChildWidget("button", "toggleFuncBtn", 0, true)
     ApplyButtonSkin(toggleFuncBtn, BUTTON_BASIC.DEFAULT)
     toggleFuncBtn:SetExtent(140, 30)
@@ -686,14 +651,6 @@ local function CreateMiscWindow(wndParent)
     RefreshToggleFuncBtnText()
     toggleFuncBtn:AddAnchor("CENTER", toolsRow, 0, 0)
 
-    -- OnClick is wired up FIRST, before anything else touches toolsRow --
-    -- see the pcall block right below for why: an earlier version of the
-    -- "(?)" icon setup ran unprotected and BEFORE this SetHandler call, and
-    -- when it threw, the engine aborted the rest of CreateMiscWindow right
-    -- there, so this line was never reached and Toggle Func stopped
-    -- responding to clicks entirely. Doing the essential wiring first means
-    -- that can never happen again, regardless of what the icon code below
-    -- does.
     function toggleFuncBtn:OnClick()
         if not (eluFunctionsToolsAddon and eluFunctionsToolsAddon.IsVisible and eluFunctionsToolsAddon.SetVisible) then
             api.Log:Err("[Elu Tracker] Elu Functions Tools module not available.")
@@ -838,10 +795,8 @@ end
 
 local _onLoadStarted = false
 
-
 local _autoRebuildDone = false
 local _eventsRegistered = false
-
 
 local OnLoad, OnUnload
 
@@ -901,7 +856,6 @@ function OnLoad()
     eluFunctionsToolsAddon = require("Elu_Tracker/elu_functions_tools")
     chatLanguageAddon = require("Elu_Tracker/chat_language")
     speedometerAddon = require("Elu_Tracker/speedometer")
-
 
     if eluFunctionsToolsAddon and eluFunctionsToolsAddon.OnLoad then eluFunctionsToolsAddon.OnLoad() end
     if chatLanguageAddon and chatLanguageAddon.OnLoad then chatLanguageAddon.OnLoad() end
@@ -995,7 +949,6 @@ function OnLoad()
     end 
     eluBtn:SetHandler("OnClick", eluBtn.OnClick)
 
-
     packsAddon:OnLoad()
     guildCheckAddon:OnLoad()
     fishingAddon:OnLoad()
@@ -1010,14 +963,11 @@ function OnLoad()
     if quickEquipAddon and quickEquipAddon.OnLoad then quickEquipAddon:OnLoad() end
     if lootTrackerAddon and lootTrackerAddon.OnLoad then lootTrackerAddon:OnLoad() end
 
-
-    -- api.On is additive in this engine: register only once.
     if not _eventsRegistered then
         _eventsRegistered = true
         api.On("UPDATE", function(dt) if OnUpdate then OnUpdate(dt) end end)
         api.On("CHAT_MESSAGE", function(...) OnChatMessage(...) end)
     end
-
 
     if not _autoRebuildDone then
         api:DoIn(3000, function()
@@ -1061,7 +1011,6 @@ function OnUnload()
     _miscWnd = nil
     _guildCheckWnd = nil
 
-
     if _fishingSettingsWnd then
         _fishingSettingsWnd:Show(false)
         _fishingSettingsWnd = nil
@@ -1081,10 +1030,7 @@ function OnUnload()
         _toggleFuncTooltip = nil
     end
 
-    -- UPDATE/CHAT_MESSAGE handlers stay registered once (see OnLoad); the
-    -- module locals they use are nil'd above and guarded.
 end
-
 
 elu_tracker_addon.OnLoad = OnLoad
 elu_tracker_addon.OnUnload = OnUnload

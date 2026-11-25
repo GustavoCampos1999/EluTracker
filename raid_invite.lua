@@ -6,16 +6,6 @@ local api = require("api")
 
 local raid_invite = {}
 
--- Same fix, same root cause, as guild_check.lua's and range_meter.lua's
--- stepper buttons: BUTTON_BASIC.DEFAULT's native skin has a fixed minimum
--- render size well beyond a 30x25 box, so these small "<"/">" pagination
--- buttons render visually oversized regardless of :SetExtent(). Not caused
--- by any addon edit -- it's how the client has always rendered
--- BUTTON_BASIC.DEFAULT at small sizes. Swapped in the addon's own smaller
--- nine-slice skin (copied verbatim from stopwatch.lua's proven-working
--- BSCBTN, same texture/coords) instead, only for these pagination arrows --
--- every other button in this file keeps BUTTON_BASIC.DEFAULT unchanged
--- since it isn't small enough to trigger this.
 local RAID_SMALL_BTN_SKIN = {
     path = "ui/common/default.dds",
     fontColor = {
@@ -44,10 +34,9 @@ RAID_TINY_BTN_SKIN.fontInset = { top = 0, right = 0, left = 0, bottom = 0 }
 RAID_TINY_BTN_SKIN.width = 20
 RAID_TINY_BTN_SKIN.height = 20
 
--- State
 local state = {
     keyword = "",
-    inviteMode = 0, -- 0: OFF, 1: ON, 2: WHITELIST
+    inviteMode = 0,
     giveleadMode = false,
     floatingIconPos = {0, 100},
     showFloatingIcon = false,
@@ -60,11 +49,6 @@ local state = {
     giveleadWhitelistOnly = false,
     doNotDisableAutoInvite = false,
     whitelistBypassPrivate = true,
-    -- 2026-09-15: which private channels the master whitelistBypassPrivate
-    -- checkbox above actually applies to (gear icon next to it, see
-    -- BuildSidePanel). All 3 default ON so behavior is unchanged from
-    -- before this existed -- whitelistBypassPrivate alone used to bypass
-    -- all three unconditionally.
     whitelistBypassGuild = true,
     whitelistBypassFamily = true,
     whitelistBypassWhisper = true,
@@ -74,20 +58,12 @@ local state = {
     eluFilterMode = 2,
     enhancedFilterMode = 2, fastBlacklist = {},
     qaiCanvasPos = nil,
-    -- Raid Settings (Guild/Raid tab): master switch for the normal Elu Auto
-    -- Invite module (Quick Auto Invite is NOT affected) and the custom
-    -- "x givelead" command text.
     moduleEnabled = true,
     giveleadCommand = "x givelead"
 }
 
 local widgets = {}
 
--- AddTooltip() (below) creates each tooltip as its own top-level widget
--- parented to "UIParent" (not to the button it's anchored under), so
--- freeing that button's/panel's window does NOT free these along with it.
--- Tracked here so OnUnload can free them explicitly instead of leaking a
--- handful of orphaned UIParent-level widgets on every addon reload.
 local tooltipWidgets = {}
 
 local MSG_PREFIX = "[Elu Auto Invite] "
@@ -95,18 +71,6 @@ local MSG_PREFIX = "[Elu Auto Invite] "
 local function LogInfo(msg) api.Log:Info(MSG_PREFIX .. msg) end
 local function LogErr(msg) api.Log:Err(MSG_PREFIX .. msg) end
 
--- Anti-double-invite cooldown. Both invite paths below (Quick Auto Invite
--- and normal Elu Auto Invite) only ever checked "is this person already a
--- raid MEMBER" before calling InviteToTeam -- neither checked "does this
--- person already have one of OUR invites pending". If the same trigger
--- chat line ever reaches OnChatMessage more than once (a duplicate/second
--- delivery of the same message -- e.g. from a chat relay/broadcast quirk),
--- both passes see "not a member yet" and both call InviteToTeam, and the
--- second one fails with the game's own "Can't invite a player considering
--- other invitations" -- which is exactly the symptom reported. This is a
--- simple, root-cause-agnostic guard: remember who we invited and skip
--- re-inviting the same name again within a short window, regardless of
--- why the trigger fired twice.
 local INVITE_COOLDOWN_MS = 8000
 local recentInvites = {}
 
@@ -124,15 +88,6 @@ local function MarkInvited(name)
     local now = api.Time:GetUiMsec()
     recentInvites[key] = now
 
-    -- recentInvites otherwise only ever grows: entries are never removed,
-    -- just left behind once they age out of the cooldown window, so a long
-    -- play session (or several, since this module-level table also
-    -- survives an OnUnload+OnLoad reload cycle) inviting many different
-    -- names over time would slowly accumulate one stale entry per unique
-    -- name forever. Piggyback the prune on every new invite (cheap: this
-    -- only runs on an actual invite, not every chat message) and clear out
-    -- anything well past the cooldown -- a wide 10x margin so this can
-    -- never race RecentlyInvited's own check above.
     for k, t in pairs(recentInvites) do
         if now - t > INVITE_COOLDOWN_MS * 10 then
             recentInvites[k] = nil
@@ -140,13 +95,6 @@ local function MarkInvited(name)
     end
 end
 
--- Forward-declared so LoadSettings (below) can call it: SaveSettings is
--- defined further down this file, and without this forward declaration
--- the `SaveSettings()` call inside LoadSettings' one-time keyword-migration
--- block resolved to a nonexistent GLOBAL (Lua only makes a `local`
--- visible to code written after its own declaration), which errored and
--- was silently swallowed by the pcall around it -- so that migration flag
--- flip never actually got written to disk on its own.
 local SaveSettings
 
 local function LoadSettings()
@@ -233,7 +181,6 @@ function SaveSettings()
     SaveEluTrackerSettings()
 end
 
--- Chat Handling
 local function IsBlacklisted(name)
     local lName = string.lower(name)
     for _, v in ipairs(state.blacklist) do
@@ -267,7 +214,6 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
     local msgLower = string.lower(message)
     local keywordLower = string.lower(state.keyword)
     
-    -- Check x givelead
     local giveMode = state.giveleadMode
     if type(giveMode) == "boolean" then
         if giveMode then giveMode = (state.giveleadWhitelistOnly and 3 or 2) else giveMode = 1 end
@@ -323,7 +269,6 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
     if not eluMatch then return end
     if IsBlacklisted(speakerName) then return end
     
-    -- Channel check
     local isGuild = (channelId == 7 or channelId == CHAT_CHANNEL_GUILD)
     local isFamily = (channelId == 9 or channelId == CHAT_CHANNEL_FAMILY)
     local isWhisper = (channelId == -3 or channelId == CHAT_CHANNEL_WHISPER)
@@ -338,12 +283,6 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
     if not allowed then return end
     
     if state.inviteMode == 1 then
-        -- 2026-09-15: bypass is now per-channel-type (gear next to "Disable
-        -- whitelist in private chat" -- Family/Guild/Whisper each have their
-        -- own on/off, all defaulting to ON so this behaves exactly like
-        -- before for anyone who never opens the gear). The master
-        -- whitelistBypassPrivate checkbox still gates all of it: when it's
-        -- off, nobody bypasses the whitelist, same as always.
         local bypass = false
         if state.whitelistBypassPrivate and not isPublic then
             if isGuild then bypass = state.whitelistBypassGuild end
@@ -351,11 +290,10 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
             if isWhisper then bypass = state.whitelistBypassWhisper end
         end
         if not bypass and not IsWhitelisted(speakerName) then
-            return -- Only whitelisted can be invited if whitelist mode is ON, unless bypassing this private channel
+            return
         end
     end
     
-    -- Check if already in raid
     local existingMemberIndex = api.Team:GetMemberIndexByName(speakerName)
     if not existingMemberIndex and not RecentlyInvited(speakerName) then
         LogInfo("Inviting " .. speakerName)
@@ -364,7 +302,6 @@ local function OnChatMessage(channelId, speakerId, _, speakerName, message)
     end
 end
 
--- UI
 local function UpdateFloatingIcon()
     if widgets.floatingIcon then
         widgets.floatingIcon:Show(state.showFloatingIcon and state.moduleEnabled)
@@ -402,37 +339,6 @@ function raid_invite.StopEnhancedRecruiting()
         widgets.enhancedCanvas:Show(false)
     end
 
-    -- "Do NOT disable auto-invite automatically" (doNotDisableAutoInvite)
-    -- already means, everywhere else in this file (OnLoad above, and the
-    -- leave-raid check in OnUpdate below), "don't let anything automatic
-    -- turn my normal Elu Auto Invite off". StartEnhancedRecruiting()
-    -- unconditionally forces Elu Auto Invite OFF while Quick Auto Invite is
-    -- running -- checkbox or not, always -- because both invite paths
-    -- firing at once would double-invite the same person; that part is by
-    -- design and unchanged. But once Quick Auto Invite STOPS (this
-    -- function -- every stop path in the file funnels through here: the
-    -- recruit button's own toggle-to-stop and the canvas's "Stop" button),
-    -- that reason for Elu Auto Invite being off is gone. So with the
-    -- checkbox on, turn Elu Auto Invite back ON right here, automatically
-    -- -- otherwise the checkbox's own promise ("don't leave my auto-invite
-    -- disabled because of something automatic") would quietly not hold for
-    -- the one automatic disable this file does unconditionally.
-    --
-    -- Guarded on state.inviteMode == 0 so this is a no-op (and logs
-    -- nothing) whenever Elu Auto Invite is already on -- in particular,
-    -- ToggleActive() above already flips state.inviteMode to 1 BEFORE it
-    -- calls this function (turning Elu Auto Invite on manually is what
-    -- stops Quick Auto Invite in that path), so this block correctly does
-    -- nothing there instead of redundantly re-triggering.
-    --
-    -- NOTE: intentionally hardcodes "Turn OFF" below instead of calling
-    -- GetModeString() -- GetModeString is declared with `local function`
-    -- further down this same file, AFTER this function, so it is not yet
-    -- an in-scope local here and would resolve to a nonexistent global
-    -- instead (the exact same class of forward-reference bug the
-    -- SaveSettings comment near the top of this file already documents).
-    -- "Turn OFF" is exactly what GetModeString() returns for inviteMode==1
-    -- anyway, so this stays in sync with it by construction.
     if state.doNotDisableAutoInvite and state.inviteMode == 0 then
         state.inviteMode = 1
         SaveSettings()
@@ -483,7 +389,6 @@ local function ToggleActive()
     LogInfo("Auto Invite Mode is now: " .. tostring(state.inviteMode))
 end
 
-
 local function AddCurrentRaidToWhitelist()
     local myName = ""
     pcall(function() myName = FormatName(api.Unit:GetUnitNameById(api.Unit:GetUnitId("player"))) end)
@@ -509,7 +414,6 @@ local function AddCurrentRaidToWhitelist()
         end
     end
 
-    -- 1. Try X2Team (Native Engine)
     pcall(function()
         if X2Team and X2Team.GetTeamMembers then
             local members = X2Team:GetTeamMembers()
@@ -521,7 +425,6 @@ local function AddCurrentRaidToWhitelist()
         end
     end)
 
-    -- 2. Try tokens party1-party5 and team1-team50
     local tokens = {}
     for i=1, 50 do table.insert(tokens, "team"..i) end
     for i=1, 5 do table.insert(tokens, "party"..i) end
@@ -594,7 +497,7 @@ end
             lbl.style:SetFontSize(14)
             lbl:SetAutoWordwrap(true)
             lbl:SetText(text)
-            ApplyTextColor(lbl, {1, 1, 1, 1}) -- White text for tooltip
+            ApplyTextColor(lbl, {1, 1, 1, 1})
             tooltip.lbl = lbl
         else
             tooltip:RemoveAllAnchors()
@@ -624,7 +527,6 @@ local function BuildSidePanel(parent)
     bg:AddAnchor("TOPLEFT", panel, 0, 0)
     bg:AddAnchor("BOTTOMRIGHT", panel, 0, 0)
     
-    -- Checkboxes function
     local function CreateCheckbox(id, text, yOffset, stateKey, xOffset)
         local cb = panel:CreateChildWidget("checkbutton", id, 0, true)
         cb:SetExtent(18, 17)
@@ -656,9 +558,6 @@ local function BuildSidePanel(parent)
             SaveSettings()
             if id == "cbIcon" then UpdateFloatingIcon() end
             if id == "cbWhiteBypass" then
-                -- The gear (Family/Guild/Whisper picker) only makes sense
-                -- while the master checkbox is on -- hide it, and close the
-                -- popup if it happened to be open, the moment it's turned off.
                 if widgets.privateBypassGearBtn then
                     widgets.privateBypassGearBtn:Show(state.whitelistBypassPrivate)
                 end
@@ -734,13 +633,6 @@ local function BuildSidePanel(parent)
     eluFilterCombo:Select(state.eluFilterMode or 2)
     eluFilterCombo:Show(true)
 
-    -- NOTE: this widget's selection callback is :SelectedProc(index), not
-    -- SetHandler("OnSelect", ...) -- that event name never fires on this
-    -- ComboBox type (confirmed against range_meter.lua's/loss_porn_ui.lua's
-    -- working combo boxes, and against the saved settings file showing this
-    -- value stuck at its default). Using the wrong handler meant a chosen
-    -- Equals/Contains filter was never written to state, so it silently
-    -- reverted to the default every reload/relog.
     function eluFilterCombo:SelectedProc(index)
         state.eluFilterMode = index
         SaveSettings()
@@ -769,10 +661,6 @@ local function BuildSidePanel(parent)
     giveleadCombo:Select(giveIdx)
     giveleadCombo:Show(true)
 
-    -- See the note above eluFilterCombo -- same bug: SetHandler("OnSelect",
-    -- ...) never fires on this widget, so the chosen Off/On/Whitelist Only
-    -- option was never actually saved (confirmed by the saved settings
-    -- file still holding the boolean default `false`, not a picked index).
     function giveleadCombo:SelectedProc(index)
         state.giveleadMode = index
         SaveSettings()
@@ -785,12 +673,6 @@ local function BuildSidePanel(parent)
     q2:AddAnchor("LEFT", panel.cbWhiteBypassLbl, "RIGHT", 5, 0)
     AddTooltip(q2, "Guild, Family & Whisper\n\nIf checked, players typing the keyword in these chats will be invited instantly, even if they are NOT in your Whitelist.")
 
-    -- Gear: pick WHICH of Guild/Family/Whisper actually bypass the
-    -- whitelist (whitelistBypassGuild/Family/Whisper in state, all default
-    -- ON). Only shown while the master checkbox above is checked -- see the
-    -- "cbWhiteBypass" branch in CreateCheckbox's OnCheckChanged, which
-    -- shows/hides this button and closes the popup below when the master
-    -- gets unchecked.
     local function CreateBypassPopup()
         if widgets.privateBypassPopup then return widgets.privateBypassPopup end
 
@@ -935,7 +817,6 @@ local function BuildSidePanel(parent)
 
     
     
-    -- Fast Auto Invite UI (below lists management)
     
     
     local function ToggleListWindow(listType)
@@ -1097,9 +978,6 @@ local function BuildSidePanel(parent)
                 local namesPerPage = 30
                 local maxPage = math.max(1, math.ceil(#clean_t / namesPerPage))
 
-                -- Build the window and its widgets once; reuse them on every
-                -- subsequent Export click instead of leaking a new top-level
-                -- window each time.
                 if not exportWnd then
                     exportWnd = api.Interface:CreateWindow("eluRExportWnd", "Export Code", 0, 0)
                     exportWnd:SetExtent(300, 400)
@@ -1241,8 +1119,6 @@ local function BuildSidePanel(parent)
             end
 
             local function ShowImportWindow()
-                -- Build once; reuse on every subsequent Import click instead
-                -- of leaking a new top-level window each time.
                 if not importWnd then
                     importWnd = api.Interface:CreateWindow("eluRImportWnd", "Import Code", 0, 0)
                     importWnd:SetExtent(300, 420)
@@ -1362,7 +1238,7 @@ local function BuildSidePanel(parent)
                 local n = input:GetText()
                 if not n or n == "" then return end
                 local t = (wnd.listType == 1 and state.whitelist or (wnd.listType == 2 and state.blacklist or state.fastBlacklist))
-                if #t >= 100 then return end -- Max 100 items
+                if #t >= 100 then return end
                 for _, v in ipairs(t) do
                     if string.lower(v) == string.lower(n) then return end
                 end
@@ -1421,7 +1297,6 @@ function raid_invite.SetModuleEnabled(enabled)
     SaveSettings()
 end
 
--- "Raid Settings" block shown under "Guild Settings" in the Guild/Raid tab.
 function raid_invite.CreateTabUI(container, anchorWidget)
     LoadSettings()
 
@@ -1590,7 +1465,6 @@ function raid_invite.OnLoad()
     
     UpdateFloatingIcon()
     
-    -- Fast Auto Invite UI
     local qai_label = raid_manager:CreateChildWidget("label", "qai_label", 0, true)
     qai_label:SetExtent(200, 20)
     qai_label:AddAnchor("BOTTOMLEFT", raid_manager, 20, -105)
@@ -1622,7 +1496,6 @@ function raid_invite.OnLoad()
     enhancedFilterCombo:Select(state.enhancedFilterMode or 2)
     enhancedFilterCombo:Show(true)
 
-    -- Same combo box bug as eluFilterCombo/giveleadCombo above.
     function enhancedFilterCombo:SelectedProc(index)
         state.enhancedFilterMode = index
         SaveSettings()
@@ -1706,8 +1579,6 @@ function raid_invite.OnLoad()
     end
     
     local function DisableExternalAutoInviteAddons()
-        -- api.GetSettings(id) returns the live settings table of another
-        -- addon; switching its recruiting flags off stops it immediately.
         local ids = { "xonme", "Actually_Useable_X_Up", "Autoinvite_member", "auto_invite", "x_up" }
         for _, id in ipairs(ids) do
             pcall(function()
@@ -1768,11 +1639,6 @@ function raid_invite.OnLoad()
         LogInfo("Stopped recruiting.")
     end)
 
-    -- (Drag handlers for `canvas` are registered once, above, right after
-    -- it's created -- a second SetHandler("OnDragStart"/"OnDragStop", ...)
-    -- registration used to sit here and silently replace those, which
-    -- dropped the position save and the off-screen clamp on every drag.)
-
     if not raid_invite.isLoaded then
         raid_invite.isLoaded = true
     end
@@ -1781,12 +1647,10 @@ end
 local raidCheckTimer = 0
 
 function raid_invite.OnUpdate(dt)
-    -- Throttled: raid membership only needs checking a few times per second.
     raidCheckTimer = raidCheckTimer + (type(dt) == "number" and dt or 0)
     if raidCheckTimer < 300 then return end
     raidCheckTimer = 0
 
-    -- Leaving raid logic
     local inRaid = false
     if api.Unit ~= nil and api.Unit.GetUnitId ~= nil then
         if api.Unit:GetUnitId("team1") ~= nil or api.Unit:GetUnitId("party1") ~= nil then
@@ -1816,12 +1680,6 @@ function raid_invite.OnUnload()
     if widgets.raid_manager and state.canvas_width and state.canvas_width > 0 then
         widgets.raid_manager:SetExtent(state.canvas_width, 395)
     end
-    -- These are all injected as children of the native Raid Manager window,
-    -- which this addon does not own and must never Free(). But our own
-    -- children need to be freed and un-referenced here, or a later OnLoad
-    -- (addon reload without a full client restart) will either try to
-    -- create duplicate widgets with the same name on that native window,
-    -- or reuse a dangling reference to a widget we already freed elsewhere.
     if widgets.qai_label then pcall(function() api.Interface:Free(widgets.qai_label) end) end
     if widgets.enhancedRecruitBtn then pcall(function() api.Interface:Free(widgets.enhancedRecruitBtn) end) end
     if widgets.enhancedTextfield then pcall(function() api.Interface:Free(widgets.enhancedTextfield) end) end
@@ -1830,7 +1688,6 @@ function raid_invite.OnUnload()
     if widgets.toggleSideBtn then pcall(function() api.Interface:Free(widgets.toggleSideBtn) end) end
     if widgets.sidePanel then pcall(function() api.Interface:Free(widgets.sidePanel) end) end
 
-    -- Top-level windows owned by this addon: hide them cleanly and keep references for reuse.
     if widgets.enhancedCanvas then
         widgets.enhancedCanvas:Show(false)
     end
@@ -1850,7 +1707,6 @@ function raid_invite.OnUnload()
         widgets.floatingIcon:Show(false)
     end
 
-    -- Tooltips created by AddTooltip() are hidden cleanly for reuse
     for _, tooltip in ipairs(tooltipWidgets) do
         tooltip:Show(false)
     end
@@ -1868,13 +1724,6 @@ function raid_invite.OnUnload()
     widgets.ToggleListWindow = nil
     widgets.raid_manager = nil
 
-    -- These were never nil'd out even though their parent window/panel was
-    -- just freed above (widgets.sidePanel / widgets.floatingIcon /
-    -- widgets.enhancedCanvas) -- so ToggleActive() and OnUpdate (both of
-    -- which do "if widgets.toggleBtn then ... :SetText(...)") could still
-    -- find a truthy-but-already-freed reference and error out on a stale
-    -- widget after a reload cycle, instead of the guard correctly skipping
-    -- it like it's meant to.
     widgets.fBgOn = nil
     widgets.fBgOff = nil
     widgets.toggleBtn = nil
@@ -1890,10 +1739,3 @@ end
 raid_invite.OnChatMessage = OnChatMessage
 
 return raid_invite
-
-
-
-
-
-
-

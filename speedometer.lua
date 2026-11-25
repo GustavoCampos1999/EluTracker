@@ -57,9 +57,6 @@ local function SaveSpeedometerSettings()
     pcall(SaveEluTrackerSettings)
 end
 
--- Load immediately at require-time so CreateUI (which runs inside
--- CreateWindow's subWindowConstructor before module OnLoad) sees the
--- saved state instead of the default false.
 LoadSpeedometerSettings()
 
 local function ApplyPosition()
@@ -140,8 +137,6 @@ local function createSpeedometerUI()
         pcall(function() speedLabel:Clickable(false) end)
     end
 
-    -- Transparent top overlay so Shift + drag works across the entire
-    -- status bar surface as well as the window frame.
     dragOverlay = canvas:CreateChildWidget("emptywidget", "speedoDragOverlay", 0, true)
     dragOverlay:AddAnchor("TOPLEFT", canvas, 0, 0)
     dragOverlay:AddAnchor("BOTTOMRIGHT", canvas, 0, 0)
@@ -220,7 +215,6 @@ function speedometer_addon.CreateUI(wndParent)
     end
     enableCheck:SetHandler("OnCheckChanged", enableCheck.OnCheckChanged)
 
-    -- Small native reset arrow button to the right of the label, matching Quick Equip
     local resetPosBtn = container:CreateChildWidget("button", "speedometerResetPosBtn", 0, true)
     resetPosBtn:AddAnchor("LEFT", enableLbl, "RIGHT", 12, 0)
     api.Interface:ApplyButtonSkin(resetPosBtn, BUTTON_BASIC.RESET)

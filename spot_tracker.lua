@@ -11,10 +11,6 @@ local doodadListener = nil
 local lastDoodadInfo = nil
 local lastCaptureMs = 0
 local trackingUIBuilt = false
--- Forward-declared (assigned further down, near OnLoad) so CreateUI's
--- altToggle checkbox handler -- defined earlier in this file -- can call it
--- by name too. See EnsureTrackingUI's own definition below for why this
--- exists.
 local EnsureTrackingUI
 
 spot_tracker.enableAltTracking = false
@@ -83,11 +79,6 @@ local function LoadMiscSettings()
     local data = EluTrackerSettings.misc
     if type(data) == "table" then
         if data.enableAltTracking ~= nil then spot_tracker.enableAltTracking = data.enableAltTracking end
-        -- Was hardcoded to "SHIFT" here unconditionally, discarding
-        -- data.modifierKey every single load -- so cycling the button to
-        -- ALT/CTRL always saved correctly (SaveMiscSettings below writes
-        -- it fine) but silently reverted to SHIFT on the very next
-        -- /reload or relog. Now it actually reads the saved choice back.
         if data.modifierKey ~= nil then spot_tracker.modifierKey = data.modifierKey end
     else
         spot_tracker.enableAltTracking = false
@@ -239,15 +230,6 @@ function spot_tracker.CaptureHoveredSpot()
     return true
 end
 
--- Spot-tracking's UI -- the doodad-hover listener, the "replace oldest
--- timer" warning banner, and the 3-slot timer overlay pool (5 windows plus
--- ~15 child widgets total) -- used to be built unconditionally in OnLoad,
--- so every player paid for it even with Enable Spot Tracking left off (the
--- default). It's now built lazily: once, either at OnLoad if the feature
--- is already on or there's a saved timer to restore across a reload/relog
--- (see OnLoad below), or the instant it's turned on via the checkbox in
--- Fishing Settings (see CreateUI above). Safe to call more than once: it's
--- a no-op once already built.
 EnsureTrackingUI = function()
     if trackingUIBuilt then return end
     trackingUIBuilt = true
@@ -290,7 +272,6 @@ EnsureTrackingUI = function()
 
     spot_tracker.masterOverlay = api.Interface:CreateEmptyWindow("eluSpotMasterOverlay", "UIParent")
     local masterOverlay = spot_tracker.masterOverlay
-    --("eluSpotMasterOverlay", "UIParent")
     masterOverlay:Show(true)
     masterOverlay:SetExtent(0, 0)
     masterOverlay:AddAnchor("TOPLEFT", "UIParent", 0, 0)
@@ -389,10 +370,6 @@ EnsureTrackingUI = function()
 end
 
 function spot_tracker:OnLoad()
-    -- LoadMiscSettings reads the saved enableAltTracking preference. It
-    -- also re-runs (harmlessly) from spot_tracker.CreateUI whenever the
-    -- Fishing Settings panel is opened -- same pattern already used by
-    -- fish_tracker.CreateUI.
     LoadMiscSettings()
     if not spot_tracker.modifierKey then spot_tracker.modifierKey = "ALT" end
 

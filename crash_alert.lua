@@ -11,50 +11,11 @@ local settingsManager = require("Elu_Tracker/settings_manager")
 local EluTrackerSettings = settingsManager.Settings
 local SaveEluTrackerSettings = settingsManager.SaveSettings
 
--- Originally calibrated 2026-09-03 from a historical crash study (24
--- confirmed engine crashes matched against ArcheAge.log). Re-anchored
--- 2026-09-07: the crash-floor-based "learning" below had pulled critical
--- down to ~2953 MB off a single inferred crash whose recorded reading
--- (3003 MB) undershot that crash's real dump value (3270 MB) by ~270 MB --
--- see the comment above learnState for why. That produced a full CRITICAL
--- WARNING at barely ~3000 MB of totally normal usage, which made no sense.
---
--- BASELINE_MAX_MEMORY (below, near LEARN_FILE) is the average of the 4
--- confirmed real crash dumps recorded on this pc so far -- 3262, 3332,
--- 3288, 3270 MB, every single one the same exception address, i.e. the
--- 32-bit client's hard address-space ceiling. critical always fires at
--- CRITICAL_PERCENT of MAX_MEMORY, so "100%" IS that danger zone and
--- critical is the last call just before reaching it.
---
--- The ceiling can still move, but ONLY upward now: enough clean (no
--- crash) sessions that safely reached critical is real proof this pc
--- tolerates more, and that raises the ceiling to match (safeCeiling,
--- below). Nothing lowers it anymore -- one imprecise sample can no longer
--- drag every future session's warnings down with it.
-local MAX_MEMORY = 3288 -- see BASELINE_MAX_MEMORY / RecalibrateFromLearning below
+local MAX_MEMORY = 3288
 
--- NOTE: this module used to keep its own private copy of these settings and
--- save/load them by directly reading and rewriting elu_tracker_settings.lua
--- itself (see the old SaveConfig/LoadConfig, since replaced below). That
--- was a real bug: this file and settings_manager.lua were BOTH
--- independently reading and fully rewriting the SAME shared settings file,
--- with no coordination between them. Every time ANY other Elu Tracker
--- module (Range Meter, Quick Equip, Guild Check, etc.) saved its own
--- settings via settingsManager.SaveSettings(), that call rewrites the
--- *entire* file from settingsManager's own in-memory table -- which only
--- ever held a stale snapshot of this module's config (captured once,
--- whenever this module's own LoadConfig() last ran), since this module
--- never wrote its changes into that shared table. So any Crash Alert
--- change was silently discarded the next time literally anything else in
--- the addon saved -- which is essentially "every time you touch the game",
--- given how often the other modules call SaveSettings(). Fixed by storing
--- this module's config the same way every other Elu Tracker module does
--- (see quick_equip.lua/range_meter.lua): as a key inside the ONE shared
--- settings table, saved through the shared SaveSettings() so there is only
--- ever a single writer for the whole file.
 local config = {
     enabled = false,
-	thresholds = { 3100, 3150 }, -- [1] = yellow starts, [2] = orange starts (see MAX_MEMORY comment above and CRITICAL_PERCENT below -- recalculated from these at every load anyway, kept here only as the fallback default)
+	thresholds = { 3100, 3150 },
     critical = 3200,
 	showLiveUsage = false,
 	warnOffsetX = 400,
@@ -65,7 +26,7 @@ local config = {
 }
 
 local timeSinceLastWarnCheck = 0
-local warnCheckInterval = 5000 -- 5 seconds for checking warnings AND UI update
+local warnCheckInterval = 5000
 
 local triggeredThresholds = {}
 local criticalTriggered = false
@@ -77,9 +38,6 @@ local liveUsageWnd = nil
 local cornerWarningHideTime = 0
 
 local function SaveConfig()
-    -- Single writer now: stash our config under the shared settings table
-    -- and let settings_manager.lua do the one-and-only file write, exactly
-    -- like every other Elu Tracker module.
     EluTrackerSettings.crash_alert = config
     SaveEluTrackerSettings()
 end
@@ -120,90 +78,24 @@ local function LoadConfig()
 	table.sort(config.thresholds)
 end
 
--- ===== Self-calibrating ceiling ("learning") =====
--- Keeps a tiny file OF ITS OWN (not the shared settings file) tracking the
--- most recent memory reading and whether the last session closed cleanly.
--- Kept separate from elu_tracker_settings.lua on purpose: this gets written
--- periodically while playing (every ~30s), and that file is shared with
--- every other Elu Tracker module and already tens of KB -- rewriting THAT
--- on a timer would be real, avoidable overhead. This file only ever holds a
--- handful of numbers, so writing it periodically costs nothing (same idea,
--- same cost, as mem_log.lua's own periodic save).
---
--- How a crash is inferred: OnUnload only runs on a clean close (quit,
--- reload, relog). So if the game starts back up and this file's cleanExit
--- flag is still false from last time, the addon never got there -- it
--- crashed (or the power went out) sometime after the last saved reading.
--- That reading is treated as roughly where it crashed, but ONLY if it was
--- already at least at the yellow line -- that's what keeps a network drop
--- or a power cut at 1800MB from being mistaken for a memory crash and
--- polluting the learned data, without needing to read ArcheAge.log at all.
---
--- What it tracks:
---   crashFloor  -- MB readings from inferred crashes on THIS pc. Recorded
---                  for visibility only as of 2026-09-07 -- it no longer
---                  moves the ceiling. Reason: this file only saves every
---                  LEARN_SAVE_INTERVAL (30s), so a recorded reading can
---                  undershoot the TRUE crash-time memory by however much
---                  it climbed in that last window -- confirmed for real on
---                  this pc (crash dump 3270 MB, learned floor only 3003
---                  MB, a ~270 MB gap). One sample like that had dragged
---                  critical all the way down to ~2953 MB and fired a full
---                  CRITICAL WARNING at barely ~3000 MB. A single noisy
---                  sample should never be able to do that on its own, so
---                  crashFloor is now diagnostic-only.
---   safeCeiling -- the highest MB reached in sessions that closed cleanly,
---                  but only kept when that peak was already >= critical.
---                  This is the ONLY thing that moves the ceiling now, and
---                  only UPWARD: once MIN_LEARN_SAMPLES clean sessions have
---                  safely reached at least this high, the ceiling rises to
---                  (highest + CEILING_MARGIN). Crash history no longer
---                  blocks this -- repeated, real, crash-free evidence at a
---                  given memory level always wins.
--- Starts from BASELINE_MAX_MEMORY (see top of file) until enough clean-
--- session evidence (MIN_LEARN_SAMPLES) shows up to move above it.
 local LEARN_FILE = "elu_crash_learn.lua"
-local LEARN_SAVE_INTERVAL = 30000 -- 30s -- deliberately much slower than the 5s UI tick
+local LEARN_SAVE_INTERVAL = 30000
 local MIN_LEARN_SAMPLES = 3
 local CEILING_MARGIN = 100
 local MAX_LEARN_HISTORY = 8
-local LEARN_CRITICAL_MAX = 3800  -- sanity ceiling: never stop warning entirely
-local BASELINE_MAX_MEMORY = 3288 -- avg of the 4 confirmed real crash dumps on this pc (3262/3332/3288/3270 MB, all the same exception address -- the 32-bit client's address-space ceiling)
+local LEARN_CRITICAL_MAX = 3800
+local BASELINE_MAX_MEMORY = 3288
 
--- Retuned 2026-09-15: alerts were firing hundreds of MB before there was
--- any real risk -- e.g. the 14/09 gameplay review (see
--- analise_crashes_elu_tracker.md, sec. 9) found a totally ordinary, never-
--- crashed session peaking at 3044MB, which the old 0.97 (yellow at 2989,
--- critical at 3189) would already have flagged as yellow AND critical.
--- Raised so critical sits at ~3200MB: only ~62MB below the LOWEST of the 4
--- confirmed real crashes (3262MB, see BASELINE_MAX_MEMORY) -- still enough
--- runway to relog (memory climbs slowly per the observed data, nowhere
--- near 60MB inside one 5s poll), but no longer alerting during clearly
--- normal play. thresholds' spacing below critical was tightened to match
--- (100/50 instead of 200/100) so yellow/orange move with it instead of
--- sitting way out in front like before.
-local CRITICAL_PERCENT = 0.9732  -- critical always fires at this fraction of MAX_MEMORY -- yields ~3200 against the 3288 baseline
+local CRITICAL_PERCENT = 0.9732
 
--- The bar an inferred crash's last-known MB has to clear to be recorded
--- into crashFloor at all (otherwise: network drop, alt-F4, power cut, task
--- kill -- something else, not a memory crash). Fixed on purpose. crashFloor
--- is diagnostic-only now (see above) so there's no downward-drift risk left
--- to guard against, but keeping this fixed still keeps a low-memory
--- disconnect from being logged as if it were a memory crash.
 local LEARN_CRASH_FILTER_MB = 3000
 
 local learnState = {
-    cleanExit = true, -- true so a first-ever run isn't mistaken for a crash
+    cleanExit = true,
     lastMB = nil,
     sessionMaxMB = nil,
     crashFloor = {},
     safeCeiling = {},
-    -- Set right before the "Crash NOW" test button or the /crash chat
-    -- command deliberately hangs the client -- that's a self-inflicted
-    -- test crash, not a real out-of-memory one, so it must never be
-    -- learned as a genuine crash floor even if memory happened to be high
-    -- when it was triggered (e.g. testing the alert while already playing
-    -- at high memory). See MarkDeliberateCrash() below.
     deliberateCrash = false,
 }
 local timeSinceLastLearnSave = 0
@@ -223,18 +115,11 @@ local function SaveLearnState()
     pcall(function() api.File:Write(LEARN_FILE, learnState) end)
 end
 
--- Called immediately before either deliberate-crash trigger (the "Crash
--- NOW" button and the /crash chat command below) actually hangs the
--- client. Must be saved to disk BEFORE that happens, synchronously -- once
--- the infinite loop starts there's no more OnUpdate, no more ticks, no
--- second chance to flag this one.
 local function MarkDeliberateCrash()
     learnState.deliberateCrash = true
     SaveLearnState()
 end
 
--- Instant client termination compatible with both the 64-bit (binNext) and
--- 32-bit (bin32) clients.
 local function TriggerDeliberateCrash()
     MarkDeliberateCrash()
 
@@ -264,15 +149,6 @@ local function AddCapped(list, value)
     end
 end
 
--- Recomputes MAX_MEMORY/config.critical/config.thresholds. Anchored to
--- BASELINE_MAX_MEMORY (top of file) instead of the raw crash-floor minimum
--- -- only real, observed safe usage (a clean session that reached at least
--- critical without crashing) is trusted to push the ceiling up, and
--- nothing pulls it back down anymore. See the 2026-09-07 comment above
--- learnState for why the old down-drifting version was retired.
--- thresholds keep a fixed spacing below critical (50 and 100 MB below,
--- retuned 2026-09-15 -- see the comment above CRITICAL_PERCENT), so the
--- whole gradient still shifts together if the ceiling ever rises.
 local function RecalibrateFromLearning()
     local ceiling = BASELINE_MAX_MEMORY
 
@@ -288,25 +164,10 @@ local function RecalibrateFromLearning()
 
     MAX_MEMORY = ceiling
     config.critical = math.floor(ceiling * CRITICAL_PERCENT + 0.5)
-    -- 100/50 MB below critical (was 200/100) -- see the 2026-09-15 comment
-    -- above CRITICAL_PERCENT for why the whole gradient was pulled in
-    -- closer to the real danger zone instead of starting so far ahead of it.
     config.thresholds = { config.critical - 100, config.critical - 50 }
-    -- pcall'd like every other I/O call in this section: this now runs from
-    -- OnUnload (before window cleanup and SaveLearnState below it) and from
-    -- require-time. If SaveEluTrackerSettings ever threw here unprotected,
-    -- OnUnload would stop right here -- skipping its own cleanup and,
-    -- worse, skipping SaveLearnState(), so cleanExit=true would never be
-    -- persisted and next session would wrongly infer a crash that didn't
-    -- happen.
     pcall(SaveConfig)
 end
 
--- Runs once, at load: check whether last session's shutdown was clean; if
--- not, and the last known reading was already elevated, record it into
--- crashFloor as an inferred crash (diagnostic only -- see the comment
--- above learnState; this no longer feeds RecalibrateFromLearning). Then
--- reset the tracking state for this new session.
 local function CheckForInferredCrashAndReset()
     LoadLearnState()
 
@@ -323,11 +184,6 @@ local function CheckForInferredCrashAndReset()
     SaveLearnState()
 end
 
--- Load immediately at require-time (not only from CreateUI/OnLoad). Other
--- modules' OnUpdate/HandleChatCommand can run before the Misc tab UI is
--- ever built, and used to see the hardcoded defaults (e.g. enabled=false)
--- until CreateUI() happened to run -- same class of desync bug that
--- quick_equip.lua's LoadQuickEquipSettings() comment explains in detail.
 LoadConfig()
 CheckForInferredCrashAndReset()
 
@@ -341,7 +197,6 @@ local function ShowCornerWarning(text, isCritical)
         cornerWarningWnd = api.Interface:CreateEmptyWindow("crashAgeTopWarning", "UIParent")
         cornerWarningWnd:SetExtent(500, 50)
         
-        -- Use a color drawable to ensure the background catches clicks
         cornerWarningWnd.bgCol = cornerWarningWnd:CreateColorDrawable(0, 0, 0, 0.5, "background")
         cornerWarningWnd.bgCol:AddAnchor("TOPLEFT", cornerWarningWnd, 0, 0)
         cornerWarningWnd.bgCol:AddAnchor("BOTTOMRIGHT", cornerWarningWnd, 0, 0)
@@ -384,15 +239,6 @@ local function ShowCornerWarning(text, isCritical)
 
     cornerWarningWnd.warnLabel:SetText(text)
 
-    -- Critical gets its own red styling back, same as before -- only the
-    -- normal (non-critical) warning uses orange. It still auto-hides just
-    -- like the orange one, just with a longer window (20s instead of 10s)
-    -- since it's the more urgent message. Note: this is a one-shot popup per
-    -- continuous stretch above its own line (critical, or each yellow/orange
-    -- threshold) -- it won't re-appear on its own while memory keeps
-    -- climbing past that point; it only re-arms once memory drops back
-    -- below that line minus 100 and crosses it again (see criticalTriggered
-    -- reset below, and the matching triggeredThresholds reset above it).
     if isCritical then
         cornerWarningWnd.warnLabel.style:SetColor(1, 0.1, 0.1, 1)
     else
@@ -424,7 +270,6 @@ local function UpdateLiveUsage(currentMB)
         end
         return
     end
-
 
     if liveUsageWnd == nil then
         liveUsageWnd = api.Interface:CreateEmptyWindow("crashAgeLiveUsage", "UIParent")
@@ -470,13 +315,6 @@ local function UpdateLiveUsage(currentMB)
     liveUsageWnd:AddAnchor("TOPLEFT", "UIParent", "TOPLEFT", config.liveOffsetX, config.liveOffsetY)
     liveUsageWnd:Show(true)
 
-    -- Four-tier gradient, both configured thresholds now actually drive a
-    -- color step (thresholds[2]/"orange" used to be dead code for this
-    -- purpose -- it only fired a popup, never changed the live color).
-    --   green   < thresholds[1]  : comfortably safe
-    --   yellow  >= thresholds[1] : early heads-up, not urgent
-    --   orange  >= thresholds[2] : real risk zone, start wrapping up
-    --   red     >= critical      : relog now
     local r, g, b = 0, 0.7, 0
     if currentMB >= config.critical then
         r, g, b = 1.0, 0.1, 0.1
@@ -504,7 +342,7 @@ function crash_age.CreateUI(parentWnd)
 
     configWnd = parentWnd:CreateChildWidget("emptywidget", "crashAgeSettingsWnd", 0, true)
     configWnd:SetExtent(500, 92)
-    configWnd:AddAnchor("TOP", parentWnd, "TOP", 0, 175) -- fallback position; main.lua re-anchors this under the previous Misc section
+    configWnd:AddAnchor("TOP", parentWnd, "TOP", 0, 175)
     configWnd:Show(true)
 
     local title = configWnd:CreateChildWidget("label", "title", 0, true)
@@ -582,9 +420,7 @@ function crash_age.CreateUI(parentWnd)
 end
 
 local function OnUpdate(dt)
-	-- Automatic 32-bit memory warning polling disabled in Crash Me mode.
 end
-
 
 local function HandleChatCommand(
 	channel,
@@ -599,7 +435,7 @@ local function HandleChatCommand(
 )
 	if channel == 2 then
 		return
-	end -- ignore system messages or non-user chat
+	end
 	if type(message) ~= "string" or type(config.crashCommand) ~= "string" or config.crashCommand == "" then
 		return
 	end
@@ -619,37 +455,8 @@ local function HandleChatCommand(
 end
 
 local function OnLoad()
-	-- LoadConfig() now runs at require-time (see bottom of the config
-	-- section above), so config is already correct by the time OnLoad runs.
 
-	-- Re-run the same inferred-crash check/reset that already runs once at
-	-- require-time (see CheckForInferredCrashAndReset above). That
-	-- require-time call is only enough for a genuine, once-per-process
-	-- client start: main.lua also calls OnUnload()+OnLoad() on every
-	-- module on its own, later, whenever the whole addon suite gets torn
-	-- down and rebuilt WITHOUT the client actually restarting -- its
-	-- deliberate self-reload 3 seconds after startup (see main.lua), and
-	-- any manual /reload ui. Since `require()` caches this module, that
-	-- later OnLoad does NOT re-run the require-time code, so without this
-	-- call learnState.cleanExit stayed stuck at whatever OnUnload had just
-	-- set it to (true) for the rest of that entire game session -- meaning
-	-- a REAL crash later in that same session got written to disk with
-	-- cleanExit still true, and the NEXT session's own require-time check
-	-- then wrongly read that as a clean exit and never learned from it.
-	-- Confirmed directly: a real memory-allocation-failure crash (3262MB)
-	-- left elu_crash_learn.lua with cleanExit=true and an empty
-	-- crashFloor. Calling this here is safe to repeat -- LoadLearnState()
-	-- + the nil-reset of lastMB it performs make a second call right
-	-- after the require-time one at genuine startup a no-op, and it
-	-- correctly skips learning anything from OnUnload's own deliberate
-	-- cleanExit=true (that "not learnState.cleanExit" check below returns
-	-- false, exactly as an intentional clean unload should).
 	CheckForInferredCrashAndReset()
-
-	-- api.On("UPDATE" removed for monolithic integration
-	-- CHAT_MESSAGE is now dispatched centrally from main.lua (see HandleChatCommand export below)
-
-
 
 	if cornerWarningWnd then
 		cornerWarningWnd:Show(false)
@@ -660,15 +467,7 @@ local function OnLoad()
 end
 
 local function OnUnload()
-	-- api.On("UPDATE" removed for monolithic integration end)
-	-- CHAT_MESSAGE is owned centrally by main.lua now; nothing to unregister here.
 
-	-- This is a clean shutdown (quit / reload / relog) -- record it as such
-	-- so next load's CheckForInferredCrashAndReset() doesn't mistake this
-	-- session for a crash. If this session's peak reached the current
-	-- critical line without ever actually crashing, that's a data point
-	-- this pc can apparently handle more than the shipped default --
-	-- see RecalibrateFromLearning for what happens with that.
 	if learnState.sessionMaxMB and learnState.sessionMaxMB >= config.critical then
 		AddCapped(learnState.safeCeiling, learnState.sessionMaxMB)
 	end
@@ -676,14 +475,6 @@ local function OnUnload()
 	RecalibrateFromLearning()
 	SaveLearnState()
 
-	-- pcall-wrapped to match every other module's OnUnload convention in
-	-- this addon (see loot.lua, fish_tracker.lua, etc.): if any single
-	-- Free() call ever threw here, an unwrapped call would abort the rest
-	-- of OnUnload right there, leaving the remaining windows non-nil and
-	-- un-freed -- and since CreateUI/ShowCornerWarning/UpdateLiveUsage all
-	-- guard on "if X == nil then build", a stale non-nil reference to an
-	-- already-freed-by-the-engine window would mean that surface silently
-	-- never rebuilds for the rest of the session after a reload cycle.
 	if configWnd then
 		configWnd:Show(false)
 		configWnd = nil
@@ -707,7 +498,6 @@ end
 crash_age.OnLoad = OnLoad
 crash_age.OnUnload = OnUnload
 crash_age.HandleChatCommand = HandleChatCommand
-
 
 crash_age.OnUpdate = OnUpdate
 

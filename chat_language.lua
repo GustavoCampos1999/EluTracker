@@ -8,7 +8,6 @@ local M = {}
 local STATE_FILE = "elu_chat_language.lua"
 local SANE_COORD_LIMIT = 10000
 
--- Default offset beside the chat input bar (bottom-left of screen)
 local DEFAULT_X = 422
 local DEFAULT_BOTTOM_OFFSET = 55
 
@@ -34,8 +33,6 @@ local SMALL_BTN_SKIN = {
     coordsKey = "btn",
 }
 
--- Default state: "?" until the player types /nuia or /haranya in chat (or if
--- a previous session already saved "H" or "N" on disk).
 local state = {
     enabled = true,
     lang = "?",
@@ -67,9 +64,9 @@ local currentCharKey = nil
 local savedCharacters = {}
 local isMoving = false
 
-local COLOR_HARANYA = { 1.0, 0.55, 0.0, 1.0 } -- Orange
-local COLOR_NUIA    = { 0.2, 0.65, 1.0, 1.0 } -- Blue
-local COLOR_UNKNOWN = { 0.85, 0.85, 0.85, 1.0 } -- Neutral gray/white for "?"
+local COLOR_HARANYA = { 1.0, 0.55, 0.0, 1.0 }
+local COLOR_NUIA    = { 0.2, 0.65, 1.0, 1.0 }
+local COLOR_UNKNOWN = { 0.85, 0.85, 0.85, 1.0 }
 
 local function GetCurrentCharKey()
     local charName = nil
@@ -161,7 +158,6 @@ local function LoadState()
             end
         end
 
-        -- Global defaults for visual controls & position
         if loaded.enabled ~= nil then
             state.enabled = (loaded.enabled == true)
         end
@@ -212,7 +208,6 @@ local function LoadState()
     end
 end
 
--- Load immediately at require-time so CreateUI sees saved values
 LoadState()
 
 local function GetTooltipTextAndColor()
@@ -302,10 +297,6 @@ local function StripChatFormatting(text)
     return clean
 end
 
--- Checks for the exact red system message emitted by the client when
--- switching languages via /nuia or /haranya:
---   "Language changed to Nuia Continent Dialect."
---   "Language changed to Haranya Continent Dialect."
 local function DetectExactSystemLanguageChange(rawText)
     if type(rawText) ~= "string" or rawText == "" then
         return nil
@@ -376,7 +367,6 @@ local function DetectLanguageFromText(rawText, requireKeyword)
         return nil
     end
 
-    -- Avoid false positives on "Nuia Alliance" / "Haranya Alliance" channel join notices
     if not hasKeyword and msgLower:find("alliance", 1, true) then
         return nil
     end
@@ -450,7 +440,6 @@ local function ScanAllArgsForExactMatch(a1, a2, a3, a4, a5, a6, a7, a8, a9)
 end
 
 local function OnChatMessage(channel, unit, isHostile, name, message, speakerInChatBound, specifyName, factionName, trialPosition)
-    -- 1. Always check all arguments for the exact system dialect change message first
     if ScanAllArgsForExactMatch(channel, unit, isHostile, name, message, speakerInChatBound, specifyName, factionName, trialPosition) then
         return
     end
@@ -480,7 +469,6 @@ local function HandleRawEvent(event, a1, a2, a3, a4, a5, a6, a7, a8, a9)
         return
     end
 
-    -- Check all arguments for the exact "Language changed to ... Continent Dialect." string
     if ScanAllArgsForExactMatch(a1, a2, a3, a4, a5, a6, a7, a8, a9) then
         return
     end
@@ -515,9 +503,6 @@ local function GetDefaultTopLeftPos()
     return DEFAULT_X, screenH - DEFAULT_BOTTOM_OFFSET
 end
 
--- Returns a clearly visible spot right near the center of the screen so when
--- the player clicks the Reset Position arrow button, the indicator is
--- immediately obvious and easy to Shift+drag to the desired spot.
 local function GetVisibleResetPos()
     local okW, screenW = pcall(function() return api.Interface:GetScreenWidth() end)
     local okH, screenH = pcall(function() return api.Interface:GetScreenHeight() end)
@@ -668,7 +653,6 @@ local function EnsureSettingsPopup()
         return settingsPopupWnd
     end
 
-    -- Exact same popup window model as Range Meter (dynWnd) and Fishing Settings (_fishingSettingsWnd)
     settingsPopupWnd = api.Interface:CreateWindow("eluChatLangSettingsWnd", "Chat Language Settings", 300, 225)
     settingsPopupWnd:AddAnchor("CENTER", "UIParent", 0, 0)
     settingsPopupWnd:Show(false)
@@ -804,7 +788,6 @@ function M.CreateUI(wndParent)
     end
     enableCheck:SetHandler("OnCheckChanged", enableCheck.OnCheckChanged)
 
-    -- Reset Position arrow button (moves indicator to a very visible center-screen spot)
     local resetPosBtn = container:CreateChildWidget("button", "chatLangResetPosBtn", 0, true)
     resetPosBtn:AddAnchor("LEFT", enableLbl, "RIGHT", 10, 0)
     api.Interface:ApplyButtonSkin(resetPosBtn, BUTTON_BASIC.RESET)
@@ -837,7 +820,6 @@ function M.CreateUI(wndParent)
     end
     resetPosBtn:SetHandler("OnClick", resetPosBtn.OnClick)
 
-    -- Gear button to open size & transparency settings
     local gearBtn = container:CreateChildWidget("button", "chatLangGearBtn", 0, true)
     gearBtn:SetExtent(20, 20)
     gearBtn:AddAnchor("LEFT", resetPosBtn, "RIGHT", 6, 0)
@@ -883,7 +865,6 @@ function M.CreateUI(wndParent)
 end
 
 local function OnUpdate(dt)
-    -- Check for character change
     charCheckTimer = charCheckTimer + (type(dt) == "number" and dt or 0)
     if charCheckTimer >= 500 then
         charCheckTimer = 0
@@ -960,7 +941,6 @@ local function OnLoad()
     indicatorWnd:SetExtent(boxSize, boxSize)
     ApplyPosition()
 
-    -- Same single-drawable HUD box style as Stopwatch, Quick Equip, Loot Overlay, and Trip Counter
     bgBorder = indicatorWnd:CreateNinePartDrawable(TEXTURE_PATH.HUD, "background")
     bgBorder:SetTextureInfo("bg_quest")
     bgBorder:SetColor(0, 0, 0, 0.6)
@@ -978,7 +958,6 @@ local function OnLoad()
         pcall(function() langLabel:Clickable(false) end)
     end
 
-    -- Hover tooltip displaying "Nuia" or "Haranya" right above the indicator
     tooltipWnd = api.Interface:CreateEmptyWindow("eluChatLangTooltip", "UIParent")
     tooltipWnd:SetExtent(74, 26)
     tooltipWnd:AddAnchor("BOTTOM", indicatorWnd, "TOP", 0, -4)

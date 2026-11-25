@@ -14,13 +14,7 @@ EluTrackerSettingsManager.Settings = {
     raidInvite = { moduleEnabled = true, giveleadCommand = "x givelead" },
     misc = { enableAltTracking = false, modifierKey = "SHIFT" },
     activeLootSession = {},
-    -- Loot Tracker overlay (draggable HUD showing live profit/kills/labor).
-    -- x/y default to 0,0 which loot.lua treats as "not positioned yet" and
-    -- centers on screen instead (same convention tripPos/spotPos/etc use).
     lootOverlay = { x = 0, y = 0, visible = false },
-    -- chatMode: 1 = Off, 2 = System Chat, 3 = Alert Chat (see loss_porn.lua).
-    -- Replaces the old boolean `showInChat` (still migrated from on first
-    -- load for existing players, in loss_porn.lua's OnLoad).
     lossPornSettings = { chatMode = 2, sessionLogs = {} },
     rangeMeterSettings = { enabled = false, fontSize = 16, position = "Top", useDynamicColor = false, colorVariety = 3, threshold1 = 28, threshold2 = 33, c1 = {r=0, g=1, b=0}, c2 = {r=1, g=1, b=0}, c3 = {r=1, g=0, b=0}, staticColor = {r=1, g=1, b=1}, alpha = 1.0 },
     quickEquip = { enabled = false, x = 200, y = 400, gear_sets = {}, characters = {} },
@@ -44,14 +38,12 @@ function EluTrackerSettingsManager.LoadSettings()
 end
 
 function EluTrackerSettingsManager.SaveSettings()
-    -- sessionLogs (regrade log) lives in memory only: never written to disk.
     local lp = EluTrackerSettingsManager.Settings.lossPornSettings
     local logs = nil
     if type(lp) == "table" then
         logs = lp.sessionLogs
         lp.sessionLogs = nil
     end
-    -- Legacy top-level gear_sets is dropped once it was claimed by a character.
     local qe = EluTrackerSettingsManager.Settings.quickEquip
     if type(qe) == "table" and qe.legacyClaimed then
         qe.gear_sets = nil
@@ -84,10 +76,6 @@ local function MigrateOldSettings()
     tryMigrate("elu_zeal_settings.txt", "zealSettings")
     tryMigrate("elu_tracker_misc.txt", "misc")
 
-    -- One-time import of gear-swap presets from the old standalone "set_swap"
-    -- addon (now replaced by the Quick Equip module inside Elu Tracker).
-    -- Only runs while Quick Equip has no presets of its own yet, so it never
-    -- overwrites anything the user already created here.
     local currentQuickEquip = EluTrackerSettingsManager.Settings.quickEquip
     local hasOwnPresets = currentQuickEquip and type(currentQuickEquip.gear_sets) == "table" and #currentQuickEquip.gear_sets > 0
     if not hasOwnPresets then
@@ -96,9 +84,6 @@ local function MigrateOldSettings()
         end)
         if ok and type(oldSetSwap) == "table" and type(oldSetSwap.gear_sets) == "table" and #oldSetSwap.gear_sets > 0 then
             EluTrackerSettingsManager.Settings.quickEquip = {
-                -- The old set_swap addon had no on/off switch (it was always
-                -- active), so a migration implies the user was actively
-                -- using it -- keep it on rather than defaulting to off.
                 enabled = true,
                 x = oldSetSwap.x or (currentQuickEquip and currentQuickEquip.x) or 200,
                 y = oldSetSwap.y or (currentQuickEquip and currentQuickEquip.y) or 400,
